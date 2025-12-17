@@ -84,93 +84,113 @@ export default function Registro() {
   };
 
   return (
-    <div className="max-w-xl mx-auto p-6 space-y-4">
-      <h1 className="text-2xl font-bold">Registro</h1>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-2xl font-bold">Crear Cuenta</h1>
+            <p className="text-gray-600 text-sm">Completa todos los campos para registrarte</p>
+          </div>
 
-      <form className="space-y-4" onSubmit={handleSubmit}>
+          <form className="space-y-3" onSubmit={handleSubmit}>
 
-        {/* NOMBRE */}
-        <div>
-          <label>Nombre</label>
-          <input
-            name="nombre"
-            value={formData.nombre}
-            onChange={handleChange}
-            className="border p-2 w-full"
-          />
-          {errors.nombre && <p className="text-red-500 text-sm">{errors.nombre}</p>}
+            {/* NOMBRE */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-1">Nombre</label>
+              <input
+                name="nombre"
+                value={formData.nombre}
+                onChange={handleChange}
+                placeholder="Tu nombre completo"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+              />
+              {errors.nombre && <p className="text-red-500 text-xs mt-1">{errors.nombre}</p>}
+            </div>
+
+            {/* EMAIL */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-1">Correo electrónico</label>
+              <input
+                name="email"
+                type="email"
+                value={formData.email}
+                onChange={handleChange}
+                placeholder="tu@email.com"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+              />
+              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
+            </div>
+
+            {/* TELÉFONO */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-1">Teléfono</label>
+              <input
+                name="telefono"
+                value={formData.telefono}
+                onChange={handleChange}
+                placeholder="3001234567"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+              />
+              {errors.telefono && <p className="text-red-500 text-xs mt-1">{errors.telefono}</p>}
+            </div>
+
+            {/* TIPO DOCUMENTO */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-1">Tipo de documento</label>
+              <select
+                name="tipoDocumento"
+                value={formData.tipoDocumento}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+              >
+                <option value="">Selecciona</option>
+                <option value="CC">Cédula de ciudadanía</option>
+                <option value="TI">Tarjeta de identidad</option>
+                <option value="CE">Cédula de extranjería</option>
+              </select>
+              {errors.tipoDocumento && <p className="text-red-500 text-xs mt-1">{errors.tipoDocumento}</p>}
+            </div>
+
+            {/* DOCUMENTO */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-1">Número de documento</label>
+              <input
+                name="documento"
+                value={formData.documento}
+                onChange={handleChange}
+                placeholder="1234567890"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+              />
+              {errors.documento && <p className="text-red-500 text-xs mt-1">{errors.documento}</p>}
+            </div>
+
+            {/* PASSWORD */}
+            <div>
+              <label className="block text-gray-700 text-sm font-medium mb-1">Contraseña</label>
+              <input
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="Mínimo 6 caracteres"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+              />
+              {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
+            </div>
+
+            <button type="submit" className="w-full bg-black text-white font-medium py-2 rounded-lg hover:bg-gray-800 transition-colors text-sm mt-4">
+              Crear Cuenta
+            </button>
+          </form>
+
+          <div className="text-center text-xs text-gray-600">
+            ¿Ya tienes cuenta?{' '}
+            <a href="/login" className="text-gray-900 hover:underline font-medium">
+              Inicia sesión
+            </a>
+          </div>
         </div>
-
-        {/* EMAIL */}
-        <div>
-          <label>Correo electrónico</label>
-          <input
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            className="border p-2 w-full"
-          />
-          {errors.email && <p className="text-red-500 text-sm">{errors.email}</p>}
-        </div>
-
-        {/* TELÉFONO */}
-        <div>
-          <label>Teléfono</label>
-          <input
-            name="telefono"
-            value={formData.telefono}
-            onChange={handleChange}
-            className="border p-2 w-full"
-          />
-          {errors.telefono && <p className="text-red-500 text-sm">{errors.telefono}</p>}
-        </div>
-
-        {/* TIPO DOCUMENTO */}
-        <div>
-          <label>Tipo de documento</label>
-          <select
-            name="tipoDocumento"
-            value={formData.tipoDocumento}
-            onChange={handleChange}
-            className="border p-2 w-full"
-          >
-            <option value="">Selecciona</option>
-            <option value="CC">Cédula de ciudadanía</option>
-            <option value="TI">Tarjeta de identidad</option>
-            <option value="CE">Cédula de extranjería</option>
-          </select>
-          {errors.tipoDocumento && <p className="text-red-500 text-sm">{errors.tipoDocumento}</p>}
-        </div>
-
-        {/* DOCUMENTO */}
-        <div>
-          <label>Número de documento</label>
-          <input
-            name="documento"
-            value={formData.documento}
-            onChange={handleChange}
-            className="border p-2 w-full"
-          />
-          {errors.documento && <p className="text-red-500 text-sm">{errors.documento}</p>}
-        </div>
-
-        {/* PASSWORD */}
-        <div>
-          <label>Contraseña</label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            className="border p-2 w-full"
-          />
-          {errors.password && <p className="text-red-500 text-sm">{errors.password}</p>}
-        </div>
-
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">
-          Registrarme
-        </button>
-      </form>
+      </div>
     </div>
   );
 }

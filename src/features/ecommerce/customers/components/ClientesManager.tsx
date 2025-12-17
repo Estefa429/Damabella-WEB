@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Users, Search, Phone, Mail } from 'lucide-react';
+import { Plus, Edit2, Users, Search, Phone, Mail, AlertTriangle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
+import validateField from '../../../../shared/utils/validation';
 
 const STORAGE_KEY = 'damabella_clientes';
 
@@ -27,6 +28,16 @@ export default function ClientesManager() {
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formErrors, setFormErrors] = useState<any>({});
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationType, setNotificationType] = useState<'error' | 'success' | 'warning'>('error');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState('');
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailingCliente, setDetailingCliente] = useState<Cliente | null>(null);
+  const [showStatusChangeModal, setShowStatusChangeModal] = useState(false);
+  const [statusChangeCliente, setStatusChangeCliente] = useState<Cliente | null>(null);
   
   const [formData, setFormData] = useState({
     nombre: '',
@@ -43,7 +54,83 @@ export default function ClientesManager() {
   }, [clientes]);
 
   const handleFieldChange = (field: string, value: string) => {
+    // Validación de entrada: solo permitir números en campos numéricos
+    if (field === 'numeroDoc' || field === 'telefono') {
+      value = value.replace(/\D/g, '');
+    }
+    
+    // No permitir caracteres especiales en nombre
+    if (field === 'nombre') {
+      value = value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '');
+    }
+
     setFormData({ ...formData, [field]: value });
+
+    // Real-time validation por campo
+    if (field === 'nombre') {
+      const err = validateField('nombre', value);
+      if (err) setFormErrors({ ...formErrors, nombre: err });
+      else {
+        const { nombre: _n, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'numeroDoc') {
+      if (value.length < 6 || value.length > 10) {
+        setFormErrors({ ...formErrors, numeroDoc: 'Debe tener entre 6 y 10 dígitos' });
+      } else {
+        const { numeroDoc: _d, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'telefono') {
+      if (value.trim() && value.length !== 10) {
+        setFormErrors({ ...formErrors, telefono: 'Debe tener exactamente 10 dígitos' });
+      } else {
+        const { telefono: _t, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'email') {
+      if (value.trim()) {
+        const err = validateField('email', value);
+        if (err) {
+          setFormErrors({ ...formErrors, email: err });
+        } else {
+          // verificar unicidad en tiempo real (excepto si editando el mismo cliente)
+          const emailExists = clientes.some(c => (c.email?.toLowerCase() ?? '') === (value?.toLowerCase() ?? '') && c.id !== editingCliente?.id);
+          if (emailExists) setFormErrors({ ...formErrors, email: 'Este correo electrónico ya está registrado' });
+          else {
+            const { email: _e, ...rest } = formErrors;
+            setFormErrors(rest);
+          }
+        }
+      } else {
+        const { email: _e, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+  };
+
+  const handleCedulaBlur = () => {
+    // Validar si la cédula ya existe
+    if (formData.numeroDoc.trim()) {
+      const cedulaExists = clientes.some(c => 
+        c.numeroDoc === formData.numeroDoc && c.id !== editingCliente?.id
+      );
+      if (cedulaExists) {
+        setNotificationMessage('Este cliente ya está registrado en el sistema');
+        setNotificationType('warning');
+        setShowNotificationModal(true);
+      }
+    }
   };
 
   const handleCreate = () => {
@@ -91,30 +178,45 @@ export default function ClientesManager() {
       errors.numeroDoc = 'Debe tener entre 6 y 12 dígitos';
     }
     
-    // Validación teléfono
-    if (formData.telefono.trim() && !/^\d{10}$/.test(formData.telefono)) {
+    // Validación teléfono - OBLIGATORIO
+    if (!formData.telefono.trim()) {
+      errors.telefono = 'El teléfono es obligatorio';
+    } else if (!/^\d{10}$/.test(formData.telefono)) {
       errors.telefono = 'Debe tener exactamente 10 dígitos';
     }
     
-    // Validación email único
-    if (formData.email.trim()) {
-      if (!/^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(formData.email)) {
-        errors.email = 'Email inválido (debe iniciar con letra)';
-      } else {
-        // Verificar que el correo no exista (excepto si estamos editando el mismo cliente)
-        const emailExists = clientes.some(c => 
-          c.email.toLowerCase() === formData.email.toLowerCase() && 
-          c.id !== editingCliente?.id
-        );
-        if (emailExists) {
-          errors.email = 'Este correo electrónico ya está registrado';
-        }
+    // Validación ciudad - OBLIGATORIA
+    if (!formData.ciudad.trim()) {
+      errors.ciudad = 'La ciudad es obligatoria';
+    }
+    
+    // Validación email - OBLIGATORIO
+    if (!formData.email.trim()) {
+      errors.email = 'El correo es obligatorio';
+    } else if (!/^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(formData.email)) {
+      errors.email = 'Email inválido (debe iniciar con letra)';
+    } else {
+      // Verificar que el correo no exista (excepto si estamos editando el mismo cliente)
+      const emailExists = clientes.some(c => 
+        (c.email?.toLowerCase() ?? '') === (formData.email?.toLowerCase() ?? '') && 
+        c.id !== editingCliente?.id
+      );
+      if (emailExists) {
+        errors.email = 'Este correo electrónico ya está registrado';
       }
+    }
+    
+    // Validación dirección - OBLIGATORIA
+    if (!formData.direccion.trim()) {
+      errors.direccion = 'La dirección es obligatoria';
     }
     
     setFormErrors(errors);
 
     if (Object.keys(errors).length > 0) {
+      setNotificationMessage('Por favor completa todos los campos requeridos');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
@@ -135,23 +237,36 @@ export default function ClientesManager() {
     setShowModal(false);
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('¿Está seguro de eliminar este cliente?')) {
-      setClientes(clientes.filter(c => c.id !== id));
+  const handleChangeStatus = (cliente: Cliente) => {
+    setStatusChangeCliente(cliente);
+    setShowStatusChangeModal(true);
+  };
+
+  const confirmChangeStatus = () => {
+    if (statusChangeCliente) {
+      setClientes(clientes.map(c => 
+        c.id === statusChangeCliente.id ? { ...c, activo: !c.activo } : c
+      ));
+      const newStatus = !statusChangeCliente.activo;
+      setShowStatusChangeModal(false);
+      setNotificationMessage(`Cliente marcado como ${newStatus ? 'activo' : 'inactivo'}`);
+      setNotificationType('success');
+      setShowNotificationModal(true);
     }
   };
 
-  const toggleActive = (id: number) => {
-    setClientes(clientes.map(c => 
-      c.id === id ? { ...c, activo: !c.activo } : c
-    ));
-  };
-
-  const filteredClientes = clientes.filter(c =>
-    c.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.numeroDoc.includes(searchTerm) ||
-    c.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredClientes = clientes.filter(c => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      (c.nombre?.toLowerCase() ?? '').includes(searchLower) ||
+      (c.numeroDoc ?? '').includes(searchTerm) ||
+      (c.email?.toLowerCase() ?? '').includes(searchLower) ||
+      (c.telefono ?? '').includes(searchTerm) ||
+      (c.tipoDoc?.toLowerCase() ?? '').includes(searchLower) ||
+      (c.ciudad?.toLowerCase() ?? '').includes(searchLower) ||
+      (c.direccion?.toLowerCase() ?? '').includes(searchLower)
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -239,7 +354,7 @@ export default function ClientesManager() {
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
                         <button
-                          onClick={() => toggleActive(cliente.id)}
+                          onClick={() => handleChangeStatus(cliente)}
                           className={`relative w-12 h-6 rounded-full transition-colors ${
                             cliente.activo ? 'bg-green-500' : 'bg-gray-300'
                           }`}
@@ -253,18 +368,21 @@ export default function ClientesManager() {
                     <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
                         <button
+                          onClick={() => {
+                            setDetailingCliente(cliente);
+                            setShowDetailModal(true);
+                          }}
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                          title="Ver detalle"
+                        >
+                          <Users size={18} />
+                        </button>
+                        <button
                           onClick={() => handleEdit(cliente)}
                           className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                           title="Editar"
                         >
                           <Edit2 size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(cliente.id)}
-                          className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
@@ -283,17 +401,6 @@ export default function ClientesManager() {
         title={editingCliente ? 'Editar Cliente' : 'Nuevo Cliente'}
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-gray-700 mb-2">Nombre Completo *</label>
-            <Input
-              value={formData.nombre}
-              onChange={(e) => handleFieldChange('nombre', e.target.value)}
-              placeholder="Juan Pérez"
-              required
-            />
-            {formErrors.nombre && <p className="text-red-500 text-sm">{formErrors.nombre}</p>}
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
@@ -314,61 +421,80 @@ export default function ClientesManager() {
               <label className="block text-gray-700 mb-2">Número de Documento *</label>
               <Input
                 value={formData.numeroDoc}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '');
-                  handleFieldChange('numeroDoc', value);
-                }}
+                onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
+                onBlur={handleCedulaBlur}
                 placeholder="1234567890"
-                maxLength={12}
+                maxLength={10}
                 required
               />
               {formErrors.numeroDoc && <p className="text-red-500 text-sm">{formErrors.numeroDoc}</p>}
             </div>
           </div>
 
+          <div>
+            <label className="block text-gray-700 mb-2">Nombre Completo *</label>
+            <Input
+              value={formData.nombre}
+              onChange={(e) => handleFieldChange('nombre', e.target.value)}
+              placeholder="Juan Pérez"
+              required
+            />
+            {formErrors.nombre && <p className="text-red-500 text-sm">{formErrors.nombre}</p>}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-gray-700 mb-2">Teléfono</label>
+              <label className="block text-gray-700 mb-2">Teléfono *</label>
               <Input
                 value={formData.telefono}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '');
-                  handleFieldChange('telefono', value);
-                }}
+                onChange={(e) => handleFieldChange('telefono', e.target.value)}
                 placeholder="3001234567"
                 maxLength={10}
+                required
               />
               {formErrors.telefono && <p className="text-red-500 text-sm">{formErrors.telefono}</p>}
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-2">Ciudad</label>
-              <Input
+              <label className="block text-gray-700 mb-2">Ciudad *</label>
+              <select
                 value={formData.ciudad}
                 onChange={(e) => setFormData({ ...formData, ciudad: e.target.value })}
-                placeholder="Bogotá"
-              />
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                required
+              >
+                <option value="">Seleccionar ciudad...</option>
+                <option value="Bogotá">Bogotá</option>
+                <option value="Medellín">Medellín</option>
+                <option value="Cali">Cali</option>
+                <option value="Barranquilla">Barranquilla</option>
+                <option value="Bucaramanga">Bucaramanga</option>
+              </select>
+              {formErrors.ciudad && <p className="text-red-500 text-sm">{formErrors.ciudad}</p>}
             </div>
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Correo Electrónico</label>
+            <label className="block text-gray-700 mb-2">Correo Electrónico *</label>
             <Input
               type="email"
               value={formData.email}
               onChange={(e) => handleFieldChange('email', e.target.value)}
               placeholder="cliente@ejemplo.com"
+              required
             />
             {formErrors.email && <p className="text-red-500 text-sm">{formErrors.email}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Dirección</label>
+            <label className="block text-gray-700 mb-2">Dirección *</label>
             <Input
               value={formData.direccion}
               onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
               placeholder="Calle 123 # 45-67"
+              required
             />
+            {formErrors.direccion && <p className="text-red-500 text-sm">{formErrors.direccion}</p>}
           </div>
 
           <div className="flex gap-3 justify-end pt-4 border-t">
@@ -380,6 +506,167 @@ export default function ClientesManager() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modal Notificación */}
+      <Modal
+        isOpen={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+        title={notificationType === 'error' ? 'Error' : notificationType === 'success' ? 'Éxito' : 'Advertencia'}
+      >
+        <div className="space-y-4">
+          <div className={`flex items-center gap-3 p-4 rounded-lg border ${
+            notificationType === 'error' ? 'bg-red-50 border-red-200' :
+            notificationType === 'success' ? 'bg-green-50 border-green-200' :
+            'bg-yellow-50 border-yellow-200'
+          }`}>
+            <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center font-bold text-white ${
+              notificationType === 'error' ? 'bg-red-600' :
+              notificationType === 'success' ? 'bg-green-600' :
+              'bg-yellow-600'
+            }`}>
+              {notificationType === 'error' ? '!' : notificationType === 'success' ? '✓' : '⚠'}
+            </div>
+            <p className={notificationType === 'error' ? 'text-red-800' : 
+                        notificationType === 'success' ? 'text-green-800' : 'text-yellow-800'}>
+              {notificationMessage}
+            </p>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setShowNotificationModal(false)} variant="primary">
+              Aceptar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Confirmación */}
+      <Modal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        title="Confirmar acción"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">{confirmMessage}</p>
+          <div className="flex gap-3 justify-end">
+            <Button 
+              onClick={() => setShowConfirmModal(false)} 
+              variant="secondary"
+            >
+              Cancelar
+            </Button>
+            <Button 
+              onClick={() => confirmAction && confirmAction()} 
+              variant="primary"
+            >
+              Confirmar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Detalle del Cliente */}
+      <Modal
+        isOpen={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        title={`Detalle del Cliente - ${detailingCliente?.nombre}`}
+      >
+        {detailingCliente && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-gray-600 text-sm">Cédula</p>
+                <p className="text-gray-900 font-semibold">{detailingCliente.numeroDoc}</p>
+              </div>
+              <div>
+                <p className="text-gray-600 text-sm">Tipo de Documento</p>
+                <p className="text-gray-900 font-semibold">{detailingCliente.tipoDoc}</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-gray-600 text-sm">Nombres</p>
+              <p className="text-gray-900 font-semibold">{detailingCliente.nombre}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-gray-600 text-sm">Teléfono</p>
+                <p className="text-gray-900 font-semibold">{detailingCliente.telefono || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600 text-sm">Ciudad</p>
+                <p className="text-gray-900 font-semibold">{detailingCliente.ciudad || 'N/A'}</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-gray-600 text-sm">Correo Electrónico</p>
+              <p className="text-gray-900 font-semibold">{detailingCliente.email || 'N/A'}</p>
+            </div>
+
+            <div>
+              <p className="text-gray-600 text-sm">Dirección</p>
+              <p className="text-gray-900 font-semibold">{detailingCliente.direccion || 'N/A'}</p>
+            </div>
+
+              <div className="pt-4 border-t">
+              <div className="flex gap-3">
+                <Button onClick={() => setShowDetailModal(false)} variant="secondary" className="flex-1">
+                  Cerrar
+                </Button>
+                <Button 
+                  onClick={() => {
+                    handleChangeStatus(detailingCliente!);
+                    setShowDetailModal(false);
+                  }} 
+                  variant="primary" 
+                  className="flex-1"
+                >
+                  Cambiar Estado
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal Cambiar Estado */}
+      <Modal
+        isOpen={showStatusChangeModal}
+        onClose={() => setShowStatusChangeModal(false)}
+        title="Cambiar Estado del Cliente"
+      >
+        {statusChangeCliente && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
+              <AlertTriangle className="text-yellow-600 flex-shrink-0" size={24} />
+              <div>
+                <p className="text-yellow-800 font-semibold">¿Cambiar estado?</p>
+                <p className="text-yellow-700 text-sm mt-1">
+                  Cliente: <strong>{statusChangeCliente.nombre}</strong>
+                </p>
+                <p className="text-yellow-700 text-sm">
+                  Nuevo estado: <strong>{statusChangeCliente.activo ? 'Inactivo' : 'Activo'}</strong>
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-4">
+              <Button 
+                onClick={() => setShowStatusChangeModal(false)} 
+                variant="secondary"
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={confirmChangeStatus} 
+                variant="primary"
+              >
+                Confirmar
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

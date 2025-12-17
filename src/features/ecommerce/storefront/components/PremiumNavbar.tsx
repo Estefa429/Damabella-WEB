@@ -90,7 +90,7 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
             >
               {isAuthenticated && currentUser ? (
                 <div className="w-8 h-8 bg-gradient-to-r from-pink-400 to-purple-400 rounded-full flex items-center justify-center text-white text-sm font-bold">
-                  {currentUser.name?.charAt(0).toUpperCase() || 'U'}
+                  {currentUser?.name?.charAt(0)?.toUpperCase() || 'U'}
                 </div>
               ) : (
                 <User size={22} className="text-gray-700" />

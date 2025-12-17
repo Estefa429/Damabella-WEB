@@ -1,2 +1,2 @@
 export { AuthProvider, useAuth } from './AuthContext';
-export { EcommerceProvider, useEcommerce } from './EcommerceContext';
+export { EcommerceProvider, useEcommerce, EcommerceContext } from './EcommerceContext';

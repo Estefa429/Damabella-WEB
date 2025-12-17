@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { Button, Input, Label, useToast } from '../../../../shared/components/native';
+import { validateCredentials } from '../../../../shared/utils/initializeStorage';
 
 interface LoginModalProps {
   onClose: () => void;
@@ -87,30 +88,49 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const users = getStoredUsers();
-    const user = users.find((u: any) => u.email === loginEmail && u.password === loginPassword);
+    console.log('\n📱 [LoginModal.handleLogin] ========== INICIANDO LOGIN ==========');
+    console.log(`📧 Email: ${loginEmail}`);
+    console.log(`🔒 Password: ${loginPassword ? '(ingresada)' : '(vacía)'}`);
+
+    const user = validateCredentials(loginEmail, loginPassword);
 
     if (user) {
-      if (user.activo === false) {
+      console.log('\n✅ [LoginModal.handleLogin] Credenciales válidas');
+      
+      if (user.status === 'Inactivo') {
+        console.log('❌ [LoginModal.handleLogin] Cuenta inactiva');
         showToast('Tu cuenta está inactiva. Contacta al administrador.', 'error');
         return;
       }
       
-      onLogin({
+      const loginUser = {
         id: user.id,
         name: user.nombre,
         email: user.email,
-        role: user.role || 'Cliente',
+        role: user.role,
         roleId: user.roleId,
         avatar: null,
         tipoDoc: user.tipoDoc,
         numeroDoc: user.numeroDoc,
         celular: user.celular,
         direccion: user.direccion,
-        activo: user.activo !== false
-      });
+        status: user.status,
+      };
+      
+      console.log(`\n👤 [LoginModal.handleLogin] Preparando usuario para login:`);
+      console.log(`  - name: ${loginUser.name}`);
+      console.log(`  - email: ${loginUser.email}`);
+      console.log(`  - role: ${loginUser.role}`);
+      console.log(`  - status: ${loginUser.status}`);
+      console.log(`  - OBJETO COMPLETO:`, JSON.stringify(loginUser, null, 2));
+      
+      console.log('\n📤 [LoginModal.handleLogin] Llamando onLogin()...');
+      onLogin(loginUser);
       showToast('¡Bienvenido!', 'success');
+      console.log('✅ [LoginModal.handleLogin] ===========================================\n');
     } else {
+      console.log('❌ [LoginModal.handleLogin] Credenciales inválidas');
+      console.log('✅ [LoginModal.handleLogin] ===========================================\n');
       showToast('Correo o contraseña incorrectos', 'error');
     }
   };
@@ -248,7 +268,7 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/50 z-[999999] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
         <div className="p-4 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
           <h3 className="font-bold text-lg">

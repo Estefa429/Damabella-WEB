@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Package } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
 
@@ -9,6 +9,38 @@ interface OrdersPageProps {
 
 export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
   const { orders } = useEcommerce();
+  const [allOrders, setAllOrders] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Cargar compras del localStorage
+    const purchaseHistory = JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
+    
+    // Combinar órdenes del contexto con las compras del localStorage
+    const combinedOrders = [...orders];
+    
+    // Agregar compras del localStorage si no están ya en el contexto
+    purchaseHistory.forEach((purchase: any) => {
+      if (!combinedOrders.find(o => o.id === purchase.id)) {
+        combinedOrders.push({
+          id: purchase.id,
+          items: purchase.items,
+          subtotal: purchase.subtotal,
+          iva: purchase.iva,
+          total: purchase.total,
+          paymentMethod: purchase.paymentMethod,
+          clientName: purchase.shippingInfo?.fullName || 'Cliente',
+          clientEmail: currentUser?.email || '',
+          clientPhone: purchase.shippingInfo?.phone || '',
+          clientAddress: purchase.shippingInfo?.address || '',
+          date: purchase.date,
+          status: 'Pendiente',
+          createdAt: new Date(purchase.timestamp).toISOString(),
+        });
+      }
+    });
+
+    setAllOrders(combinedOrders);
+  }, [orders, currentUser]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -29,7 +61,7 @@ export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
         <h1 className="text-lg font-bold">Mis Pedidos</h1>
       </header>
 
-      {orders.length === 0 ? (
+      {allOrders.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-96">
           <Package size={64} className="text-gray-300 mb-4" />
           <p className="text-gray-600 mb-4">Aún no tienes pedidos</p>
@@ -42,13 +74,13 @@ export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
         </div>
       ) : (
         <div className="p-4 space-y-3">
-          {orders.map((order) => (
+          {allOrders.map((order) => (
             <div key={order.id} className="bg-white rounded-xl p-4 shadow-sm">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <p className="font-bold text-lg">{order.id}</p>
                   <p className="text-sm text-gray-600">
-                    {new Date(order.date).toLocaleDateString('es-ES', {
+                    {new Date(order.date || order.createdAt).toLocaleDateString('es-ES', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric'
@@ -61,7 +93,7 @@ export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
               </div>
 
               <div className="space-y-2 mb-3">
-                {order.items.map((item, idx) => (
+                {order.items.map((item: any, idx: number) => (
                   <div key={idx} className="flex gap-3">
                     <div className="flex-1">
                       <p className="text-sm font-medium line-clamp-1">{item.productName}</p>

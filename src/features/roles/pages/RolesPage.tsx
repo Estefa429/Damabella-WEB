@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Card, Button, Input, Label, Textarea, Modal, DataTable, Badge, useToast } from '../../../shared/components/native';
-import { Plus, Edit, Trash2, Shield, Check, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Shield, Check, X, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
 
 interface Permission {
@@ -76,7 +76,9 @@ const mockRoles: Role[] = [
 export function RolesPage() {
   const [roles, setRoles] = useState<Role[]>(mockRoles);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -99,9 +101,11 @@ export function RolesPage() {
     
     if (field === 'name') {
       if (!value.trim()) {
-        errors.name = 'Este campo es obligatorio';
+        errors.name = 'El nombre es obligatorio';
       } else if (value.trim().length < 3) {
         errors.name = 'Debe tener al menos 3 caracteres';
+      } else if (!/^[a-zA-Z0-9\s]+$/.test(value)) {
+        errors.name = 'No puede contener caracteres especiales';
       }
     }
     
@@ -215,9 +219,23 @@ export function RolesPage() {
       showToast('No tienes permisos para eliminar roles', 'error');
       return;
     }
-    if (confirm('¿Estás seguro de eliminar este rol?')) {
-      setRoles(roles.filter(r => r.id !== id));
-      showToast('Rol eliminado correctamente', 'success');
+    
+    const rol = roles.find(r => r.id === id);
+    if (rol && rol.name === 'Administrador') {
+      showToast('No se puede eliminar el rol Administrador', 'error');
+      return;
+    }
+    
+    setRoleToDelete(rol || null);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (roleToDelete) {
+      setRoles(roles.filter(r => r.id !== roleToDelete.id));
+      showToast(`Rol "${roleToDelete.name}" eliminado correctamente`, 'success');
+      setIsDeleteModalOpen(false);
+      setRoleToDelete(null);
     }
   };
 
@@ -311,7 +329,12 @@ export function RolesPage() {
                 placeholder="Ej: Supervisor, Vendedor"
                 required
               />
-              {formErrors.name && <p className="text-red-500 text-sm">{formErrors.name}</p>}
+              {formErrors.name && (
+                <div className="flex items-start gap-2 mt-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-sm">{formErrors.name}</p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -323,7 +346,12 @@ export function RolesPage() {
                 placeholder="Descripción del rol"
                 required
               />
-              {formErrors.description && <p className="text-red-500 text-sm">{formErrors.description}</p>}
+              {formErrors.description && (
+                <div className="flex items-start gap-2 mt-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-sm">{formErrors.description}</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -414,6 +442,41 @@ export function RolesPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Confirmar Eliminación"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-gray-900 font-medium">¿Estás seguro de que deseas eliminar este rol?</p>
+              <p className="text-gray-600 text-sm mt-2">
+                Esta acción no se puede deshacer. El rol <strong>{roleToDelete?.name}</strong> será eliminado permanentemente del sistema.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => setIsDeleteModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              type="button" 
+              className="bg-red-600 hover:bg-red-700"
+              onClick={confirmDelete}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Eliminar
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

@@ -4,9 +4,10 @@ import { DataTable } from '../../../../components/ui/DataTable';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../../../components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '../../../../components/ui/dialog';
 import { Textarea } from '../../../../components/ui/textarea';
 import { Plus, Search } from 'lucide-react';
+import validateField from '../../../../shared/utils/validation';
 import { toast } from 'sonner';
 
 interface CategoriasProps {
@@ -30,6 +31,7 @@ export function Categorias({ user }: CategoriasProps) {
   const [editMode, setEditMode] = useState(false);
   const [selectedCategoria, setSelectedCategoria] = useState<Category | null>(null);
   const [formData, setFormData] = useState({ name: '', description: '' });
+  const [formErrors, setFormErrors] = useState<any>({});
 
   const canDelete = user.role === 'Administrador';
 
@@ -56,6 +58,17 @@ export function Categorias({ user }: CategoriasProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const errors: any = {};
+    const nameErr = validateField('nombre', formData.name);
+    if (nameErr) errors.name = nameErr;
+    const descErr = validateField('name', formData.description);
+    if (descErr) errors.description = descErr;
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
     if (editMode && selectedCategoria) {
       setCategorias(
         categorias.map(c =>
@@ -74,6 +87,29 @@ export function Categorias({ user }: CategoriasProps) {
       toast.success('Categoría creada exitosamente');
     }
     setDialogOpen(false);
+  };
+
+  const handleFieldChange = (field: string, value: string) => {
+    setFormData({ ...formData, [field]: value });
+    if (field === 'name') {
+      const err = validateField('nombre', value);
+      if (err) setFormErrors({ ...formErrors, name: err });
+      else {
+        const { name: _n, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'description') {
+      const err = validateField('name', value);
+      if (err) setFormErrors({ ...formErrors, description: err });
+      else {
+        const { description: _d, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
   };
 
   const columns = [
@@ -120,6 +156,9 @@ export function Categorias({ user }: CategoriasProps) {
           <DialogHeader>
             <DialogTitle>{editMode ? 'Editar Categoría' : 'Nueva Categoría'}</DialogTitle>
           </DialogHeader>
+          <DialogDescription>
+            {editMode ? 'Actualiza los detalles de la categoría' : 'Crea una nueva categoría para el catálogo'}
+          </DialogDescription>
           <form onSubmit={handleSubmit}>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
@@ -127,19 +166,21 @@ export function Categorias({ user }: CategoriasProps) {
                 <Input
                   id="name"
                   value={formData.name}
-                  onChange={e => setFormData({ ...formData, name: e.target.value })}
+                  onChange={e => handleFieldChange('name', e.target.value)}
                   required
                 />
+                {formErrors.name && <p className="text-red-600 text-sm mt-1">{formErrors.name}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">Descripción</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
-                  onChange={e => setFormData({ ...formData, description: e.target.value })}
+                  onChange={e => handleFieldChange('description', e.target.value)}
                   rows={3}
                   required
                 />
+                {formErrors.description && <p className="text-red-600 text-sm mt-1">{formErrors.description}</p>}
               </div>
             </div>
             <DialogFooter>

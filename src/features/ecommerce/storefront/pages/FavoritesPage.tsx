@@ -16,7 +16,20 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
   const favoriteProducts = products.filter(p => favorites.includes(p.id));
 
   const handleAddToCart = (product: any) => {
+    // Validar que el producto tenga variantes
+    if (!product?.variants || product.variants.length === 0) {
+      alert('Este producto no tiene variantes disponibles');
+      return;
+    }
+
     const firstVariant = product.variants[0];
+
+    // Validar que la variante tenga tallas
+    if (!firstVariant?.sizes || firstVariant.sizes.length === 0) {
+      alert('Este producto no tiene tallas disponibles');
+      return;
+    }
+
     const firstSize = firstVariant.sizes.find((s: any) => s.stock > 0);
 
     if (firstSize) {
@@ -30,6 +43,8 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
         size: firstSize.size,
         quantity: 1,
       });
+    } else {
+      alert('Este producto no tiene stock disponible');
     }
   };
 
@@ -85,11 +100,11 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
                     ${product.price.toLocaleString()}
                   </p>
                   <div className="flex gap-1 mb-3">
-                    {product.variants.slice(0, 4).map((variant, idx) => (
+                    {Array.from(new Set(product.variants.map(v => v.colorHex))).slice(0, 4).map((colorHex, idx) => (
                       <div
                         key={idx}
                         className="w-6 h-6 rounded-full border-2 border-gray-300"
-                        style={{ backgroundColor: variant.colorHex }}
+                        style={{ backgroundColor: colorHex }}
                       />
                     ))}
                   </div>

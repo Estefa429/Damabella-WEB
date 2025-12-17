@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
 import { Button, Input, Label, Badge, Card, Modal, Select, useToast } from '../../../shared/components/native';
-import { Plus, Search, Edit, Trash2, Eye, Users, UserCheck, UserX, Shield } from 'lucide-react';
+import validateField from '../../../shared/utils/validation';
+import { Plus, Search, Edit, Trash2, Eye, Users, UserCheck, UserX, Shield, Download, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 
 interface Usuario {
   id: string;
@@ -27,13 +28,24 @@ export default function UsuariosModule() {
   const { showToast } = useToast();
   const [usuarios, setUsuarios] = useState<Usuario[]>(() => {
     const stored = localStorage.getItem('damabella_users');
-    return stored ? JSON.parse(stored) : INITIAL_USERS;
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Validar que tengan la estructura correcta
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].documento && parsed[0].fechaCreacion) {
+        return parsed;
+      }
+    }
+    // Si no hay datos válidos, usar datos iniciales
+    localStorage.setItem('damabella_users', JSON.stringify(INITIAL_USERS));
+    return INITIAL_USERS;
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRol, setFilterRol] = useState<string>('todos');
   const [filterEstado, setFilterEstado] = useState<string>('todos');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [toggleStateDialogOpen, setToggleStateDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<Usuario | null>(null);
   const [formData, setFormData] = useState({
     nombre: '',
@@ -43,8 +55,75 @@ export default function UsuariosModule() {
     estado: 'Activo' as 'Activo' | 'Inactivo',
     password: ''
   });
+  const [formErrors, setFormErrors] = useState<any>({});
 
   const canDelete = user?.role === 'Administrador';
+
+  // Funciones de filtro para prevenir caracteres especiales
+  const filterNombre = (value: string): string => {
+    // Solo letras, números y espacios
+    return value.replace(/[^a-zA-Z0-9\s]/g, '');
+  };
+
+  const filterDocumento = (value: string): string => {
+    // Solo números
+    return value.replace(/[^\d]/g, '');
+  };
+
+  const filterPassword = (value: string): string => {
+    // Permitir todo excepto comillas y backticks
+    return value.replace(/['"`]/g, '');
+  };
+
+  // Funciones de validación mejoradas
+  const validateNombre = (value: string): string => {
+    if (!value.trim()) {
+      return 'El nombre es obligatorio';
+    }
+    if (value.trim().length < 3) {
+      return 'El nombre debe tener al menos 3 caracteres';
+    }
+    // Solo letras, números y espacios
+    if (!/^[a-zA-Z0-9\s]+$/.test(value)) {
+      return 'El nombre no puede contener caracteres especiales';
+    }
+    return '';
+  };
+
+  const validateDocumento = (value: string): string => {
+    if (!value.trim()) {
+      return 'El documento es obligatorio';
+    }
+    // Solo números
+    if (!/^\d+$/.test(value)) {
+      return 'El documento solo puede contener números';
+    }
+    if (value.length < 8) {
+      return 'El documento debe tener al menos 8 dígitos';
+    }
+    return '';
+  };
+
+  const validateEmail = (value: string): string => {
+    if (!value.trim()) {
+      return 'El email es obligatorio';
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(value)) {
+      return 'El email no es válido';
+    }
+    return '';
+  };
+
+  const validatePassword = (value: string, isNew: boolean): string => {
+    if (isNew && !value) {
+      return 'La contraseña es obligatoria';
+    }
+    if (value && value.length < 6) {
+      return 'La contraseña debe tener al menos 6 caracteres';
+    }
+    return '';
+  };
 
   // Guardar en localStorage cuando cambien los usuarios
   useEffect(() => {
@@ -58,9 +137,17 @@ export default function UsuariosModule() {
   const administradores = usuarios.filter(u => u.rol === 'Administrador').length;
 
   const filteredUsers = usuarios.filter(u => {
-    const matchesSearch = u.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.documento.includes(searchTerm) ||
-      u.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const searchLower = searchTerm.toLowerCase();
+    
+    // Busca en TODOS los campos de la tabla
+    const matchesSearch = 
+      u.nombre.toLowerCase().includes(searchLower) ||
+      u.documento.toLowerCase().includes(searchLower) ||
+      u.email.toLowerCase().includes(searchLower) ||
+      u.rol.toLowerCase().includes(searchLower) ||
+      u.estado.toLowerCase().includes(searchLower) ||
+      u.fechaCreacion.toLowerCase().includes(searchLower) ||
+      u.creadoPor.toLowerCase().includes(searchLower);
     
     const matchesRol = filterRol === 'todos' || u.rol === filterRol;
     const matchesEstado = filterEstado === 'todos' || u.estado === filterEstado;
@@ -71,6 +158,7 @@ export default function UsuariosModule() {
   const handleAdd = () => {
     setSelectedUser(null);
     setFormData({ nombre: '', email: '', documento: '', rol: 'Cliente', estado: 'Activo', password: '' });
+    setFormErrors({});
     setDialogOpen(true);
   };
 
@@ -98,15 +186,96 @@ export default function UsuariosModule() {
       return;
     }
     
-    if (confirm('¿Estás seguro de eliminar este usuario?')) {
-      setUsuarios(usuarios.filter(u => u.id !== id));
-      showToast('Usuario eliminado correctamente', 'success');
+    const usuario = usuarios.find(u => u.id === id);
+    setSelectedUser(usuario || null);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (selectedUser) {
+      setUsuarios(usuarios.filter(u => u.id !== selectedUser.id));
+      showToast(`Usuario "${selectedUser.nombre}" eliminado correctamente`, 'success');
+      setDeleteDialogOpen(false);
+      setSelectedUser(null);
     }
+  };
+
+  const handleToggleState = (usuario: Usuario) => {
+    setSelectedUser(usuario);
+    setToggleStateDialogOpen(true);
+  };
+
+  const confirmToggleState = () => {
+    if (selectedUser) {
+      const nuevoEstado = selectedUser.estado === 'Activo' ? 'Inactivo' : 'Activo';
+      setUsuarios(usuarios.map(u => 
+        u.id === selectedUser.id 
+          ? { ...u, estado: nuevoEstado }
+          : u
+      ));
+      showToast(`Usuario "${selectedUser.nombre}" ${nuevoEstado === 'Activo' ? 'activado' : 'desactivado'} correctamente`, 'success');
+      setToggleStateDialogOpen(false);
+      setSelectedUser(null);
+    }
+  };
+
+  const downloadExcel = () => {
+    // Crear datos para el Excel
+    const data = filteredUsers.map(u => ({
+      ID: u.id,
+      Nombre: u.nombre,
+      Email: u.email,
+      Rol: u.rol,
+      Estado: u.estado,
+      'Fecha de Creación': u.fechaCreacion
+    }));
+
+    // Convertir a CSV y descargar como Excel
+    const headers = ['ID', 'Nombre', 'Email', 'Rol', 'Estado', 'Fecha de Creación'];
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => [
+        row.ID,
+        `"${row.Nombre}"`,
+        row.Email,
+        row.Rol,
+        row.Estado,
+        row['Fecha de Creación']
+      ].join(','))
+    ].join('\n');
+
+    // Agregar BOM para UTF-8
+    const bom = '\ufeff';
+    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `reporte_usuarios_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast('Reporte descargado correctamente', 'success');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+    // Validación final antes de enviar con las nuevas funciones
+    const nombreErr = validateNombre(formData.nombre);
+    const documentoErr = validateDocumento(formData.documento);
+    const emailErr = validateEmail(formData.email);
+    const passwordErr = validatePassword(formData.password, !selectedUser);
+
+    const errors: any = {};
+    if (nombreErr) errors.nombre = nombreErr;
+    if (documentoErr) errors.documento = documentoErr;
+    if (emailErr) errors.email = emailErr;
+    if (passwordErr) errors.password = passwordErr;
+
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
     if (selectedUser) {
       // Edit
       setUsuarios(usuarios.map(u => 
@@ -130,6 +299,45 @@ export default function UsuariosModule() {
     setDialogOpen(false);
   };
 
+  const handleFieldChange = (field: string, rawValue: string) => {
+    let cleanValue = rawValue;
+
+    // PASO 1: Filtrar caracteres según el campo
+    if (field === 'nombre') {
+      // Solo a-z, A-Z, 0-9 y espacios
+      cleanValue = rawValue.split('').filter(char => /^[a-zA-Z0-9\s]$/.test(char)).join('');
+    } else if (field === 'documento') {
+      // Solo dígitos
+      cleanValue = rawValue.split('').filter(char => /^\d$/.test(char)).join('');
+    } else if (field === 'password') {
+      // Filtrar caracteres problemáticos
+      cleanValue = rawValue.split('').filter(char => !/['"`]/.test(char)).join('');
+    }
+
+    // PASO 2: Actualizar el estado con el valor limpio
+    setFormData({ ...formData, [field]: cleanValue });
+
+    // PASO 3: Validar el valor limpio
+    let errorMsg = '';
+    if (field === 'nombre') {
+      errorMsg = validateNombre(cleanValue);
+    } else if (field === 'documento') {
+      errorMsg = validateDocumento(cleanValue);
+    } else if (field === 'email') {
+      errorMsg = validateEmail(cleanValue);
+    } else if (field === 'password') {
+      errorMsg = validatePassword(cleanValue, !selectedUser);
+    }
+
+    // PASO 4: Actualizar errores
+    if (errorMsg) {
+      setFormErrors({ ...formErrors, [field]: errorMsg });
+    } else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -137,10 +345,16 @@ export default function UsuariosModule() {
           <h1 className="text-gray-900">Gestión de Usuarios</h1>
           <p className="text-gray-600">Administra usuarios, roles y permisos</p>
         </div>
-        <Button onClick={handleAdd} className="bg-black hover:bg-gray-800">
-          <Plus className="w-4 h-4 mr-2" />
-          Agregar Usuario
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={downloadExcel} variant="outline" className="border-gray-300">
+            <Download className="w-4 h-4 mr-2" />
+            Descargar Reporte
+          </Button>
+          <Button onClick={handleAdd} className="bg-black hover:bg-gray-800">
+            <Plus className="w-4 h-4 mr-2" />
+            Agregar Usuario
+          </Button>
+        </div>
       </div>
 
       {/* Search Bar */}
@@ -220,45 +434,57 @@ export default function UsuariosModule() {
       {/* Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left py-3 px-4">Nombre</th>
-                <th className="text-left py-3 px-4">Documento</th>
-                <th className="text-left py-3 px-4">Email</th>
-                <th className="text-left py-3 px-4">Rol</th>
-                <th className="text-left py-3 px-4">Estado</th>
-                <th className="text-right py-3 px-4">Acciones</th>
+                <th className="text-left py-3 px-4 whitespace-nowrap">Nombre</th>
+                <th className="text-left py-3 px-4 whitespace-nowrap">Documento</th>
+                <th className="text-left py-3 px-4 whitespace-nowrap">Email</th>
+                <th className="text-left py-3 px-4 whitespace-nowrap">Rol</th>
+                <th className="text-left py-3 px-4 whitespace-nowrap">Estado</th>
+                <th className="text-left py-3 px-4 whitespace-nowrap">Fecha Creación</th>
+                <th className="text-left py-3 px-4 whitespace-nowrap">Creado por</th>
+                <th className="text-center py-3 px-4 whitespace-nowrap">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredUsers.map((usuario) => (
-                <tr key={usuario.id}>
-                  <td className="py-3 px-4">{usuario.nombre}</td>
-                  <td className="py-3 px-4">{usuario.documento}</td>
-                  <td className="py-3 px-4">{usuario.email}</td>
-                  <td className="py-3 px-4">
+                <tr key={usuario.id} className="hover:bg-gray-50">
+                  <td className="py-3 px-4 whitespace-nowrap text-sm">{usuario.nombre}</td>
+                  <td className="py-3 px-4 whitespace-nowrap text-sm">{usuario.documento}</td>
+                  <td className="py-3 px-4 whitespace-nowrap text-sm">{usuario.email}</td>
+                  <td className="py-3 px-4 whitespace-nowrap">
                     <Badge variant="default" className="bg-gray-100">
                       {usuario.rol}
                     </Badge>
                   </td>
-                  <td className="py-3 px-4">
+                  <td className="py-3 px-4 whitespace-nowrap">
                     <Badge variant={usuario.estado === 'Activo' ? 'success' : 'default'}>
                       {usuario.estado}
                     </Badge>
                   </td>
+                  <td className="py-3 px-4 whitespace-nowrap text-sm text-gray-600">{usuario.fechaCreacion}</td>
+                  <td className="py-3 px-4 whitespace-nowrap text-sm text-gray-600">{usuario.creadoPor}</td>
                   <td className="py-3 px-4">
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => handleView(usuario)} className="p-1 hover:bg-gray-100 rounded">
+                    <div className="flex justify-center gap-1">
+                      <button onClick={() => handleView(usuario)} className="p-1 hover:bg-gray-100 rounded" title="Ver">
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleEdit(usuario)} className="p-1 hover:bg-gray-100 rounded">
+                      <button 
+                        onClick={() => handleToggleState(usuario)}
+                        className={`p-1 rounded transition-colors ${usuario.estado === 'Activo' ? 'hover:bg-red-50 text-red-600' : 'hover:bg-green-50 text-green-600'}`}
+                        title={usuario.estado === 'Activo' ? 'Desactivar usuario' : 'Activar usuario'}
+                      >
+                        {usuario.estado === 'Activo' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                      </button>
+                      <button onClick={() => handleEdit(usuario)} className="p-1 hover:bg-gray-100 rounded" title="Editar">
                         <Edit className="w-4 h-4" />
                       </button>
                       {canDelete && (
                         <button 
                           onClick={() => handleDelete(usuario.id)}
                           className="p-1 hover:bg-red-50 rounded text-red-600"
+                          title="Eliminar"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -284,18 +510,32 @@ export default function UsuariosModule() {
             <Input
               id="nombre"
               value={formData.nombre}
-              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              onChange={(e) => handleFieldChange('nombre', e.target.value)}
+              placeholder="Ej: Juan Pérez"
               required
             />
+            {formErrors.nombre && (
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="text-red-500 text-sm">{formErrors.nombre}</p>
+              </div>
+            )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="documento">Documento</Label>
+            <Label htmlFor="documento">Documento (números)</Label>
             <Input
               id="documento"
               value={formData.documento}
-              onChange={(e) => setFormData({ ...formData, documento: e.target.value })}
+              onChange={(e) => handleFieldChange('documento', e.target.value)}
+              placeholder="Ej: 1234567890"
               required
             />
+            {formErrors.documento && (
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="text-red-500 text-sm">{formErrors.documento}</p>
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
@@ -303,9 +543,16 @@ export default function UsuariosModule() {
               id="email"
               type="email"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              onChange={(e) => handleFieldChange('email', e.target.value)}
+              placeholder="Ej: usuario@ejemplo.com"
               required
             />
+            {formErrors.email && (
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="text-red-500 text-sm">{formErrors.email}</p>
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">
@@ -315,9 +562,16 @@ export default function UsuariosModule() {
               id="password"
               type="password"
               value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              onChange={(e) => handleFieldChange('password', e.target.value)}
+              placeholder={selectedUser ? 'Dejar en blanco para no cambiar' : 'Mínimo 6 caracteres'}
               required={!selectedUser}
             />
+            {formErrors.password && (
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="text-red-500 text-sm">{formErrors.password}</p>
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="rol">Rol</Label>
@@ -385,6 +639,108 @@ export default function UsuariosModule() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <Modal
+        isOpen={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        title="Confirmar Eliminación"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-gray-900 font-medium">¿Deseas eliminar este usuario?</p>
+              <p className="text-gray-600 text-sm mt-2">
+                Esta acción no se puede deshacer. El usuario <strong>{selectedUser?.nombre}</strong> será eliminado permanentemente del sistema.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => setDeleteDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              type="button" 
+              className="bg-red-600 hover:bg-red-700"
+              onClick={confirmDelete}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Eliminar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Toggle State Confirmation Dialog */}
+      <Modal
+        isOpen={toggleStateDialogOpen}
+        onClose={() => setToggleStateDialogOpen(false)}
+        title={selectedUser?.estado === 'Activo' ? 'Desactivar Usuario' : 'Activar Usuario'}
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className={`w-6 h-6 flex-shrink-0 mt-0.5 ${selectedUser?.estado === 'Activo' ? 'text-orange-500' : 'text-blue-500'}`} />
+            <div>
+              <p className="text-gray-900 font-medium">
+                {selectedUser?.estado === 'Activo' 
+                  ? '¿Estás seguro de que deseas desactivar este usuario?'
+                  : '¿Estás seguro de que deseas activar este usuario?'
+                }
+              </p>
+              <p className="text-gray-600 text-sm mt-2">
+                {selectedUser?.estado === 'Activo' 
+                  ? (
+                    <>
+                      El usuario <strong>{selectedUser?.nombre}</strong> será desactivado y no podrá acceder al sistema.
+                    </>
+                  )
+                  : (
+                    <>
+                      El usuario <strong>{selectedUser?.nombre}</strong> será activado y podrá acceder al sistema nuevamente.
+                    </>
+                  )
+                }
+              </p>
+              {selectedUser?.estado === 'Activo' && (
+                <p className="text-orange-600 text-xs mt-2 bg-orange-50 p-2 rounded">
+                  ⚠️ Esta acción desactivará el usuario temporalmente. Podrás reactivarlo en cualquier momento.
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => setToggleStateDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              type="button" 
+              className={selectedUser?.estado === 'Activo' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'}
+              onClick={confirmToggleState}
+            >
+              {selectedUser?.estado === 'Activo' ? (
+                <>
+                  <XCircle className="w-4 h-4 mr-2" />
+                  Desactivar Usuario
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Activar Usuario
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

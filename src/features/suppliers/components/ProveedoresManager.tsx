@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Store, Search, Eye, History } from 'lucide-react';
+import { Plus, Edit2, Store, Search, Eye, History, AlertTriangle, Eye as ViewIcon } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_proveedores';
@@ -15,6 +15,7 @@ interface Proveedor {
   email: string;
   direccion: string;
   activo: boolean;
+  publicado: boolean;
   createdAt: string;
 }
 
@@ -31,18 +32,25 @@ export function ProveedoresManager() {
 
   const [showModal, setShowModal] = useState(false);
   const [showHistorialModal, setShowHistorialModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingProveedor, setEditingProveedor] = useState<Proveedor | null>(null);
   const [viewingProveedor, setViewingProveedor] = useState<Proveedor | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showStatusConfirmModal, setShowStatusConfirmModal] = useState(false);
+  const [proveedorToToggle, setProveedorToToggle] = useState<Proveedor | null>(null);
+  
+  const itemsPerPage = 10;
   
   const [formData, setFormData] = useState({
+    numeroDoc: '',
+    tipoDoc: 'NIT',
     nombre: '',
     contacto: '',
-    tipoDoc: 'NIT',
-    numeroDoc: '',
     telefono: '',
     email: '',
-    direccion: ''
+    direccion: '',
+    publicado: false
   });
 
   const [formErrors, setFormErrors] = useState<any>({});
@@ -122,13 +130,14 @@ export function ProveedoresManager() {
   const handleCreate = () => {
     setEditingProveedor(null);
     setFormData({
+      numeroDoc: '',
+      tipoDoc: 'NIT',
       nombre: '',
       contacto: '',
-      tipoDoc: 'NIT',
-      numeroDoc: '',
       telefono: '',
       email: '',
-      direccion: ''
+      direccion: '',
+      publicado: false
     });
     setFormErrors({});
     setShowModal(true);
@@ -137,13 +146,14 @@ export function ProveedoresManager() {
   const handleEdit = (proveedor: Proveedor) => {
     setEditingProveedor(proveedor);
     setFormData({
+      numeroDoc: proveedor.numeroDoc || '',
+      tipoDoc: proveedor.tipoDoc || 'NIT',
       nombre: proveedor.nombre || '',
       contacto: proveedor.contacto || '',
-      tipoDoc: proveedor.tipoDoc || 'NIT',
-      numeroDoc: proveedor.numeroDoc || '',
       telefono: proveedor.telefono || '',
       email: proveedor.email || '',
-      direccion: proveedor.direccion || ''
+      direccion: proveedor.direccion || '',
+      publicado: proveedor.publicado || false
     });
     setFormErrors({});
     setShowModal(true);
@@ -171,7 +181,7 @@ export function ProveedoresManager() {
         return;
       }
       // Verificar duplicado de email
-      if (formData.email && proveedores.find((p: any) => p.email.toLowerCase() === formData.email.toLowerCase())) {
+      if (formData.email && proveedores.find((p: any) => (p.email?.toLowerCase() ?? '') === (formData.email?.toLowerCase() ?? ''))) {
         setFormErrors({ ...formErrors, email: 'Ya existe un proveedor con este email' });
         return;
       }
@@ -181,7 +191,7 @@ export function ProveedoresManager() {
         return;
       }
       // Verificar duplicado de email al editar
-      if (formData.email && proveedores.find((p: any) => p.email.toLowerCase() === formData.email.toLowerCase() && p.id !== editingProveedor.id)) {
+      if (formData.email && proveedores.find((p: any) => (p.email?.toLowerCase() ?? '') === (formData.email?.toLowerCase() ?? '') && p.id !== editingProveedor.id)) {
         setFormErrors({ ...formErrors, email: 'Ya existe un proveedor con este email' });
         return;
       }
@@ -189,8 +199,8 @@ export function ProveedoresManager() {
 
     const proveedorData = {
       ...formData,
-      activo: true,
-      createdAt: new Date().toISOString()
+      activo: editingProveedor?.activo ?? true,
+      createdAt: editingProveedor?.createdAt ?? new Date().toISOString()
     };
 
     if (editingProveedor) {
@@ -204,29 +214,32 @@ export function ProveedoresManager() {
     setShowModal(false);
   };
 
-  const handleDelete = (id: number) => {
-    // Verificar si tiene compras asociadas
-    const tieneCompras = compras.some((c: any) => c.proveedorId === id);
-    
-    if (tieneCompras) {
-      alert('No se puede eliminar este proveedor porque tiene compras asociadas. Puedes desactivarlo en su lugar.');
-      return;
-    }
-
-    if (confirm('¿Está seguro de eliminar este proveedor?')) {
-      setProveedores(proveedores.filter(p => p.id !== id));
+  const toggleActive = (id: number) => {
+    const proveedor = proveedores.find(p => p.id === id);
+    if (proveedor) {
+      setProveedorToToggle(proveedor);
+      setShowStatusConfirmModal(true);
     }
   };
 
-  const toggleActive = (id: number) => {
-    setProveedores(proveedores.map(p => 
-      p.id === id ? { ...p, activo: !p.activo } : p
-    ));
+  const confirmToggleStatus = () => {
+    if (proveedorToToggle) {
+      setProveedores(proveedores.map(p =>
+        p.id === proveedorToToggle.id ? { ...p, activo: !p.activo } : p
+      ));
+    }
+    setShowStatusConfirmModal(false);
+    setProveedorToToggle(null);
   };
 
   const handleVerHistorial = (proveedor: Proveedor) => {
     setViewingProveedor(proveedor);
     setShowHistorialModal(true);
+  };
+
+  const handleVerProveedor = (proveedor: Proveedor) => {
+    setViewingProveedor(proveedor);
+    setShowViewModal(true);
   };
 
   const getComprasProveedor = (proveedorId: number) => {
@@ -237,11 +250,25 @@ export function ProveedoresManager() {
     return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => sum + c.total, 0);
   };
 
-  const filteredProveedores = proveedores.filter(p =>
-    p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.numeroDoc.includes(searchTerm) ||
-    p.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProveedores = proveedores.filter(p => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      (p.nombre?.toLowerCase() ?? '').includes(searchLower) ||
+      (p.numeroDoc ?? '').includes(searchTerm) ||
+      (p.email?.toLowerCase() ?? '').includes(searchLower) ||
+      ((p.activo ? 'activo' : 'inactivo').includes(searchLower))
+    );
+  });
+
+  // Aplicar paginación
+  const totalPages = Math.ceil(filteredProveedores.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedProveedores = filteredProveedores.slice(startIndex, startIndex + itemsPerPage);
+
+  // Resetear página si el término de búsqueda cambia
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   return (
     <div className="space-y-6">
@@ -281,19 +308,20 @@ export function ProveedoresManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Teléfono</th>
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
+                <th className="text-center py-4 px-6 text-gray-600">Publicado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredProveedores.length === 0 ? (
+              {paginatedProveedores.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-500">
+                  <td colSpan={7} className="py-12 text-center text-gray-500">
                     <Store className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron proveedores</p>
                   </td>
                 </tr>
               ) : (
-                filteredProveedores.map((proveedor) => (
+                paginatedProveedores.map((proveedor) => (
                   <tr key={proveedor.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
@@ -332,7 +360,28 @@ export function ProveedoresManager() {
                       </div>
                     </td>
                     <td className="py-4 px-6">
+                      <div className="flex justify-center">
+                        <button
+                          onClick={() => handleEdit(proveedor)}
+                          className={`relative w-12 h-6 rounded-full transition-colors ${
+                            proveedor.publicado ? 'bg-blue-500' : 'bg-gray-300'
+                          }`}
+                        >
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                            proveedor.publicado ? 'translate-x-6' : 'translate-x-0'
+                          }`} />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => handleVerProveedor(proveedor)}
+                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                          title="Ver proveedor"
+                        >
+                          <ViewIcon size={18} />
+                        </button>
                         <button
                           onClick={() => handleVerHistorial(proveedor)}
                           className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
@@ -347,13 +396,6 @@ export function ProveedoresManager() {
                         >
                           <Edit2 size={18} />
                         </button>
-                        <button
-                          onClick={() => handleDelete(proveedor.id)}
-                          className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={18} />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -364,6 +406,47 @@ export function ProveedoresManager() {
         </div>
       </div>
 
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-8">
+          <button
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Anterior
+          </button>
+          
+          <div className="flex gap-1">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`px-3 py-2 rounded-lg transition-colors ${
+                  currentPage === page
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white border border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Siguiente
+          </button>
+
+          <span className="ml-4 text-sm text-gray-600">
+            Página {currentPage} de {totalPages}
+          </span>
+        </div>
+      )}
+
       {/* Modal Create/Edit */}
       <Modal
         isOpen={showModal}
@@ -371,32 +454,6 @@ export function ProveedoresManager() {
         title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-gray-700 mb-2">Nombre del Proveedor *</label>
-            <Input
-              value={formData.nombre}
-              onChange={(e) => handleFieldChange('nombre', e.target.value)}
-              placeholder="Distribuidora XYZ"
-              required
-            />
-            {formErrors.nombre && (
-              <p className="text-red-600 text-xs mt-1">{formErrors.nombre}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-gray-700 mb-2">Persona de Contacto *</label>
-            <Input
-              value={formData.contacto}
-              onChange={(e) => handleFieldChange('contacto', e.target.value)}
-              placeholder="Nombre del contacto"
-              required
-            />
-            {formErrors.contacto && (
-              <p className="text-red-600 text-xs mt-1">{formErrors.contacto}</p>
-            )}
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
@@ -425,6 +482,32 @@ export function ProveedoresManager() {
                 <p className="text-red-600 text-xs mt-1">{formErrors.numeroDoc}</p>
               )}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-2">Nombre del Proveedor *</label>
+            <Input
+              value={formData.nombre}
+              onChange={(e) => handleFieldChange('nombre', e.target.value)}
+              placeholder="Distribuidora XYZ"
+              required
+            />
+            {formErrors.nombre && (
+              <p className="text-red-600 text-xs mt-1">{formErrors.nombre}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-2">Persona de Contacto *</label>
+            <Input
+              value={formData.contacto}
+              onChange={(e) => handleFieldChange('contacto', e.target.value)}
+              placeholder="Nombre del contacto"
+              required
+            />
+            {formErrors.contacto && (
+              <p className="text-red-600 text-xs mt-1">{formErrors.contacto}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -462,6 +545,19 @@ export function ProveedoresManager() {
               onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
               placeholder="Calle 123 # 45-67"
             />
+          </div>
+
+          <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <input
+              type="checkbox"
+              checked={formData.publicado}
+              onChange={(e) => setFormData({ ...formData, publicado: e.target.checked })}
+              className="w-4 h-4 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              id="publicado"
+            />
+            <label htmlFor="publicado" className="text-gray-700 cursor-pointer flex-1">
+              Publicar en catálogo
+            </label>
           </div>
 
           <div className="flex gap-3 justify-end pt-4 border-t">
@@ -542,6 +638,124 @@ export function ProveedoresManager() {
               )}
             </>
           )}
+        </div>
+      </Modal>
+
+      {/* Modal Ver Proveedor */}
+      <Modal
+        isOpen={showViewModal}
+        onClose={() => setShowViewModal(false)}
+        title={`Ver Proveedor - ${viewingProveedor?.nombre}`}
+      >
+        <div className="space-y-4">
+          {viewingProveedor && (
+            <>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-gray-600 text-sm mb-1">Nombre</div>
+                    <div className="text-gray-900 font-semibold">{viewingProveedor.nombre}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600 text-sm mb-1">Documento</div>
+                    <div className="text-gray-900 font-semibold">{viewingProveedor.tipoDoc}: {viewingProveedor.numeroDoc}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600 text-sm mb-1">Contacto</div>
+                    <div className="text-gray-900">{viewingProveedor.contacto}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600 text-sm mb-1">Teléfono</div>
+                    <div className="text-gray-900">{viewingProveedor.telefono || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600 text-sm mb-1">Email</div>
+                    <div className="text-gray-900">{viewingProveedor.email || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600 text-sm mb-1">Dirección</div>
+                    <div className="text-gray-900">{viewingProveedor.direccion || '-'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                  <div className="text-gray-600 text-sm mb-1">Estado</div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${viewingProveedor.activo ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <span className="text-gray-900 font-semibold">
+                      {viewingProveedor.activo ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+                  <div className="text-gray-600 text-sm mb-1">Publicado en Catálogo</div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${viewingProveedor.publicado ? 'bg-blue-500' : 'bg-gray-400'}`} />
+                    <span className="text-gray-900 font-semibold">
+                      {viewingProveedor.publicado ? 'Sí' : 'No'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-100 rounded-lg p-3">
+                <div className="text-gray-600 text-sm mb-1">Fecha de Creación</div>
+                <div className="text-gray-900">
+                  {new Date(viewingProveedor.createdAt).toLocaleDateString('es-ES')}
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-4 border-t">
+                <Button onClick={() => setShowViewModal(false)} variant="primary">
+                  Cerrar
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      {/* Modal Confirmation - Change Status */}
+      <Modal
+        isOpen={showStatusConfirmModal}
+        onClose={() => {
+          setShowStatusConfirmModal(false);
+          setProveedorToToggle(null);
+        }}
+        title="Confirmar Cambio de Estado"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+            <AlertTriangle className="text-yellow-600 flex-shrink-0" size={24} />
+            <div>
+              <p className="text-yellow-800 font-semibold">Cambio de estado</p>
+              <p className="text-yellow-700 text-sm">Esta acción modificará el estado del proveedor</p>
+            </div>
+          </div>
+          <p className="text-gray-700">
+            ¿Está seguro de que desea <strong>{proveedorToToggle?.activo ? 'inactivar' : 'activar'}</strong> el proveedor <strong>{proveedorToToggle?.nombre}</strong>?
+          </p>
+          {proveedorToToggle?.activo && (
+            <p className="text-gray-600 text-sm">
+              Al inactivar este proveedor, no podrá realizar nuevas compras hasta que sea reactivado.
+            </p>
+          )}
+          <div className="flex gap-3 justify-end pt-4">
+            <Button 
+              onClick={() => {
+                setShowStatusConfirmModal(false);
+                setProveedorToToggle(null);
+              }} 
+              variant="secondary"
+            >
+              Cancelar
+            </Button>
+            <Button onClick={confirmToggleStatus} variant="primary">
+              {proveedorToToggle?.activo ? 'Inactivar' : 'Activar'}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

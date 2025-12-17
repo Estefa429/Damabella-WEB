@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, DollarSign, Eye, Ban, RotateCcw, X, UserPlus, Download, ShoppingBag } from 'lucide-react';
+import { Plus, Search, DollarSign, Eye, Ban, RotateCcw, X, UserPlus, Download, ShoppingBag, AlertCircle, CheckCircle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_ventas';
@@ -34,6 +34,7 @@ interface Venta {
   anulada: boolean;
   motivoAnulacion?: string;
   createdAt: string;
+  pedido_id?: string | null;
 }
 
 export default function VentasManager() {
@@ -49,7 +50,84 @@ export default function VentasManager() {
 
   const [productos, setProductos] = useState(() => {
     const stored = localStorage.getItem(PRODUCTOS_KEY);
-    return stored ? JSON.parse(stored) : [];
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    // Productos de ejemplo - Ropa femenina
+    const productosEjemplo = [
+      {
+        id: '1',
+        nombre: 'Vestido Corto Casual',
+        referencia: 'VES-CORTA-001',
+        codigoInterno: 'VCC-001',
+        precioVenta: 65000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Rojo', 'Negro', 'Blanco', 'Azul', 'Rosa'],
+      },
+      {
+        id: '2',
+        nombre: 'Vestido Largo Elegante',
+        referencia: 'VES-LARGO-002',
+        codigoInterno: 'VLE-002',
+        precioVenta: 95000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Negro', 'Rojo', 'Champagne', 'Azul Marino'],
+      },
+      {
+        id: '3',
+        nombre: 'Enterizo Ejecutivo',
+        referencia: 'ENT-EJE-003',
+        codigoInterno: 'ENE-003',
+        precioVenta: 85000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Negro', 'Beige', 'Azul Marino', 'Gris'],
+      },
+      {
+        id: '4',
+        nombre: 'Enterizo Casual Denim',
+        referencia: 'ENT-CAS-004',
+        codigoInterno: 'ECD-004',
+        precioVenta: 75000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Azul Claro', 'Azul Oscuro', 'Negro'],
+      },
+      {
+        id: '5',
+        nombre: 'Vestido Corto de Fiesta',
+        referencia: 'VES-FIESTA-005',
+        codigoInterno: 'VCF-005',
+        precioVenta: 78000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Dorado', 'Plata', 'Negro', 'Rojo'],
+      },
+      {
+        id: '6',
+        nombre: 'Vestido Largo de Gala',
+        referencia: 'VES-GALA-006',
+        codigoInterno: 'VLG-006',
+        precioVenta: 120000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Blanco', 'Negro', 'Azul Marino', 'Vino'],
+      },
+      {
+        id: '7',
+        nombre: 'Enterizo Premium',
+        referencia: 'ENT-PREM-007',
+        codigoInterno: 'EPR-007',
+        precioVenta: 105000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Negro', 'Blanco', 'Rosa Palo', 'Azul Cielo'],
+      },
+    ];
+    localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosEjemplo));
+    return productosEjemplo;
   });
 
   const [showModal, setShowModal] = useState(false);
@@ -57,6 +135,9 @@ export default function VentasManager() {
   const [showClienteModal, setShowClienteModal] = useState(false);
   const [showAnularModal, setShowAnularModal] = useState(false);
   const [showDevolucionModal, setShowDevolucionModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationType, setNotificationType] = useState<'success' | 'error' | 'info'>('info');
   const [viewingVenta, setViewingVenta] = useState<Venta | null>(null);
   const [ventaToAnular, setVentaToAnular] = useState<Venta | null>(null);
   const [ventaToDevolver, setVentaToDevolver] = useState<Venta | null>(null);
@@ -122,14 +203,65 @@ export default function VentasManager() {
       if (storedClientes) setClientes(JSON.parse(storedClientes));
       if (storedVentas) setVentas(JSON.parse(storedVentas));
     };
+
+    const handlePedidoConvertidoAVenta = (event: any) => {
+      const { pedido } = event.detail;
+      
+      // Verificar si ya existe una venta para este pedido
+      const ventaExistente = ventas.some(v => v.pedido_id === pedido.numeroPedido);
+      if (ventaExistente) return;
+
+      // Crear venta automáticamente desde el pedido
+      const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId);
+      if (!cliente) return;
+
+      const totales = { subtotal: pedido.subtotal, iva: pedido.iva, total: pedido.total };
+      
+      // Generar número de venta incremental
+      const nuevoNumero = (ventaCounter).toString().padStart(3, '0');
+      const numeroVenta = `VEN-${nuevoNumero}`;
+
+      const nuevaVenta: Venta = {
+        id: Date.now(),
+        numeroVenta,
+        clienteId: pedido.clienteId,
+        clienteNombre: pedido.clienteNombre,
+        fechaVenta: pedido.fechaPedido,
+        estado: 'Completada',
+        items: pedido.items.map((item: any) => ({
+          id: item.id,
+          productoId: item.productoId,
+          productoNombre: item.productoNombre,
+          talla: item.talla,
+          color: item.color,
+          cantidad: item.cantidad,
+          precioUnitario: item.precioUnitario,
+          subtotal: item.subtotal
+        })),
+        subtotal: totales.subtotal,
+        iva: totales.iva,
+        total: totales.total,
+        metodoPago: pedido.metodoPago || 'Efectivo',
+        observaciones: pedido.observaciones || '',
+        anulada: false,
+        createdAt: new Date().toISOString(),
+        pedido_id: pedido.numeroPedido
+      };
+
+      setVentas((prev) => [...prev, nuevaVenta]);
+      setVentaCounter(ventaCounter + 1);
+    };
     
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('salesUpdated', handleStorageChange);
+    window.addEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
+    
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('salesUpdated', handleStorageChange);
+      window.removeEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
     };
-  }, []);
+  }, [ventas, clientes]);
 
   const generarNumeroVenta = () => {
     const numeroVenta = `VEN-${ventaCounter.toString().padStart(3, '0')}`;
@@ -236,8 +368,8 @@ export default function VentasManager() {
   };
 
   const filteredClientes = clientes.filter((c: any) => 
-    c.nombre.toLowerCase().includes(clienteSearchTerm.toLowerCase()) ||
-    c.numeroDoc.includes(clienteSearchTerm)
+    (c.nombre?.toLowerCase() ?? '').includes(clienteSearchTerm.toLowerCase()) ||
+    (c.numeroDoc ?? '').includes(clienteSearchTerm)
   );
 
   const getProductoSeleccionado = () => {
@@ -246,21 +378,31 @@ export default function VentasManager() {
 
   const getTallasDisponibles = () => {
     const producto = getProductoSeleccionado();
-    if (!producto || !producto.variantes) return [];
-    return producto.variantes.map((v: any) => v.talla);
+    if (!producto) return [];
+    // Si tiene variantes, usarlas; si no, devolver el array de tallas
+    if (producto.variantes) {
+      return producto.variantes.map((v: any) => v.talla);
+    }
+    return producto.tallas || [];
   };
 
   const getColoresDisponibles = () => {
     const producto = getProductoSeleccionado();
-    if (!producto || !producto.variantes || !nuevoItem.talla) return [];
-    const variante = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
-    if (!variante) return [];
-    return variante.colores.map((c: any) => c.color);
+    if (!producto) return [];
+    // Si tiene variantes, buscar los colores; si no, devolver el array de colores
+    if (producto.variantes && nuevoItem.talla) {
+      const variante = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
+      if (!variante) return [];
+      return variante.colores.map((c: any) => c.color);
+    }
+    return producto.colores || [];
   };
 
   const agregarItem = () => {
     if (!nuevoItem.productoId || !nuevoItem.talla || !nuevoItem.color || !nuevoItem.cantidad) {
-      alert('Completa todos los campos del producto');
+      setNotificationMessage('Completa todos los campos del producto');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
@@ -317,13 +459,17 @@ export default function VentasManager() {
     }
 
     if (formData.items.length === 0) {
-      alert('Agrega al menos un producto');
+      setNotificationMessage('Agrega al menos un producto');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
     const cliente = clientes.find((c: any) => c.id.toString() === formData.clienteId);
     if (!cliente) {
-      alert('Cliente no encontrado');
+      setNotificationMessage('Cliente no encontrado');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
@@ -350,11 +496,17 @@ export default function VentasManager() {
     setVentas([...ventas, ventaData]);
     setVentaCounter(ventaCounter + 1);
     setShowModal(false);
+    
+    setNotificationMessage('Venta creada exitosamente');
+    setNotificationType('success');
+    setShowNotificationModal(true);
   };
 
   const handleAnular = () => {
     if (!ventaToAnular || !motivoAnulacion.trim()) {
-      alert('Debes ingresar un motivo de anulación');
+      setNotificationMessage('Debes ingresar un motivo de anulación');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
@@ -367,11 +519,17 @@ export default function VentasManager() {
     setShowAnularModal(false);
     setVentaToAnular(null);
     setMotivoAnulacion('');
+    
+    setNotificationMessage('Venta anulada exitosamente');
+    setNotificationType('success');
+    setShowNotificationModal(true);
   };
 
   const handleCrearCliente = () => {
     if (!nuevoCliente.nombre || !nuevoCliente.numeroDoc || !nuevoCliente.telefono) {
-      alert('Completa los campos obligatorios');
+      setNotificationMessage('Completa los campos obligatorios');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
@@ -397,16 +555,24 @@ export default function VentasManager() {
       email: '',
       direccion: ''
     });
+    
+    setNotificationMessage('Cliente creado exitosamente');
+    setNotificationType('success');
+    setShowNotificationModal(true);
   };
 
   const handleCrearDevolucion = () => {
     if (!ventaToDevolver || !devolucionData.motivo.trim()) {
-      alert('Debes ingresar un motivo de devolución');
+      setNotificationMessage('Debes ingresar un motivo de devolución');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
     if (devolucionData.itemsDevueltos.length === 0) {
-      alert('Debes seleccionar al menos un producto para devolver');
+      setNotificationMessage('Debes seleccionar al menos un producto para devolver');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
@@ -464,7 +630,9 @@ export default function VentasManager() {
     setVentaToDevolver(null);
     setDevolucionData({ motivo: '', itemsDevueltos: [] });
     
-    alert(`Devolución ${numeroDevolucion} creada exitosamente.\nSaldo a favor generado: $${totalDevolucion.toLocaleString()}`);
+    setNotificationMessage(`Devolución ${numeroDevolucion} creada exitosamente. Saldo a favor generado: $${totalDevolucion.toLocaleString()}`);
+    setNotificationType('success');
+    setShowNotificationModal(true);
   };
 
   const handleToggleItemDevolucion = (itemId: string, cantidad: number) => {
@@ -541,11 +709,77 @@ Gracias por su compra
     a.click();
   };
 
-  const filteredVentas = ventas.filter(v =>
-    v.numeroVenta.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    v.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    v.estado.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const descargarTodasEnExcel = () => {
+    if (ventas.length === 0) {
+      setNotificationMessage('No hay ventas para descargar');
+      setNotificationType('info');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    try {
+      const datosExcel = ventas.map(v => ({
+        'ID Venta': v.numeroVenta,
+        'ID Pedido': v.pedido_id || 'N/A',
+        'Cliente': v.clienteNombre,
+        'Fecha': new Date(v.fechaVenta).toLocaleDateString(),
+        'Productos': v.items.map(i => i.productoNombre).join(', '),
+        'Cantidades': v.items.map(i => i.cantidad).join(', '),
+        'Precios Unitarios': v.items.map(i => `$${i.precioUnitario.toLocaleString()}`).join(', '),
+        'Subtotal': `$${v.subtotal.toLocaleString()}`,
+        'IVA': `$${v.iva.toLocaleString()}`,
+        'Total': `$${v.total.toLocaleString()}`,
+        'Estado': v.estado,
+        'Método Pago': v.metodoPago,
+        'Observaciones': v.observaciones || 'N/A'
+      }));
+
+      const headers = Object.keys(datosExcel[0] || {});
+      const csvContent = [
+        headers.join(','),
+        ...datosExcel.map(row => 
+          headers.map(header => {
+            const value = (row as any)[header] || '';
+            return `"${value.toString().replace(/"/g, '""')}"`;
+          }).join(',')
+        )
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `Ventas_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setNotificationMessage('Ventas descargadas exitosamente');
+      setNotificationType('success');
+      setShowNotificationModal(true);
+    } catch (error) {
+      setNotificationMessage('Error al descargar las ventas');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+    }
+  };
+
+  const filteredVentas = ventas.filter(v => {
+    const searchLower = searchTerm.toLowerCase();
+    const matchNumero = (v.numeroVenta?.toLowerCase() ?? '').includes(searchLower);
+    const matchCliente = (v.clienteNombre?.toLowerCase() ?? '').includes(searchLower);
+    const matchEstado = (v.estado?.toLowerCase() ?? '').includes(searchLower);
+    const matchFecha = new Date(v.fechaVenta).toLocaleDateString().includes(searchTerm);
+    const matchTotal = v.total.toString().includes(searchTerm);
+    const matchPedidoId = v.pedido_id ? (v.pedido_id?.toLowerCase() ?? '').includes(searchLower) : false;
+    const matchProductos = v.items.some(item => 
+      (item.productoNombre?.toLowerCase() ?? '').includes(searchLower)
+    );
+    
+    return matchNumero || matchCliente || matchEstado || matchFecha || matchTotal || matchPedidoId || matchProductos;
+  });
 
   const totales = calcularTotales(formData.items);
 
@@ -557,10 +791,16 @@ Gracias por su compra
           <h2 className="text-gray-900 mb-2">Gestión de Ventas</h2>
           <p className="text-gray-600">Registra y administra las ventas con IVA incluido</p>
         </div>
-        <Button onClick={handleCreate} variant="primary">
-          <Plus size={20} />
-          Nueva Venta
-        </Button>
+        <div className="flex gap-3">
+          <Button onClick={descargarTodasEnExcel} variant="secondary">
+            <Download size={20} />
+            Descargar Excel
+          </Button>
+          <Button onClick={handleCreate} variant="primary">
+            <Plus size={20} />
+            Nueva Venta
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -583,6 +823,7 @@ Gracias por su compra
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left py-4 px-6 text-gray-600">Número</th>
+                <th className="text-left py-4 px-6 text-gray-600">Pedido</th>
                 <th className="text-left py-4 px-6 text-gray-600">Cliente</th>
                 <th className="text-left py-4 px-6 text-gray-600">Fecha</th>
                 <th className="text-right py-4 px-6 text-gray-600">Total</th>
@@ -593,7 +834,7 @@ Gracias por su compra
             <tbody className="divide-y divide-gray-100">
               {filteredVentas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-500">
+                  <td colSpan={7} className="py-12 text-center text-gray-500">
                     <ShoppingBag className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron ventas</p>
                   </td>
@@ -603,6 +844,13 @@ Gracias por su compra
                   <tr key={venta.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="text-gray-900 font-medium">{venta.numeroVenta}</div>
+                    </td>
+                    <td className="py-4 px-6 text-gray-600">
+                      {venta.pedido_id ? (
+                        <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-sm font-medium">{venta.pedido_id}</span>
+                      ) : (
+                        <span className="text-gray-400">N/A</span>
+                      )}
                     </td>
                     <td className="py-4 px-6 text-gray-600">{venta.clienteNombre}</td>
                     <td className="py-4 px-6 text-gray-600">
@@ -1197,6 +1445,33 @@ Gracias por su compra
             </Button>
             <Button onClick={handleCrearCliente} variant="primary">
               Crear Cliente
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Notificación */}
+      <Modal
+        isOpen={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+        title={notificationType === 'success' ? 'Éxito' : notificationType === 'error' ? 'Error' : 'Información'}
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            {notificationType === 'success' && (
+              <CheckCircle className="text-green-600 flex-shrink-0 mt-1" size={24} />
+            )}
+            {notificationType === 'error' && (
+              <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={24} />
+            )}
+            {notificationType === 'info' && (
+              <AlertCircle className="text-blue-600 flex-shrink-0 mt-1" size={24} />
+            )}
+            <p className="text-gray-700 text-base">{notificationMessage}</p>
+          </div>
+          <div className="flex justify-end pt-4 border-t">
+            <Button onClick={() => setShowNotificationModal(false)} variant="primary">
+              Aceptar
             </Button>
           </div>
         </div>
