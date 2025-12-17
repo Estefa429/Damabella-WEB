@@ -42,6 +42,13 @@ const categoryData = [
   { name: 'Enterizos', value: 32, color: '#D1D5DB' },
 ];
 
+const categorySalesData = [
+  { name: 'Vestidos Largos', ventas: 12500000, cantidad: 145, color: '#374151' },
+  { name: 'Vestidos Cortos', ventas: 9200000, cantidad: 110, color: '#6B7280' },
+  { name: 'Sets', ventas: 7800000, cantidad: 98, color: '#9CA3AF' },
+  { name: 'Enterizos', ventas: 8900000, cantidad: 87, color: '#D1D5DB' },
+];
+
 const topProducts = [
   { name: 'Vestido Largo Elegante', ventas: 145, ingresos: 23155000 },
   { name: 'Set Deportivo Premium', ventas: 132, ingresos: 17148000 },
@@ -109,7 +116,7 @@ export function Dashboard() {
         {/* Ventas mensuales */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">Ventas Mensuales</h3>
+            <h3 className="text-lg font-semibold">Ventas por Mes (Pesos)</h3>
             <Badge variant="info">2024</Badge>
           </div>
           <ResponsiveContainer width="100%" height={300}>
@@ -117,8 +124,8 @@ export function Dashboard() {
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" stroke="#6b7280" />
               <YAxis stroke="#6b7280" tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`} />
-              <Tooltip formatter={(value) => `$${Number(value).toLocaleString()}`} />
-              <Area type="monotone" dataKey="ventas" stroke="#374151" fill="#9CA3AF" />
+              <Tooltip formatter={(value) => `$${Number(value).toLocaleString()} COP`} labelFormatter={(label) => `Mes: ${label}`} />
+              <Area type="monotone" dataKey="ventas" stroke="#374151" fill="#9CA3AF" name="Ventas (COP)" />
             </AreaChart>
           </ResponsiveContainer>
         </Card>
@@ -126,23 +133,23 @@ export function Dashboard() {
         {/* Pedidos mensuales */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">Pedidos Mensuales</h3>
+            <h3 className="text-lg font-semibold">Pedidos Mensuales (Cantidad)</h3>
             <Badge variant="success">↑ 15%</Badge>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={salesData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" stroke="#6b7280" />
-              <YAxis stroke="#6b7280" />
-              <Tooltip />
-              <Line type="monotone" dataKey="pedidos" stroke="#374151" strokeWidth={2} />
+              <YAxis stroke="#6b7280" label={{ value: 'Cantidad de Pedidos', angle: -90, position: 'insideLeft' }} />
+              <Tooltip formatter={(value) => `${value} pedidos`} labelFormatter={(label) => `Mes: ${label}`} />
+              <Line type="monotone" dataKey="pedidos" stroke="#374151" strokeWidth={2} name="Pedidos" />
             </LineChart>
           </ResponsiveContainer>
         </Card>
 
         {/* Productos por categoría */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Productos por Categoría</h3>
+          <h3 className="text-lg font-semibold mb-4">Ventas por Categoría</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -150,7 +157,7 @@ export function Dashboard() {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, value }) => `${name}: ${value}`}
+                label={({ name, value }) => `${name}: ${value} unidades`}
                 outerRadius={100}
                 fill="#8884d8"
                 dataKey="value"
@@ -159,21 +166,21 @@ export function Dashboard() {
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip formatter={(value) => `${value} unidades`} />
             </PieChart>
           </ResponsiveContainer>
         </Card>
 
         {/* Clientes registrados */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Clientes Registrados</h3>
+          <h3 className="text-lg font-semibold mb-4">Clientes Registrados (Cantidad)</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={clientsRegistered}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" stroke="#6b7280" />
-              <YAxis stroke="#6b7280" />
-              <Tooltip />
-              <Bar dataKey="clientes" fill="#6B7280" radius={[8, 8, 0, 0]} />
+              <YAxis stroke="#6b7280" label={{ value: 'Cantidad de Clientes', angle: -90, position: 'insideLeft' }} />
+              <Tooltip formatter={(value) => `${value} clientes`} labelFormatter={(label) => `Mes: ${label}`} />
+              <Bar dataKey="clientes" fill="#6B7280" radius={[8, 8, 0, 0]} name="Clientes Registrados" />
             </BarChart>
           </ResponsiveContainer>
         </Card>
@@ -181,14 +188,16 @@ export function Dashboard() {
 
       {/* Productos más vendidos */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4">Productos Más Vendidos</h3>
+        <h3 className="text-lg font-semibold mb-4">Productos Más Vendidos (Unidades Vendidas)</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={topProducts}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="name" stroke="#6b7280" />
-            <YAxis stroke="#6b7280" />
-            <Tooltip formatter={(value) => `${value} unidades`} />
-            <Bar dataKey="ventas" fill="#374151" radius={[8, 8, 0, 0]} />
+            <YAxis stroke="#6b7280" yAxisId="left" label={{ value: 'Cantidad Vendida', angle: -90, position: 'insideLeft' }} />
+            <YAxis yAxisId="right" orientation="right" stroke="#6b7280" tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`} label={{ value: 'Ingresos (COP)', angle: 90, position: 'insideRight' }} />
+            <Tooltip formatter={(value) => typeof value === 'number' ? value > 1000 ? `$${(value / 1000000).toFixed(2)}M` : `${value} unidades` : value} labelFormatter={(label) => `Producto: ${label}`} />
+            <Bar yAxisId="left" dataKey="ventas" fill="#374151" radius={[8, 8, 0, 0]} name="Cantidad Vendida" />
+            <Bar yAxisId="right" dataKey="ingresos" fill="#9CA3AF" radius={[8, 8, 0, 0]} name="Ingresos (COP)" />
           </BarChart>
         </ResponsiveContainer>
       </Card>
@@ -274,51 +283,43 @@ export function Dashboard() {
 
       {/* Pedidos recientes */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4">Pedidos Recientes</h3>
+        <h3 className="text-lg font-semibold mb-4">Pedidos Recientes (Pendientes)</h3>
         <div className="space-y-3">
-          {mockTransactions.slice(0, 5).map((transaction) => (
-            <div
-              key={transaction.id}
-              className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center gap-4">
-                <div className={`p-2 rounded-lg ${
-                  transaction.status === 'Entregado' ? 'bg-green-100' :
-                  transaction.status === 'Procesando' ? 'bg-yellow-100' :
-                  'bg-blue-100'
-                }`}>
-                  {transaction.status === 'Entregado' ? (
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                  ) : transaction.status === 'Procesando' ? (
+          {mockTransactions
+            .filter(t => t.status === 'Procesando')
+            .slice(0, 5)
+            .map((transaction) => (
+              <div
+                key={transaction.id}
+                className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="p-2 rounded-lg bg-yellow-100">
                     <Clock className="h-5 w-5 text-yellow-600" />
-                  ) : (
-                    <Package className="h-5 w-5 text-blue-600" />
-                  )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{transaction.userName}</p>
+                    <p className="text-xs text-gray-600">
+                      {new Date(transaction.date).toLocaleDateString('es-ES', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{transaction.userName}</p>
-                  <p className="text-xs text-gray-600">
-                    {new Date(transaction.date).toLocaleDateString('es-ES', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </p>
+                <div className="text-right space-y-1">
+                  <p className="text-sm font-medium">${transaction.total.toLocaleString()} COP</p>
+                  <Badge variant="warning">
+                    {transaction.status}
+                  </Badge>
                 </div>
               </div>
-              <div className="text-right space-y-1">
-                <p className="text-sm font-medium">${transaction.total.toLocaleString()}</p>
-                <Badge variant={
-                  transaction.status === 'Entregado' ? 'success' :
-                  transaction.status === 'Procesando' ? 'warning' :
-                  'info'
-                }>
-                  {transaction.status}
-                </Badge>
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
+        {mockTransactions.filter(t => t.status === 'Procesando').length === 0 && (
+          <p className="text-center text-gray-500 py-8">No hay pedidos pendientes</p>
+        )}
       </Card>
     </div>
   );

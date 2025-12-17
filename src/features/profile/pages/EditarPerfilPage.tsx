@@ -9,15 +9,35 @@ interface EditarPerfilPageProps {
 }
 
 export default function EditarPerfilPage({ currentUser, onSave, onCancel }: EditarPerfilPageProps) {
-  const [formData, setFormData] = useState({
-    nombre: currentUser?.nombre || '',
-    email: currentUser?.email || '',
-    celular: currentUser?.celular || '',
-    direccion: currentUser?.direccion || '',
-    tipoDoc: currentUser?.tipoDoc || 'CC',
-    numeroDoc: currentUser?.numeroDoc || '',
-    avatar: currentUser?.avatar || null
-  });
+  // Obtener usuario desde localStorage si currentUser no tiene datos
+  const getUserData = () => {
+    // Si currentUser tiene nombre, usarlo
+    if (currentUser?.nombre) {
+      return currentUser;
+    }
+    
+    // Si no, intentar obtener de localStorage
+    const storedUser = localStorage.getItem('damabella_current_user');
+    if (storedUser) {
+      return JSON.parse(storedUser);
+    }
+    
+    // Si aún no hay datos, retornar currentUser tal cual
+    return currentUser;
+  };
+
+  const userData = getUserData();
+
+  // Inicializar con los datos del usuario (de currentUser o localStorage)
+  const [formData, setFormData] = useState(() => ({
+    nombre: userData?.nombre || '',
+    email: userData?.email || '',
+    celular: userData?.celular || '',
+    direccion: userData?.direccion || '',
+    tipoDoc: userData?.tipoDoc || 'CC',
+    numeroDoc: userData?.numeroDoc || '',
+    avatar: userData?.avatar || null
+  }));
 
   const [errors, setErrors] = useState<any>({});
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -31,6 +51,21 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [toasts, setToasts] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sincronizar cuando currentUser cambia
+  useEffect(() => {
+    const user = currentUser?.nombre ? currentUser : JSON.parse(localStorage.getItem('damabella_current_user') || '{}');
+    setFormData({
+      nombre: user?.nombre || '',
+      email: user?.email || '',
+      celular: user?.celular || '',
+      direccion: user?.direccion || '',
+      tipoDoc: user?.tipoDoc || 'CC',
+      numeroDoc: user?.numeroDoc || '',
+      avatar: user?.avatar || null
+    });
+    setErrors({});
+  }, [currentUser]);
 
   const handleAvatarClick = () => fileInputRef.current?.click();
 
@@ -83,45 +118,69 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (Object.keys(errors).length > 0) return;
+    console.log('💾 [handleSubmit] GUARDANDO CAMBIOS DEL PERFIL');
+    console.log('  📋 Datos del formulario:', JSON.stringify(formData, null, 2));
+    console.log('  👤 Usuario actual ID:', currentUser?.id);
+    
+    if (Object.keys(errors).length > 0) {
+      console.log('  ❌ Error: Hay errores de validación:', errors);
+      return;
+    }
 
     const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
     const userIndex = users.findIndex((u: any) => u.id === currentUser.id);
+    console.log('  🔍 Usuario encontrado en índice:', userIndex);
 
     if (userIndex !== -1) {
       users[userIndex] = { ...users[userIndex], ...formData };
       localStorage.setItem('damabella_users', JSON.stringify(users));
+      console.log('  ✅ Cambios guardados en localStorage');
       onSave({ ...currentUser, ...formData });
       showToast('Perfil guardado exitosamente ✅');
+    } else {
+      console.log('  ❌ Error: Usuario no encontrado en la base de datos');
     }
   };
 
   const handleChangePassword = () => {
+    console.log('🔐 [handleChangePassword] INICIANDO CAMBIO DE CONTRASEÑA');
+    console.log('  👤 Usuario ID:', currentUser?.id);
+    
     if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
+      console.log('  ❌ Error: Campos incompletos');
       showToast('Por favor completa todos los campos');
       return;
     }
     if (passwordData.newPassword !== passwordData.confirmPassword) {
+      console.log('  ❌ Error: Las nuevas contraseñas no coinciden');
       showToast('Las contraseñas nuevas no coinciden');
       return;
     }
     if (passwordData.newPassword.length < 6) {
+      console.log('  ❌ Error: Nueva contraseña muy corta (mínimo 6 caracteres)');
       showToast('La nueva contraseña debe tener al menos 6 caracteres');
       return;
     }
 
     const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
     const userIndex = users.findIndex((u: any) => u.id === currentUser.id);
+    console.log('  🔍 Usuario encontrado en índice:', userIndex);
+    
     if (userIndex !== -1) {
       if (users[userIndex].password !== passwordData.currentPassword) {
+        console.log('  ❌ Error: Contraseña actual incorrecta');
         showToast('La contraseña actual es incorrecta');
         return;
       }
       users[userIndex].password = passwordData.newPassword;
       localStorage.setItem('damabella_users', JSON.stringify(users));
+      console.log('  ✅ Contraseña actualizada en localStorage');
       setShowPasswordModal(false);
+      console.log('  🔒 Modal de contraseña cerrado');
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       showToast('Contraseña actualizada ✅');
+    } else {
+      console.log('  ❌ Error: Usuario no encontrado');
     }
   };
 
@@ -147,7 +206,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 {formData.avatar ? (
                   <img src={formData.avatar} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  formData.nombre?.[0]?.toUpperCase() || 'U'
+                  (formData.nombre || currentUser?.nombre)?.[0]?.toUpperCase() || 'U'
                 )}
               </div>
               <button
@@ -182,8 +241,12 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
               </label>
               <Input
                 type="text"
+                placeholder="Ingresa tu nombre completo"
                 value={formData.nombre}
-                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                onChange={(e) => {
+                  const value = e.target.value.split('').filter(char => /^[a-zA-Z0-9\s]$/.test(char)).join('');
+                  setFormData({ ...formData, nombre: value });
+                }}
               />
               {errors.nombre && <p className="text-red-600 text-sm mt-1">{errors.nombre}</p>}
             </div>
@@ -195,6 +258,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
               </label>
               <Input
                 type="email"
+                placeholder="correo@ejemplo.com"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               />
@@ -225,8 +289,12 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
               </label>
               <Input
                 type="text"
+                placeholder="1234567890"
                 value={formData.numeroDoc}
-                onChange={(e) => setFormData({ ...formData, numeroDoc: e.target.value })}
+                onChange={(e) => {
+                  const value = e.target.value.split('').filter(char => /^\d$/.test(char)).join('');
+                  setFormData({ ...formData, numeroDoc: value });
+                }}
               />
               {errors.numeroDoc && <p className="text-red-600 text-sm mt-1">{errors.numeroDoc}</p>}
             </div>
@@ -238,8 +306,12 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
               </label>
               <Input
                 type="tel"
+                placeholder="3001234567"
                 value={formData.celular}
-                onChange={(e) => setFormData({ ...formData, celular: e.target.value })}
+                onChange={(e) => {
+                  const value = e.target.value.split('').filter(char => /^\d$/.test(char)).join('');
+                  setFormData({ ...formData, celular: value });
+                }}
               />
               {errors.celular && <p className="text-red-600 text-sm mt-1">{errors.celular}</p>}
             </div>
@@ -251,8 +323,12 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
               </label>
               <Input
                 type="text"
+                placeholder="Calle 123 # 45-67"
                 value={formData.direccion}
-                onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+                onChange={(e) => {
+                  const value = e.target.value.split('').filter(char => /^[a-zA-Z0-9\s#\-.,]$/.test(char)).join('');
+                  setFormData({ ...formData, direccion: value });
+                }}
               />
               {errors.direccion && <p className="text-red-600 text-sm mt-1">{errors.direccion}</p>}
             </div>
@@ -266,7 +342,10 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
             <Button
               type="button"
               variant="secondary"
-              onClick={() => setShowPasswordModal(true)}
+              onClick={() => {
+                console.log('🔐 [SEGURIDAD] ABRIENDO MODAL DE CAMBIO DE CONTRASEÑA');
+                setShowPasswordModal(true);
+              }}
               className="flex items-center gap-2"
               size="sm"
             >
@@ -286,7 +365,10 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
       </div>
 
       {/* Modal Cambiar Contraseña */}
-      <Modal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} title="Cambiar Contraseña">
+      <Modal isOpen={showPasswordModal} onClose={() => {
+        console.log('🔒 [MODAL CONTRASEÑA] CERRANDO MODAL DE CAMBIO DE CONTRASEÑA');
+        setShowPasswordModal(false);
+      }} title="Cambiar Contraseña">
         <div className="space-y-4">
           <div>
             <label className="block text-gray-700 mb-2">Contraseña Actual *</label>

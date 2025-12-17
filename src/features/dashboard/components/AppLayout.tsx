@@ -26,7 +26,7 @@ import {
 import DashboardMain from '../pages/DashboardMain';
 import { RolesPage } from '../../roles';
 import { PermisosPage, ConfiguracionPage } from '../../configuration';
-import { UsuariosManager } from '../../users';
+import { UsuariosModule } from '../../users';
 import { CategoriasManager } from '../../ecommerce/categories';
 import { ProductosManager } from '../../ecommerce/products';
 import { ProveedoresManager } from '../../suppliers';
@@ -214,7 +214,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
       case 'permisos':
         return <PermisosPage />;
       case 'usuarios':
-        return <UsuariosManager />;
+        return <UsuariosModule />;
       case 'categorias':
         return <CategoriasManager />;
       case 'productos':

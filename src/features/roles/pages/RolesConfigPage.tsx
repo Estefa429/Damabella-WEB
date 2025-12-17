@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Shield, Check, X, Search } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
+import validateField from '../../../shared/utils/validation';
 
 const STORAGE_KEY = 'damabella_roles';
 
@@ -61,6 +62,7 @@ export default function RolesConfigPage() {
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [editingRole, setEditingRole] = useState<any>(null);
   const [formData, setFormData] = useState({ nombre: '', descripcion: '' });
+  const [formErrors, setFormErrors] = useState<any>({});
   const [selectedPermisos, setSelectedPermisos] = useState<any>({});
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -98,8 +100,14 @@ export default function RolesConfigPage() {
   };
 
   const handleSave = () => {
-    if (!formData.nombre.trim()) {
-      alert('El nombre del rol es requerido');
+    const errors: any = {};
+    ['nombre', 'descripcion'].forEach((f) => {
+      const err = validateField(f, (formData as any)[f]);
+      if (err) errors[f] = err;
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
       return;
     }
 
@@ -109,6 +117,16 @@ export default function RolesConfigPage() {
       setRoles([...roles, { id: Date.now(), ...formData, activo: true, permisos: {} }]);
     }
     setShowModal(false);
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
+    setFormData({ ...formData, [field]: value });
+    const err = validateField(field, value);
+    if (err) setFormErrors({ ...formErrors, [field]: err });
+    else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
+    }
   };
 
   const handleDelete = (id: number) => {
@@ -278,20 +296,22 @@ export default function RolesConfigPage() {
             <label className="block text-gray-700 mb-2">Nombre del Rol *</label>
             <Input
               value={formData.nombre}
-              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              onChange={(e) => handleFieldChange('nombre', e.target.value)}
               placeholder="Ej: Gerente"
               required
             />
+            {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
           </div>
           <div>
             <label className="block text-gray-700 mb-2">Descripción</label>
             <textarea
               value={formData.descripcion}
-              onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+              onChange={(e) => handleFieldChange('descripcion', e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               rows={3}
               placeholder="Describe las responsabilidades de este rol"
             />
+            {formErrors.descripcion && <p className="text-red-600 text-sm mt-1">{formErrors.descripcion}</p>}
           </div>
           <div className="flex gap-3 justify-end pt-4">
             <Button onClick={() => setShowModal(false)} variant="secondary">

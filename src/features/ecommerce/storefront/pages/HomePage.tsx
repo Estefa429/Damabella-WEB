@@ -21,17 +21,38 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
   const recentlyViewedProducts = products.filter(p => recentlyViewed.includes(p.id)).slice(0, 4);
 
   const banners = [
-    { id: 1, title: '✨ Nueva Colección', subtitle: 'Descubre los últimos diseños', bgColor: 'from-pink-300 to-purple-300' },
+    { id: 1, title: '✨ Nueva Colección', subtitle: 'Descubre los últimos diseños', bgColor: 'from-pink-300 to-purple-300'},
     { id: 2, title: '🎁 Envío Gratis', subtitle: 'En compras mayores a $150.000', bgColor: 'from-blue-300 to-pink-300' },
     { id: 3, title: '💎 Descuentos Especiales', subtitle: 'Hasta 30% OFF en productos seleccionados', bgColor: 'from-purple-300 to-pink-400' },
   ];
 
   const categories = [
-    { name: 'Vestidos Largos', icon: '👗', color: 'bg-pink-100', count: products.filter(p => p.category === 'Vestidos Largos').length },
-    { name: 'Vestidos Cortos', icon: '👚', color: 'bg-purple-100', count: products.filter(p => p.category === 'Vestidos Cortos').length },
-    { name: 'Enterizos', icon: '🩱', color: 'bg-blue-100', count: products.filter(p => p.category === 'Enterizos').length },
-    { name: 'Sets', icon: '👔', color: 'bg-rose-100', count: products.filter(p => p.category === 'Sets').length },
-  ];
+  { 
+    name: 'Vestidos Largos', 
+    icon: '👗', 
+    bgColor: 'linear-gradient(135deg, #ec4899 0%, #f472b6 50%, #c084fc 100%)',
+    count: products.filter(p => p.category === 'Vestidos Largos').length 
+  },
+  { 
+    name: 'Vestidos Cortos', 
+    icon: '👚', 
+    bgColor: 'linear-gradient(135deg, #a855f7 0%, #f472b6 50%, #06b6d4 100%)',
+    count: products.filter(p => p.category === 'Vestidos Cortos').length 
+  },
+  { 
+    name: 'Enterizos', 
+    icon: '🩱', 
+    bgColor: 'linear-gradient(135deg, #3b82f6 0%, #22d3ee 50%, #f472b6 100%)',
+    count: products.filter(p => p.category === 'Enterizos').length 
+  },
+  { 
+    name: 'Sets', 
+    icon: '👔', 
+    bgColor: 'linear-gradient(135deg, #f43f5e 0%, #f472b6 50%, #c084fc 100%)',
+    count: products.filter(p => p.category === 'Sets').length 
+  },
+];
+
 
   const nextSlide = () => {
     setCurrentSlide((prev) => (prev + 1) % banners.length);
@@ -42,7 +63,20 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
   };
 
   const handleAddToCart = (product: any) => {
+    // Validar que el producto tenga variantes
+    if (!product?.variants || product.variants.length === 0) {
+      alert('Este producto no tiene variantes disponibles');
+      return;
+    }
+
     const firstVariant = product.variants[0];
+
+    // Validar que la variante tenga tallas
+    if (!firstVariant?.sizes || firstVariant.sizes.length === 0) {
+      alert('Este producto no tiene tallas disponibles');
+      return;
+    }
+
     const firstSize = firstVariant.sizes.find((s: any) => s.stock > 0);
 
     if (firstSize) {
@@ -56,27 +90,27 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
         size: firstSize.size,
         quantity: 1,
       });
+    } else {
+      alert('Este producto no tiene stock disponible');
     }
   };
 
   return (
     <div className="min-h-screen bg-[#F5F6F7]">
-      {/* Header - Desktop */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm lg:hidden">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6">
+      {/* Header - Mobile */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm md:hidden">
+        <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
               DAMABELLA
             </h1>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => onNavigate('search')}
-                className="flex items-center gap-2 px-6 py-2 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                <Search size={20} className="text-gray-600" />
-                <span className="text-gray-700">Buscar</span>
-              </button>
-            </div>
+            <button
+              onClick={() => onNavigate('search')}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              title="Buscar"
+            >
+              <Search size={20} className="text-gray-600" />
+            </button>
           </div>
         </div>
       </header>
@@ -151,11 +185,19 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
               <button
                 key={category.name}
                 onClick={() => onNavigate('search', category.name)}
-                className="bg-white p-6 rounded-xl shadow-sm hover:shadow-lg transition-all hover:-translate-y-1"
+                style={{ background: category.bgColor }}
+                className="relative rounded-xl overflow-hidden shadow-sm hover:shadow-lg transition-all hover:-translate-y-1 h-64"
               >
-                <div className="text-4xl mb-3">{category.icon}</div>
-                <p className="text-lg text-gray-800 mb-1">{category.name}</p>
-                <p className="text-sm text-gray-600">{category.count} productos</p>
+                {/* Capa oscura para mejor contraste */}
+                <div className="absolute inset-0 bg-black/20" />
+
+                {/* Contenido */}
+                <div className="absolute inset-0 p-6 flex flex-col justify-end text-white">
+                  <div className="text-6xl mb-3">{category.icon}</div>
+                  <p className="text-xl font-bold mb-1">{category.name}</p>
+                  <p className="text-sm opacity-90 mb-4">{category.count} productos</p>
+                  <div className="text-sm font-medium opacity-90">Explorar →</div>
+                </div>
               </button>
             ))}
           </div>
@@ -192,11 +234,20 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                     ${product.price.toLocaleString()}
                   </p>
                   <div className="flex gap-1.5 mb-3">
-                    {product.variants.slice(0, 4).map((variant, idx) => (
+                    {Array.from(new Set(product.variants.map(v => v.colorHex))).slice(0, 4).map((colorHex, idx) => (
                       <div
                         key={idx}
                         className="w-6 h-6 rounded-full border-2 border-gray-300"
-                        style={{ backgroundColor: variant.colorHex }}
+                        style={{ backgroundColor: colorHex }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex gap-1.5 mb-3">
+                    {Array.from(new Set(product.variants.map((v: any) => v.colorHex))).slice(0, 4).map((colorHex: string, idx: number) => (
+                      <div
+                        key={idx}
+                        className="w-6 h-6 rounded-full border-2 border-gray-300"
+                        style={{ backgroundColor: colorHex }}
                       />
                     ))}
                   </div>

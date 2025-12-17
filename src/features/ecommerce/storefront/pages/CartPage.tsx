@@ -1,6 +1,7 @@
-import React from 'react';
-import { Trash2, Plus, Minus, ShoppingBag } from 'lucide-react';
+import React, { useState } from 'react';
+import { Trash2, Plus, Minus, ShoppingBag, X } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
+import { useToast } from '../../../../shared/components/native';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
 
@@ -12,10 +13,28 @@ interface CartPageProps {
 
 export function CartPage({ onNavigate, isAuthenticated = false, currentUser = null }: CartPageProps) {
   const { cart, updateCartQuantity, removeFromCart } = useEcommerce();
+  const { showToast } = useToast();
+  const [deletingItem, setDeletingItem] = useState<{ productId: string; color: string; size: string } | null>(null);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const shipping = subtotal >= 150000 ? 0 : 15000;
   const total = subtotal + shipping;
+
+  const handleDeleteClick = (productId: string, color: string, size: string) => {
+    setDeletingItem({ productId, color, size });
+  };
+
+  const handleConfirmDelete = () => {
+    if (deletingItem) {
+      removeFromCart(deletingItem.productId, deletingItem.color, deletingItem.size);
+      showToast('🗑️ Producto eliminado del carrito', 'info');
+    }
+    setDeletingItem(null);
+  };
+
+  const handleCancelDelete = () => {
+    setDeletingItem(null);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -84,12 +103,30 @@ export function CartPage({ onNavigate, isAuthenticated = false, currentUser = nu
                             <Plus size={18} />
                           </button>
                         </div>
-                        <button
-                          onClick={() => removeFromCart(item.productId, item.color, item.size)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        >
-                          <Trash2 size={20} />
-                        </button>
+                        {deletingItem?.productId === item.productId && deletingItem?.color === item.color && deletingItem?.size === item.size ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-700">¿Eliminar?</span>
+                            <button
+                              onClick={handleConfirmDelete}
+                              className="px-3 py-1 bg-red-500 text-white text-sm rounded-lg hover:bg-red-600 transition-colors"
+                            >
+                              Sí
+                            </button>
+                            <button
+                              onClick={handleCancelDelete}
+                              className="px-3 py-1 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleDeleteClick(item.productId, item.color, item.size)}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={20} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

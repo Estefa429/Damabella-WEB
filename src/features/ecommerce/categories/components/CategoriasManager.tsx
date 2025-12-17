@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Package, Search, FolderTree } from 'lucide-react';
+import { Plus, Edit2, Trash2, Package, Search, FolderTree, AlertTriangle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_categorias';
@@ -33,11 +33,18 @@ export default function CategoriasManager() {
     return stored ? JSON.parse(stored) : [];
   });
   
-  const [showModal, setShowModal] = useState(false);
+const [showModal, setShowModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [formData, setFormData] = useState({ name: '', description: '' });
-  const [formErrors, setFormErrors] = useState<any>({});
+  const [formErrors, setFormErrors] = useState({ name: '' });
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showInactiveConfirmModal, setShowInactiveConfirmModal] = useState(false);
+  const [categoryToToggle, setCategoryToToggle] = useState<any>(null);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<any>(null);
+  
+  const itemsPerPage = 10;
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(categories));
@@ -62,12 +69,19 @@ export default function CategoriasManager() {
 
 
   const handleFieldChange = (field: string, value: string) => {
-    setFormData({ ...formData, [field]: value });
+    let processedValue = value;
+    
+    // Validación de caracteres especiales en el nombre
+    if (field === 'name') {
+      processedValue = value.split('').filter(char => /^[a-zA-Z0-9\s]$/.test(char)).join('');
+    }
+    
+    setFormData({ ...formData, [field]: processedValue });
     
     // Validación en tiempo real
     const errors: any = {};
     if (field === 'name') {
-      if (!value.trim()) {
+      if (!processedValue.trim()) {
         errors.name = 'El nombre de la categoría es requerido';
       }
     }
@@ -118,21 +132,63 @@ export default function CategoriasManager() {
   };
 
   const handleDelete = (id: number) => {
-    if (confirm('¿Está seguro de eliminar esta categoría?')) {
-      setCategories(categories.filter((c: any) => c.id !== id));
+    const category = categories.find((c: any) => c.id === id);
+    setCategoryToDelete(category);
+    setShowDeleteConfirmModal(true);
+  };
+
+  const confirmDelete = () => {
+    if (categoryToDelete) {
+      setCategories(categories.filter((c: any) => c.id !== categoryToDelete.id));
     }
+    setShowDeleteConfirmModal(false);
+    setCategoryToDelete(null);
   };
 
   const toggleActive = (id: number) => {
-    setCategories(categories.map((c: any) => 
-      c.id === id ? { ...c, active: !c.active } : c
-    ));
+    const category = categories.find((c: any) => c.id === id);
+    
+    // Si está activa y queremos desactivarla, mostrar modal de confirmación
+    if (category && category.active) {
+      setCategoryToToggle(category);
+      setShowInactiveConfirmModal(true);
+    } else {
+      // Si está inactiva, activarla directamente
+      setCategories(categories.map((c: any) => 
+        c.id === id ? { ...c, active: !c.active } : c
+      ));
+    }
   };
 
-  const filteredCategories = categories.filter((c: any) =>
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const confirmToggleInactive = () => {
+    if (categoryToToggle) {
+      setCategories(categories.map((c: any) => 
+        c.id === categoryToToggle.id ? { ...c, active: false } : c
+      ));
+    }
+    setShowInactiveConfirmModal(false);
+    setCategoryToToggle(null);
+  };
+
+  const filteredCategories = categories.filter((c: any) => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      c.id.toString().includes(searchTerm) ||
+      (c.name?.toLowerCase() ?? '').includes(searchLower) ||
+      (c.description?.toLowerCase() ?? '').includes(searchLower) ||
+      (c.active ? 'activa' : 'inactiva').includes(searchLower)
+    );
+  });
+
+  // Aplicar paginación
+  const totalPages = Math.ceil(filteredCategories.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedCategories = filteredCategories.slice(startIndex, startIndex + itemsPerPage);
+
+  // Resetear página si el término de búsqueda cambia
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   return (
     <div className="space-y-6">
@@ -169,69 +225,112 @@ export default function CategoriasManager() {
           <p className="text-gray-600">Intenta con otro término de búsqueda</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredCategories.map((category: any) => (
-            <div 
-              key={category.id} 
-              className="bg-gray-50 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200"
-            >
-              {/* Header sin gradiente */}
-              <div className="bg-white p-6 border-b border-gray-200">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center">
-                    <FolderTree size={28} className="text-gray-600" />
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {paginatedCategories.map((category: any) => (
+              <div 
+                key={category.id} 
+                className="bg-gray-50 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200"
+              >
+                {/* Header sin gradiente */}
+                <div className="bg-white p-6 border-b border-gray-200">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center">
+                      <FolderTree size={28} className="text-gray-600" />
+                    </div>
+                    {/* Switch ON/OFF */}
+                    <button
+                      onClick={() => toggleActive(category.id)}
+                      className={`relative w-14 h-7 rounded-full transition-colors ${
+                        category.active ? 'bg-green-500' : 'bg-gray-400'
+                      }`}
+                    >
+                      <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
+                        category.active ? 'translate-x-7' : 'translate-x-0'
+                      }`} />
+                    </button>
                   </div>
-                  {/* Switch ON/OFF */}
+                  <h3 className="text-gray-900 text-xl">{category.name}</h3>
+                </div>
+
+                {/* Body */}
+                <div className="p-6">
+                  <p className="text-gray-600 mb-4 min-h-[3rem]">{category.description}</p>
+                  
+                  <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
+                    <span className="text-gray-500 text-sm">Productos</span>
+                    <span className="inline-flex items-center justify-center px-3 py-1 rounded-full bg-white text-gray-700 border border-gray-200">
+                      {getProductosPorCategoria(category.name)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-medium ${category.active ? 'text-green-600' : 'text-gray-400'}`}>
+                      {category.active ? 'Activa' : 'Inactiva'}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEdit(category)}
+                        className="p-2 hover:bg-white rounded-lg transition-colors text-gray-600"
+                        title="Editar"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(category.id)}
+                        className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
+                        title="Eliminar"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-8 pb-6">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Anterior
+              </button>
+              
+              <div className="flex gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                   <button
-                    onClick={() => toggleActive(category.id)}
-                    className={`relative w-14 h-7 rounded-full transition-colors ${
-                      category.active ? 'bg-green-500' : 'bg-gray-400'
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-2 rounded-lg transition-colors ${
+                      currentPage === page
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white border border-gray-300 hover:bg-gray-50'
                     }`}
                   >
-                    <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
-                      category.active ? 'translate-x-7' : 'translate-x-0'
-                    }`} />
+                    {page}
                   </button>
-                </div>
-                <h3 className="text-gray-900 text-xl">{category.name}</h3>
+                ))}
               </div>
 
-              {/* Body */}
-              <div className="p-6">
-                <p className="text-gray-600 mb-4 min-h-[3rem]">{category.description}</p>
-                
-                <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
-                  <span className="text-gray-500 text-sm">Productos</span>
-                  <span className="inline-flex items-center justify-center px-3 py-1 rounded-full bg-white text-gray-700 border border-gray-200">
-                    {getProductosPorCategoria(category.name)}
-                  </span>
-                </div>
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Siguiente
+              </button>
 
-                <div className="flex items-center justify-between">
-                  <span className={`text-sm font-medium ${category.active ? 'text-green-600' : 'text-gray-400'}`}>
-                    {category.active ? 'Activa' : 'Inactiva'}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleEdit(category)}
-                      className="p-2 hover:bg-white rounded-lg transition-colors text-gray-600"
-                      title="Editar"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(category.id)}
-                      className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                      title="Eliminar"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <span className="ml-4 text-sm text-gray-600">
+                Página {currentPage} de {totalPages}
+              </span>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {/* Modal Create/Edit - NEUTRAL */}
@@ -267,6 +366,85 @@ export default function CategoriasManager() {
             </Button>
             <Button onClick={handleSave} variant="primary">
               {editingCategory ? 'Guardar Cambios' : 'Crear Categoría'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Confirmation - Inactivate Category */}
+      <Modal
+        isOpen={showInactiveConfirmModal}
+        onClose={() => {
+          setShowInactiveConfirmModal(false);
+          setCategoryToToggle(null);
+        }}
+        title="Confirmar Desactivación"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">
+            ¿Está seguro de que desea desactivar la categoría <strong>{categoryToToggle?.name}</strong>?
+          </p>
+          <p className="text-gray-600 text-sm">
+            Esta categoría no será visible en el catálogo de productos. Puede reactivarla en cualquier momento.
+          </p>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button 
+              onClick={() => {
+                setShowInactiveConfirmModal(false);
+                setCategoryToToggle(null);
+              }} 
+              variant="secondary"
+            >
+              Cancelar
+            </Button>
+            <Button onClick={confirmToggleInactive} variant="primary">
+              Desactivar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Confirmation - Delete Category */}
+      <Modal
+        isOpen={showDeleteConfirmModal}
+        onClose={() => {
+          setShowDeleteConfirmModal(false);
+          setCategoryToDelete(null);
+        }}
+        title="Eliminar Categoría"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 bg-red-50 p-4 rounded-lg border border-red-200">
+            <AlertTriangle className="text-red-600 flex-shrink-0" size={24} />
+            <div>
+              <p className="text-red-800 font-semibold">Acción irreversible</p>
+              <p className="text-red-700 text-sm">Esta acción no se puede deshacer</p>
+            </div>
+          </div>
+          <div>
+            <p className="text-gray-700 mb-2">
+              ¿Está seguro de que desea eliminar la categoría <strong className="text-red-600">{categoryToDelete?.name}</strong>?
+            </p>
+            <p className="text-gray-600 text-sm">
+              Se eliminarán todos los datos asociados a esta categoría de forma permanente. Si esta categoría tiene productos asociados, se perderá esa información.
+            </p>
+          </div>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button 
+              onClick={() => {
+                setShowDeleteConfirmModal(false);
+                setCategoryToDelete(null);
+              }} 
+              variant="secondary"
+            >
+              Cancelar
+            </Button>
+            <Button 
+              onClick={confirmDelete} 
+              variant="primary"
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Eliminar Permanentemente
             </Button>
           </div>
         </div>

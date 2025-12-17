@@ -3,6 +3,7 @@ import { ChevronRight, Star, Truck, Shield, Heart, ArrowRight, Instagram, Facebo
 import { useEcommerce } from '../../../../shared/contexts';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
+import { ImageWithFallback } from '../../../../components/figma/ImageWithFallback';
 
 interface PremiumHomePageProps {
   onNavigate: (view: string, productId?: string) => void;
@@ -24,7 +25,18 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
   };
 
   const handleAddToCart = (product: any) => {
+    if (!product?.variants || product.variants.length === 0) {
+      alert('Este producto no tiene variantes disponibles');
+      return;
+    }
+
     const firstVariant = product.variants[0];
+
+    if (!firstVariant?.sizes || firstVariant.sizes.length === 0) {
+      alert('Este producto no tiene tallas disponibles');
+      return;
+    }
+
     const firstSize = firstVariant.sizes.find((s: any) => s.stock > 0);
 
     if (firstSize) {
@@ -38,6 +50,8 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
         size: firstSize.size,
         quantity: 1,
       });
+    } else {
+      alert('Este producto no tiene stock disponible');
     }
   };
 
@@ -49,14 +63,14 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
       <section className="relative h-screen flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-pink-100 via-purple-50 to-pink-50" />
         
-        {/* Hero Image
+        {/* Hero Image */}
         <div className="absolute inset-0 opacity-40">
           <ImageWithFallback
             src="https://images.unsplash.com/photo-1720005398225-4ea01c9d2b8f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxlbGVnYW50JTIwZmFzaGlvbiUyMHdvbWFuJTIwZHJlc3N8ZW58MXx8fHwxNzYzOTE0ODA3fDA&ixlib=rb-4.1.0&q=80&w=1080"
             alt="Fashion"
             className="w-full h-full object-cover"
           />
-        </div> */}
+        </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 text-center">
           <h1 className="text-7xl lg:text-8xl mb-6 text-gray-900 tracking-tight">
@@ -101,11 +115,11 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
             <div className="relative overflow-hidden rounded-3xl h-[400px] group cursor-pointer"
               onClick={() => onNavigate('search', 'Vestidos Largos')}
             >
-              {/* <ImageWithFallback
+              <img
                 src="https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=800"
                 alt="Vestidos Largos"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-              /> */}
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
                 <h3 className="text-4xl mb-2">Vestidos Largos</h3>
@@ -121,11 +135,11 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
             <div className="relative overflow-hidden rounded-3xl h-[400px] group cursor-pointer"
               onClick={() => onNavigate('search', 'Vestidos Cortos')}
             >
-              {/* <ImageWithFallback
+              <img
                 src="https://images.unsplash.com/photo-1612336307429-8a898d10e223?w=800"
                 alt="Vestidos Cortos"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-              /> */}
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
                 <h3 className="text-4xl mb-2">Vestidos Cortos</h3>
@@ -141,11 +155,11 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
             <div className="relative overflow-hidden rounded-3xl h-[400px] group cursor-pointer"
               onClick={() => onNavigate('search', 'Sets')}
             >
-              {/* <ImageWithFallback
+              <img
                 src="https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=800"
                 alt="Sets"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-              /> */}
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
                 <h3 className="text-4xl mb-2">Sets</h3>
@@ -161,11 +175,11 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
             <div className="relative overflow-hidden rounded-3xl h-[400px] group cursor-pointer"
               onClick={() => onNavigate('search', 'Enterizos')}
             >
-              {/* <ImageWithFallback
+              <img
                 src="https://images.unsplash.com/photo-1585487000160-6ebcfceb0d03?w=800"
                 alt="Enterizos"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-              /> */}
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
                 <h3 className="text-4xl mb-2">Enterizos</h3>
@@ -201,12 +215,12 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
                     <span className="absolute top-4 left-4 bg-pink-400 text-white text-sm px-4 py-1.5 rounded-full z-10">
                       NUEVO
                     </span>
-                    {/* <ImageWithFallback
+                    <img
                       src={product.image}
                       alt={product.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 cursor-pointer"
                       onClick={() => onNavigate('detail', product.id)}
-                    /> */}
+                    />
                     <button
                       onClick={() => toggleFavorite(product.id)}
                       className="absolute top-4 right-4 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center hover:bg-white transition-colors"

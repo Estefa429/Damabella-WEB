@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Heart, SlidersHorizontal, X } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
+import { useToast } from '../../../../shared/components/native';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
 
@@ -13,6 +14,7 @@ interface SearchPageProps {
 
 export function SearchPage({ onNavigate, initialCategory, isAuthenticated = false, currentUser = null }: SearchPageProps) {
   const { products, favorites, toggleFavorite, addToCart } = useEcommerce();
+  const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'Todas');
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
@@ -118,6 +120,16 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
         size: firstSize.size,
         quantity: 1,
       });
+      showToast('✅ Producto agregado al carrito', 'success');
+    }
+  };
+
+  const handleToggleFavorite = (productId: string) => {
+    toggleFavorite(productId);
+    if (favorites.includes(productId)) {
+      showToast('❤️ Removido de favoritos', 'info');
+    } else {
+      showToast('❤️ Agregado a favoritos', 'success');
     }
   };
 
@@ -306,7 +318,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                     </span>
                   )}
                   <button
-                    onClick={() => toggleFavorite(product.id)}
+                    onClick={() => handleToggleFavorite(product.id)}
                     className="absolute top-3 right-3 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center hover:bg-white transition-colors shadow-md"
                   >
                     <Heart
@@ -326,11 +338,11 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                     ${product.price.toLocaleString()}
                   </p>
                   <div className="flex gap-1 mb-3">
-                    {product.variants.slice(0, 4).map((variant, idx) => (
+                    {Array.from(new Set(product.variants.map(v => v.colorHex))).slice(0, 4).map((colorHex, idx) => (
                       <div
                         key={idx}
                         className="w-6 h-6 rounded-full border-2 border-gray-300"
-                        style={{ backgroundColor: variant.colorHex }}
+                        style={{ backgroundColor: colorHex }}
                       />
                     ))}
                   </div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Button, Input, Label, Textarea, Modal, DataTable, useToast } from '../../../shared/components/native';
+import validateField from '../../../shared/utils/validation';
 
 // Mock roles ya tipados correctamente
 interface Rol {
@@ -37,6 +38,7 @@ export const Roles: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedRol, setSelectedRol] = useState<Rol | null>(null);
   const [formData, setFormData] = useState<Partial<Rol>>({});
+  const [formErrors, setFormErrors] = useState<any>({});
 
   const columns = [
     { key: 'nombre', label: 'Nombre' },
@@ -75,8 +77,15 @@ export const Roles: React.FC = () => {
   };
 
   const handleSave = () => {
-    if (!formData.nombre) {
-      showToast('El nombre del rol es obligatorio', 'error');
+    const errors: any = {};
+    ['nombre', 'descripcion'].forEach((f) => {
+      const err = validateField(f, (formData as any)[f]);
+      if (err) errors[f] = err;
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      showToast('Por favor corrige los errores del formulario', 'error');
       return;
     }
 
@@ -98,6 +107,16 @@ export const Roles: React.FC = () => {
     setFormData({});
   };
 
+  const handleFieldChange = (field: string, value: any) => {
+    setFormData({ ...formData, [field]: value });
+    const err = validateField(field, value);
+    if (err) setFormErrors({ ...formErrors, [field]: err });
+    else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
+    }
+  };
+
   return (
     <>
       <DataTable
@@ -117,16 +136,18 @@ export const Roles: React.FC = () => {
             <Input
               id="nombre"
               value={formData.nombre || ''}
-              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              onChange={(e) => handleFieldChange('nombre', e.target.value)}
             />
+            {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="descripcion">Descripción</Label>
             <Textarea
               id="descripcion"
               value={formData.descripcion || ''}
-              onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+              onChange={(e) => handleFieldChange('descripcion', e.target.value)}
             />
+            {formErrors.descripcion && <p className="text-red-600 text-sm mt-1">{formErrors.descripcion}</p>}
           </div>
         </div>
         <div className="flex gap-3 justify-end pt-4">

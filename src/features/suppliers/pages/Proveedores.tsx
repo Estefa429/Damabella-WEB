@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '../../../components/ui/dialog';
 import { Plus, Search, Edit, Trash2, Eye } from 'lucide-react';
 import { toast } from 'sonner';
@@ -60,6 +61,12 @@ export default function Proveedores() {
     categoria: '',
     estado: 'Activo' as 'Activo' | 'Inactivo'
   });
+  const [formErrors, setFormErrors] = useState<any>({});
+  // import validation lazily to avoid circulars
+  // we'll use a simple shared helper if available
+  // (validation helper path)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const validateField = require('../../../shared/utils/validation').default;
 
   const canDelete = user?.rol === 'Administrador';
 
@@ -104,7 +111,17 @@ export default function Proveedores() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+    const errors: any = {};
+    ['nombre', 'contacto', 'email', 'telefono', 'direccion', 'ciudad', 'categoria'].forEach((f) => {
+      const err = validateField(f, (formData as any)[f]);
+      if (err) errors[f] = err;
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
     if (selectedProveedor) {
       setProveedores(proveedores.map(p => 
         p.id === selectedProveedor.id 
@@ -122,6 +139,16 @@ export default function Proveedores() {
     }
     
     setDialogOpen(false);
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
+    setFormData({ ...formData, [field]: value });
+    const err = validateField(field, value);
+    if (err) setFormErrors({ ...formErrors, [field]: err });
+    else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
+    }
   };
 
   return (
@@ -210,6 +237,11 @@ export default function Proveedores() {
               {selectedProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}
             </DialogTitle>
           </DialogHeader>
+          <DialogDescription>
+            {selectedProveedor
+              ? 'Actualiza la información del proveedor'
+              : 'Completa los datos del nuevo proveedor'}
+          </DialogDescription>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -217,18 +249,20 @@ export default function Proveedores() {
                 <Input
                   id="nombre"
                   value={formData.nombre}
-                  onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                  onChange={(e) => handleFieldChange('nombre', e.target.value)}
                   required
                 />
+                {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="contacto">Persona de contacto</Label>
                 <Input
                   id="contacto"
                   value={formData.contacto}
-                  onChange={(e) => setFormData({ ...formData, contacto: e.target.value })}
+                  onChange={(e) => handleFieldChange('contacto', e.target.value)}
                   required
                 />
+                {formErrors.contacto && <p className="text-red-600 text-sm mt-1">{formErrors.contacto}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -236,46 +270,51 @@ export default function Proveedores() {
                   id="email"
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) => handleFieldChange('email', e.target.value)}
                   required
                 />
+                {formErrors.email && <p className="text-red-600 text-sm mt-1">{formErrors.email}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="telefono">Teléfono</Label>
                 <Input
                   id="telefono"
                   value={formData.telefono}
-                  onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                  onChange={(e) => handleFieldChange('telefono', e.target.value)}
                   required
                 />
+                {formErrors.telefono && <p className="text-red-600 text-sm mt-1">{formErrors.telefono}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="direccion">Dirección</Label>
                 <Input
                   id="direccion"
                   value={formData.direccion}
-                  onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+                  onChange={(e) => handleFieldChange('direccion', e.target.value)}
                   required
                 />
+                {formErrors.direccion && <p className="text-red-600 text-sm mt-1">{formErrors.direccion}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ciudad">Ciudad</Label>
                 <Input
                   id="ciudad"
                   value={formData.ciudad}
-                  onChange={(e) => setFormData({ ...formData, ciudad: e.target.value })}
+                  onChange={(e) => handleFieldChange('ciudad', e.target.value)}
                   required
                 />
+                {formErrors.ciudad && <p className="text-red-600 text-sm mt-1">{formErrors.ciudad}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="categoria">Categoría</Label>
                 <Input
                   id="categoria"
                   value={formData.categoria}
-                  onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
+                  onChange={(e) => handleFieldChange('categoria', e.target.value)}
                   placeholder="Ej: Telas, Confección, Accesorios"
                   required
                 />
+                {formErrors.categoria && <p className="text-red-600 text-sm mt-1">{formErrors.categoria}</p>}
               </div>
             </div>
             <DialogFooter>
@@ -295,6 +334,9 @@ export default function Proveedores() {
           <DialogHeader>
             <DialogTitle>Detalles del Proveedor</DialogTitle>
           </DialogHeader>
+          <DialogDescription>
+            Información completa del proveedor seleccionado
+          </DialogDescription>
           {selectedProveedor && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">

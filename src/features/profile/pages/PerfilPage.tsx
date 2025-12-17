@@ -27,23 +27,32 @@ export default function PerfilPage() {
 
   const handleUpdateProfile = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('👤 [handleUpdateProfile] ACTUALIZANDO PERFIL DE USUARIO');
+    console.log('  📋 Datos a actualizar:', JSON.stringify(formData, null, 2));
+    console.log('  👥 Usuario actual:', JSON.stringify(user, null, 2));
     updateProfile(formData);
+    console.log('  ✅ Perfil actualizado correctamente');
     showToast('Perfil actualizado correctamente', 'success');
   };
 
   const handleChangePassword = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('🔐 [handleChangePassword] CAMBIANDO CONTRASEÑA');
+    console.log('  👤 Email del usuario:', user?.email);
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
+      console.log('  ❌ Error: Las contraseñas no coinciden');
       showToast('Las contraseñas no coinciden', 'error');
       return;
     }
 
     if (passwordData.newPassword.length < 8) {
+      console.log('  ❌ Error: Contraseña muy corta. Mínimo 8 caracteres requeridos');
       showToast('La contraseña debe tener al menos 8 caracteres', 'error');
       return;
     }
 
+    console.log('  ✅ Validación exitosa, contraseña será actualizada');
     showToast('Contraseña actualizada correctamente', 'success');
     setPasswordData({
       currentPassword: '',

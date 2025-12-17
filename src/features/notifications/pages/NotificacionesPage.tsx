@@ -56,17 +56,32 @@ export default function NotificacionesPage() {
   ]);
 
   const marcarComoLeida = (id: number) => {
-    setNotificaciones(prev =>
-      prev.map(n => n.id === id ? { ...n, leida: true } : n)
-    );
+    console.log('🔔 [marcarComoLeida] MARCANDO NOTIFICACIÓN COMO LEÍDA');
+    console.log('  📌 Notificación ID:', id);
+    setNotificaciones(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, leida: true } : n);
+      console.log('  ✅ Estado actualizado. Notificaciones ahora:', JSON.stringify(updated, null, 2));
+      return updated;
+    });
   };
 
   const marcarTodasLeidas = () => {
-    setNotificaciones(prev => prev.map(n => ({ ...n, leida: true })));
+    console.log('🔔 [marcarTodasLeidas] MARCANDO TODAS LAS NOTIFICACIONES COMO LEÍDAS');
+    setNotificaciones(prev => {
+      const updated = prev.map(n => ({ ...n, leida: true }));
+      console.log('  ✅ Todas marcadas. Total de notificaciones:', updated.length);
+      return updated;
+    });
   };
 
   const eliminarNotificacion = (id: number) => {
-    setNotificaciones(prev => prev.filter(n => n.id !== id));
+    console.log('🗑️ [eliminarNotificacion] ELIMINANDO NOTIFICACIÓN');
+    console.log('  📌 Notificación ID a eliminar:', id);
+    setNotificaciones(prev => {
+      const updated = prev.filter(n => n.id !== id);
+      console.log('  ✅ Notificación eliminada. Quedan:', updated.length, 'notificaciones');
+      return updated;
+    });
   };
 
   const getIcono = (tipo: string) => {

@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '../../../../components/ui/dialog';
 import {
   Tabs,
@@ -330,6 +331,11 @@ export default function Clientes() {
               {selectedCliente ? 'Editar Cliente' : 'Nuevo Cliente'}
             </DialogTitle>
           </DialogHeader>
+          <DialogDescription>
+            {selectedCliente
+              ? 'Actualiza los datos del cliente'
+              : 'Completa la información del nuevo cliente'}
+          </DialogDescription>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -411,6 +417,9 @@ export default function Clientes() {
           <DialogHeader>
             <DialogTitle>Perfil del Cliente</DialogTitle>
           </DialogHeader>
+          <DialogDescription>
+            Información completa y historial del cliente seleccionado
+          </DialogDescription>
           {selectedCliente && (
             <Tabs defaultValue="info" className="w-full">
               <TabsList className="grid w-full grid-cols-3">

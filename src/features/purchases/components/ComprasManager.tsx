@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Truck, Eye, X, Ban } from 'lucide-react';
+import { Plus, Search, Truck, Eye, X, Ban, AlertTriangle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_compras';
@@ -47,7 +47,88 @@ export function ComprasManager() {
 
   const [productos, setProductos] = useState(() => {
     const stored = localStorage.getItem(PRODUCTOS_KEY);
-    return stored ? JSON.parse(stored) : [];
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    // Productos temporales - Ropa femenina
+    return [
+      {
+        id: '1',
+        nombre: 'Vestido Corto Casual',
+        referencia: 'VES-CORTA-001',
+        codigoInterno: 'VCC-001',
+        precioVenta: 65000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Rojo', 'Negro', 'Blanco', 'Azul', 'Rosa'],
+      },
+      {
+        id: '2',
+        nombre: 'Vestido Largo Elegante',
+        referencia: 'VES-LARGO-002',
+        codigoInterno: 'VLE-002',
+        precioVenta: 95000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Negro', 'Rojo', 'Champagne', 'Azul Marino'],
+      },
+      {
+        id: '3',
+        nombre: 'Enterizo Ejecutivo',
+        referencia: 'ENT-EJE-003',
+        codigoInterno: 'ENE-003',
+        precioVenta: 85000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Negro', 'Blanco', 'Gris', 'Azul'],
+      },
+      {
+        id: '4',
+        nombre: 'Set Blusa y Falda',
+        referencia: 'SET-BF-004',
+        codigoInterno: 'SBF-004',
+        precioVenta: 105000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Rosa', 'Blanco', 'Negro', 'Beige'],
+      },
+      {
+        id: '5',
+        nombre: 'Vestido Midi Floral',
+        referencia: 'VES-MIDI-005',
+        codigoInterno: 'VMF-005',
+        precioVenta: 75000,
+        activo: true,
+        tallas: ['XS', 'S', 'M', 'L', 'XL'],
+        colores: ['Multicolor', 'Rosa Pálido', 'Azul Claro', 'Verde Menta'],
+      },
+    ];
+  });
+
+  const [tallas, setTallas] = useState(() => {
+    const stored = localStorage.getItem('damabella_tallas');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return parsed.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
+      } catch {
+        return ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+      }
+    }
+    return ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+  });
+
+  const [coloresDisponibles, setColoresDisponibles] = useState(() => {
+    const stored = localStorage.getItem('damabella_colores');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return parsed.map((c: any) => c.name || c.nombre || '').filter(Boolean);
+      } catch {
+        return [];
+      }
+    }
+    return [];
   });
 
   const [showModal, setShowModal] = useState(false);
@@ -58,6 +139,12 @@ export function ComprasManager() {
   const [productoSearchTerm, setProductoSearchTerm] = useState('');
   const [showProveedorDropdown, setShowProveedorDropdown] = useState(false);
   const [showProductoDropdown, setShowProductoDropdown] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationType, setNotificationType] = useState<'error' | 'success' | 'warning'>('error');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState('');
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   
   const [formData, setFormData] = useState({
     proveedorId: '',
@@ -68,6 +155,7 @@ export function ComprasManager() {
   });
 
   const [formErrors, setFormErrors] = useState<any>({});
+  const [itemsError, setItemsError] = useState<string>('');
 
   const [nuevoItem, setNuevoItem] = useState({
     productoId: '',
@@ -139,6 +227,7 @@ export function ComprasManager() {
       precioVenta: ''
     });
     setFormErrors({});
+    setItemsError('');
     setProveedorSearchTerm('');
     setProductoSearchTerm('');
     setShowModal(true);
@@ -163,21 +252,34 @@ export function ComprasManager() {
   };
 
   const filteredProveedores = proveedores.filter((p: any) => 
-    p.activo && p.nombre.toLowerCase().includes(proveedorSearchTerm.toLowerCase())
+    p.activo && (p.nombre?.toLowerCase() ?? '').includes(proveedorSearchTerm.toLowerCase())
   );
 
   const filteredProductos = productos.filter((p: any) => 
-    p.activo && p.nombre.toLowerCase().includes(productoSearchTerm.toLowerCase())
+    p.activo && (p.nombre?.toLowerCase() ?? '').includes(productoSearchTerm.toLowerCase())
   );
 
   const agregarItem = () => {
     if (!nuevoItem.productoId || !nuevoItem.cantidad || !nuevoItem.precioCompra || !nuevoItem.precioVenta) {
-      alert('Por favor completa todos los campos del item');
+      setNotificationMessage('Por favor completa todos los campos del item');
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
-    const producto = productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
-    if (!producto) return;
+    const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
+    
+    // Si no existe en BD pero está en las opciones temporales, usar el nombre del select
+    let productoNombre = producto?.nombre;
+    if (!productoNombre) {
+      const productosTemporales: any = {
+        'prod1': 'Camisa',
+        'prod2': 'Pantalón',
+        'prod3': 'Blusa',
+        'prod4': 'Chaqueta'
+      };
+      productoNombre = productosTemporales[nuevoItem.productoId] || 'Producto desconocido';
+    }
 
     const cantidad = parseFloat(nuevoItem.cantidad);
     const precioCompra = parseFloat(nuevoItem.precioCompra);
@@ -187,7 +289,7 @@ export function ComprasManager() {
     const item: ItemCompra = {
       id: Date.now().toString(),
       productoId: nuevoItem.productoId,
-      productoNombre: producto.nombre,
+      productoNombre,
       talla: nuevoItem.talla,
       color: nuevoItem.color,
       cantidad,
@@ -249,15 +351,20 @@ export function ComprasManager() {
     }
 
     if (formData.items.length === 0) {
-      alert('Debes agregar al menos un producto a la compra');
+      setItemsError('Debes agregar al menos un producto a la compra');
       return;
     }
 
-    const proveedor = proveedores.find((p: any) => p.id.toString() === formData.proveedorId);
-    if (!proveedor) {
-      alert('Proveedor no encontrado');
-      return;
-    }
+    setItemsError('');
+
+    // Mapeo temporal de proveedores
+    const proveedoresTemporales: any = {
+      'prov1': 'Proveedor A',
+      'prov2': 'Proveedor B',
+      'prov3': 'Proveedor C'
+    };
+
+    const proveedorNombre = proveedoresTemporales[formData.proveedorId] || formData.proveedorId;
 
     const subtotal = calcularSubtotal();
     const iva = calcularIVA();
@@ -268,7 +375,7 @@ export function ComprasManager() {
       id: Date.now(),
       numeroCompra,
       proveedorId: formData.proveedorId,
-      proveedorNombre: proveedor.nombre,
+      proveedorNombre,
       fechaCompra: formData.fechaCompra,
       fechaRegistro: new Date().toISOString().split('T')[0],
       items: formData.items,
@@ -286,24 +393,36 @@ export function ComprasManager() {
   };
 
   const anularCompra = (id: number) => {
-    if (confirm('¿Está seguro de anular esta compra? Esta acción no se puede deshacer.')) {
+    setConfirmMessage('¿Está seguro de anular esta compra? Esta acción no se puede deshacer.');
+    setConfirmAction(() => () => {
       setCompras(compras.map(c => 
         c.id === id ? { ...c, estado: 'Anulada' as 'Anulada' } : c
       ));
-    }
+      setShowConfirmModal(false);
+      setNotificationMessage('Compra anulada correctamente');
+      setNotificationType('success');
+      setShowNotificationModal(true);
+    });
+    setShowConfirmModal(true);
   };
 
   const cambiarEstado = (id: number, nuevoEstado: 'Pendiente' | 'Recibida') => {
-    if (confirm(`¿Está seguro de cambiar el estado a "${nuevoEstado}"?`)) {
+    setConfirmMessage(`¿Está seguro de cambiar el estado a "${nuevoEstado}"?`);
+    setConfirmAction(() => () => {
       setCompras(compras.map(c => 
         c.id === id ? { ...c, estado: nuevoEstado } : c
       ));
-    }
+      setShowConfirmModal(false);
+      setNotificationMessage(`Estado cambiado a "${nuevoEstado}"`);
+      setNotificationType('success');
+      setShowNotificationModal(true);
+    });
+    setShowConfirmModal(true);
   };
 
   const filteredCompras = compras.filter(c =>
-    c.numeroCompra.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.proveedorNombre.toLowerCase().includes(searchTerm.toLowerCase())
+    (c.numeroCompra?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
+    (c.proveedorNombre?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -439,36 +558,22 @@ export function ComprasManager() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">Proveedor *</label>
-              <div className="relative">
-                <Input
-                  value={proveedorSearchTerm}
-                  onChange={(e) => {
-                    setProveedorSearchTerm(e.target.value);
-                    setShowProveedorDropdown(true);
-                    if (!e.target.value) {
-                      setFormData({ ...formData, proveedorId: '' });
-                    }
-                  }}
-                  onFocus={() => setShowProveedorDropdown(true)}
-                  placeholder="Buscar proveedor..."
-                  className={formErrors.proveedorId ? 'border-red-500' : ''}
-                />
-                {showProveedorDropdown && filteredProveedores.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                    {filteredProveedores.map((p: any) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => handleSelectProveedor(p.id.toString(), p.nombre)}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors"
-                      >
-                        <div className="font-medium text-gray-900">{p.nombre}</div>
-                        <div className="text-sm text-gray-600">{p.numeroDoc}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <select
+                value={formData.proveedorId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData({ ...formData, proveedorId: val });
+                  setFormErrors({ ...formErrors, proveedorId: undefined });
+                  const sel = proveedores.find((p: any) => String(p.id) === String(val));
+                  setProveedorSearchTerm(sel ? sel.nombre : '');
+                }}
+                className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
+              >
+                <option value="">Seleccionar proveedor...</option>
+                <option value="prov1">Proveedor A</option>
+                <option value="prov2">Proveedor B</option>
+                <option value="prov3">Proveedor C</option>
+              </select>
               {formErrors.proveedorId && (
                 <p className="text-red-600 text-xs mt-1">{formErrors.proveedorId}</p>
               )}
@@ -508,56 +613,71 @@ export function ComprasManager() {
           <div className="border-t pt-4">
             <h4 className="text-gray-900 mb-4">Agregar Productos a la Compra</h4>
             
+            {itemsError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
+                <AlertTriangle size={16} />
+                {itemsError}
+              </div>
+            )}
+            
             <div className="space-y-3 mb-4">
               <div>
                 <label className="block text-gray-700 mb-2 text-sm">Producto</label>
-                <div className="relative">
-                  <Input
-                    value={productoSearchTerm}
-                    onChange={(e) => {
-                      setProductoSearchTerm(e.target.value);
-                      setShowProductoDropdown(true);
-                      if (!e.target.value) {
-                        setNuevoItem({ ...nuevoItem, productoId: '' });
-                      }
-                    }}
-                    onFocus={() => setShowProductoDropdown(true)}
-                    placeholder="Buscar producto..."
-                  />
-                  {showProductoDropdown && filteredProductos.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                      {filteredProductos.map((p: any) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => handleSelectProducto(p.id.toString(), p.nombre)}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors"
-                        >
-                          <div className="font-medium text-gray-900">{p.nombre}</div>
-                          <div className="text-sm text-gray-600">{p.categoria}</div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <select
+                  value={nuevoItem.productoId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNuevoItem({ ...nuevoItem, productoId: val });
+                    const sel = productos.find((p:any) => String(p.id) === String(val));
+                    setProductoSearchTerm(sel ? sel.nombre : '');
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  <option value="">Seleccionar producto...</option>
+                  <option value="prod1">Camisa</option>
+                  <option value="prod2">Pantalón</option>
+                  <option value="prod3">Blusa</option>
+                  <option value="prod4">Chaqueta</option>
+                  {productos.filter((p:any)=>p.activo).map((p:any) => (
+                    <option key={p.id} value={String(p.id)}>{p.nombre} {p.categoria ? ` - ${p.categoria}` : ''}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <label className="block text-gray-700 mb-2 text-sm">Talla (Opcional)</label>
-                  <Input
+                  <select
                     value={nuevoItem.talla}
                     onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value })}
-                    placeholder="Ej: M, L, XL"
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  >
+                    <option value="">Seleccionar talla...</option>
+                    <option value="S">S</option>
+                    <option value="M">M</option>
+                    <option value="L">L</option>
+                    <option value="XL">XL</option>
+                    {tallas.map(talla => (
+                      <option key={talla} value={talla}>{talla}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-gray-700 mb-2 text-sm">Color (Opcional)</label>
-                  <Input
+                  <select
                     value={nuevoItem.color}
                     onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
-                    placeholder="Ej: Rojo, Azul"
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  >
+                    <option value="">Seleccionar color...</option>
+                    <option value="Rojo">Rojo</option>
+                    <option value="Negro">Negro</option>
+                    <option value="Blanco">Blanco</option>
+                    <option value="Azul">Azul</option>
+                    {coloresDisponibles.map(color => (
+                      <option key={color} value={color}>{color}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -606,6 +726,8 @@ export function ComprasManager() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="text-left py-2 px-3 text-gray-600">Producto</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Talla</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Color</th>
                       <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
                       <th className="text-right py-2 px-3 text-gray-600">P. Compra</th>
                       <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
@@ -617,6 +739,8 @@ export function ComprasManager() {
                     {formData.items.map((item) => (
                       <tr key={item.id}>
                         <td className="py-2 px-3 text-gray-900">{item.productoNombre}</td>
+                        <td className="py-2 px-3 text-gray-700">{item.talla || '-'}</td>
+                        <td className="py-2 px-3 text-gray-700">{item.color || '-'}</td>
                         <td className="py-2 px-3 text-right text-gray-700">{item.cantidad}</td>
                         <td className="py-2 px-3 text-right text-gray-700">${(item.precioCompra || 0).toLocaleString()}</td>
                         <td className="py-2 px-3 text-right text-gray-700">${(item.precioVenta || 0).toLocaleString()}</td>
@@ -725,6 +849,8 @@ export function ComprasManager() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="text-left py-2 px-3 text-gray-600">Producto</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Talla</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Color</th>
                       <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
                       <th className="text-right py-2 px-3 text-gray-600">P. Compra</th>
                       <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
@@ -735,6 +861,8 @@ export function ComprasManager() {
                     {viewingCompra.items.map((item) => (
                       <tr key={item.id}>
                         <td className="py-2 px-3 text-gray-900">{item.productoNombre}</td>
+                        <td className="py-2 px-3 text-gray-700">{item.talla || '-'}</td>
+                        <td className="py-2 px-3 text-gray-700">{item.color || '-'}</td>
                         <td className="py-2 px-3 text-right text-gray-700">{item.cantidad}</td>
                         <td className="py-2 px-3 text-right text-gray-700">${item.precioCompra.toLocaleString()}</td>
                         <td className="py-2 px-3 text-right text-gray-700">${item.precioVenta.toLocaleString()}</td>
@@ -762,6 +890,63 @@ export function ComprasManager() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal Notificación */}
+      <Modal
+        isOpen={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+        title={notificationType === 'error' ? 'Error' : notificationType === 'success' ? 'Éxito' : 'Advertencia'}
+      >
+        <div className="space-y-4">
+          <div className={`flex items-center gap-3 p-4 rounded-lg border ${
+            notificationType === 'error' ? 'bg-red-50 border-red-200' :
+            notificationType === 'success' ? 'bg-green-50 border-green-200' :
+            'bg-yellow-50 border-yellow-200'
+          }`}>
+            <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center font-bold text-white ${
+              notificationType === 'error' ? 'bg-red-600' :
+              notificationType === 'success' ? 'bg-green-600' :
+              'bg-yellow-600'
+            }`}>
+              {notificationType === 'error' ? '!' : notificationType === 'success' ? '✓' : '⚠'}
+            </div>
+            <p className={notificationType === 'error' ? 'text-red-800' : 
+                        notificationType === 'success' ? 'text-green-800' : 'text-yellow-800'}>
+              {notificationMessage}
+            </p>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setShowNotificationModal(false)} variant="primary">
+              Aceptar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Confirmación */}
+      <Modal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        title="Confirmar acción"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">{confirmMessage}</p>
+          <div className="flex gap-3 justify-end">
+            <Button 
+              onClick={() => setShowConfirmModal(false)} 
+              variant="secondary"
+            >
+              Cancelar
+            </Button>
+            <Button 
+              onClick={() => confirmAction && confirmAction()} 
+              variant="primary"
+            >
+              Confirmar
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Image as ImageIcon, Package, Upload } from 'lucide-react';
+import { Plus, Search, Image as ImageIcon, Package, Upload, AlertCircle, CheckCircle, Download } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
+import validateField from '../../../../shared/utils/validation';
 import { Eye, Edit2, Trash2, X } from 'lucide-react';
 
 const STORAGE_KEY = 'damabella_productos';
 const CATEGORIAS_KEY = 'damabella_categorias';
+const PROVEEDORES_KEY = 'damabella_proveedores';
+const TALLAS_KEY = 'damabella_tallas';
+const COLORES_KEY = 'damabella_colores';
 
 interface VarianteTalla {
   talla: string;
@@ -17,6 +21,7 @@ interface VarianteTalla {
 interface Producto {
   id: number;
   nombre: string;
+  proveedor: string;
   categoria: string;
   precioVenta: number;
   activo: boolean;
@@ -26,6 +31,26 @@ interface Producto {
 }
 
 export default function ProductosManager() {
+  const getColoresTemporales = () => {
+    return [
+      { nombre: 'Negro', hex: '#000000' },
+      { nombre: 'Blanco', hex: '#FFFFFF' },
+      { nombre: 'Gris', hex: '#808080' },
+      { nombre: 'Azul', hex: '#0000FF' },
+      { nombre: 'Rojo', hex: '#FF0000' },
+      { nombre: 'Verde', hex: '#008000' },
+      { nombre: 'Amarillo', hex: '#FFFF00' },
+      { nombre: 'Rosa', hex: '#FFC0CB' },
+      { nombre: 'Naranja', hex: '#FFA500' },
+      { nombre: 'Púrpura', hex: '#800080' },
+      { nombre: 'Beige', hex: '#F5F5DC' },
+      { nombre: 'Marrón', hex: '#A52A2A' },
+      { nombre: 'Azul Marino', hex: '#000080' },
+      { nombre: 'Turquesa', hex: '#40E0D0' },
+      { nombre: 'Dorado', hex: '#FFD700' }
+    ];
+  };
+
   const [productos, setProductos] = useState<Producto[]>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
@@ -41,54 +66,68 @@ export default function ProductosManager() {
     ];
   });
 
+  const [proveedores, setProveedores] = useState(() => {
+    const stored = localStorage.getItem(PROVEEDORES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  });
+
+  const [tallas, setTallas] = useState(() => {
+    const stored = localStorage.getItem(TALLAS_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return parsed.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
+      } catch {
+        return ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+      }
+    }
+    return ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+  });
+
+  const [coloresDisponibles, setColoresDisponibles] = useState(() => {
+    const stored = localStorage.getItem(COLORES_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return parsed.map((c: any) => ({
+          nombre: c.name || c.nombre || '',
+          hex: c.hexCode || c.hex || '#000000'
+        })).filter((c: any) => c.nombre);
+      } catch {
+        return getColoresTemporales();
+      }
+    }
+    return getColoresTemporales();
+  });
+
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [viewingProduct, setViewingProduct] = useState<Producto | null>(null);
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [newTalla, setNewTalla] = useState('');
-  const [newColor, setNewColor] = useState('');
   const itemsPerPage = 10;
   
   const [formData, setFormData] = useState({
     nombre: '',
+    proveedor: '',
     categoria: '',
     precioVenta: '',
     imagen: '',
     variantes: [] as VarianteTalla[]
   });
 
+  const [formErrors, setFormErrors] = useState<any>({});
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<number | null>(null);
+  const [showConfirmToggle, setShowConfirmToggle] = useState(false);
+  const [productToToggle, setProductToToggle] = useState<number | null>(null);
+  const [showAlert, setShowAlert] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
+
   const [nuevaVariante, setNuevaVariante] = useState({
     talla: '',
     colores: [{ color: '', cantidad: 0 }]
   });
-
-  const tallas = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
-  const coloresDisponibles = [
-    { nombre: 'Rojo', hex: '#EF4444' },
-    { nombre: 'Rosa', hex: '#EC4899' },
-    { nombre: 'Fucsia', hex: '#D946EF' },
-    { nombre: 'Púrpura', hex: '#A855F7' },
-    { nombre: 'Violeta', hex: '#8B5CF6' },
-    { nombre: 'Índigo', hex: '#6366F1' },
-    { nombre: 'Azul', hex: '#3B82F6' },
-    { nombre: 'Cyan', hex: '#06B6D4' },
-    { nombre: 'Verde Agua', hex: '#14B8A6' },
-    { nombre: 'Verde', hex: '#10B981' },
-    { nombre: 'Lima', hex: '#84CC16' },
-    { nombre: 'Amarillo', hex: '#EAB308' },
-    { nombre: 'Naranja', hex: '#F97316' },
-    { nombre: 'Coral', hex: '#FB923C' },
-    { nombre: 'Blanco', hex: '#FFFFFF' },
-    { nombre: 'Gris Claro', hex: '#D1D5DB' },
-    { nombre: 'Gris', hex: '#6B7280' },
-    { nombre: 'Negro', hex: '#1F2937' },
-    { nombre: 'Beige', hex: '#D4A574' },
-    { nombre: 'Café', hex: '#92400E' },
-    { nombre: 'Dorado', hex: '#F59E0B' },
-    { nombre: 'Plata', hex: '#9CA3AF' }
-  ];
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(productos));
@@ -98,11 +137,13 @@ export default function ProductosManager() {
     setEditingProduct(null);
     setFormData({
       nombre: '',
+      proveedor: '',
       categoria: '',
       precioVenta: '',
       imagen: '',
       variantes: []
     });
+    setFormErrors({});
     setNuevaVariante({
       talla: '',
       colores: [{ color: '', cantidad: 0 }]
@@ -114,6 +155,7 @@ export default function ProductosManager() {
     setEditingProduct(producto);
     setFormData({
       nombre: producto.nombre || '',
+      proveedor: producto.proveedor || '',
       categoria: producto.categoria || '',
       precioVenta: producto.precioVenta ? producto.precioVenta.toString() : '',
       imagen: producto.imagen || '',
@@ -129,41 +171,21 @@ export default function ProductosManager() {
     setShowDetailModal(true);
   };
 
-  const agregarColorAVariante = () => {
-    setNuevaVariante({
-      ...nuevaVariante,
-      colores: [...nuevaVariante.colores, { color: '', cantidad: 0 }]
-    });
-  };
-
-  const eliminarColorDeVariante = (index: number) => {
-    setNuevaVariante({
-      ...nuevaVariante,
-      colores: nuevaVariante.colores.filter((_, i) => i !== index)
-    });
-  };
-
-  const actualizarColorVariante = (index: number, field: 'color' | 'cantidad', value: string | number) => {
-    const nuevosColores = [...nuevaVariante.colores];
-    nuevosColores[index] = { ...nuevosColores[index], [field]: value };
-    setNuevaVariante({ ...nuevaVariante, colores: nuevosColores });
-  };
-
   const agregarVariante = () => {
     if (!nuevaVariante.talla) {
-      alert('Debes seleccionar una talla');
+      setShowAlert({ visible: true, message: 'Debes seleccionar una talla', type: 'error' });
       return;
     }
 
     const coloresValidos = nuevaVariante.colores.filter(c => c.color && c.cantidad >= 0);
     if (coloresValidos.length === 0) {
-      alert('Debes agregar al menos un color con cantidad');
+      setShowAlert({ visible: true, message: 'Debes agregar al menos un color con cantidad', type: 'error' });
       return;
     }
 
     // Verificar si ya existe una variante con esa talla
     if (formData.variantes.some(v => v.talla === nuevaVariante.talla)) {
-      alert('Ya existe una variante con esta talla');
+      setShowAlert({ visible: true, message: 'Ya existe una variante con esta talla', type: 'error' });
       return;
     }
 
@@ -189,47 +211,93 @@ export default function ProductosManager() {
   };
 
   const handleSave = () => {
-    if (!formData.nombre.trim() || !formData.categoria || !formData.precioVenta) {
-      alert('Por favor completa todos los campos obligatorios');
-      return;
-    }
+    const errors: any = {};
+    const nombreErr = validateField('nombre', formData.nombre);
+    if (nombreErr) errors.nombre = nombreErr;
+    if (!formData.proveedor) errors.proveedor = 'Este campo es obligatorio';
+    if (!formData.categoria) errors.categoria = 'Este campo es obligatorio';
+    const precioErr = validateField('price', formData.precioVenta);
+    if (precioErr) errors.precioVenta = precioErr;
 
     if (formData.variantes.length === 0) {
-      alert('Debes agregar al menos una talla con sus colores');
+      errors.variantes = 'Debes agregar al menos una talla con sus colores';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
       return;
     }
 
     const productoData = {
       nombre: formData.nombre,
+      proveedor: formData.proveedor,
       categoria: formData.categoria,
       precioVenta: parseFloat(formData.precioVenta),
-      activo: true,
+      activo: editingProduct ? editingProduct.activo : true,
       variantes: formData.variantes,
       imagen: formData.imagen,
-      createdAt: new Date().toISOString()
+      createdAt: editingProduct ? editingProduct.createdAt : new Date().toISOString()
     };
 
     if (editingProduct) {
       setProductos(productos.map(p => 
         p.id === editingProduct.id ? { ...p, ...productoData } : p
       ));
+      setShowAlert({ visible: true, message: 'Producto actualizado exitosamente', type: 'success' });
     } else {
       setProductos([...productos, { id: Date.now(), ...productoData }]);
+      setShowAlert({ visible: true, message: 'Producto creado exitosamente', type: 'success' });
     }
     
     setShowModal(false);
+    setFormErrors({});
+    setNuevaVariante({ talla: '', colores: [{ color: '', cantidad: 0 }] });
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('¿Está seguro de eliminar este producto?')) {
-      setProductos(productos.filter(p => p.id !== id));
+  const handleFieldChange = (field: string, value: any) => {
+    setFormData({ ...formData, [field]: value });
+    let err = '';
+    if (field === 'nombre') err = validateField('nombre', value);
+    else if (field === 'precioVenta') err = validateField('price', value);
+    else if (field === 'proveedor' || field === 'categoria') err = value ? '' : 'Este campo es obligatorio';
+
+    if (err) setFormErrors({ ...formErrors, [field]: err });
+    else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
     }
   };
 
+  const handleDelete = (id: number) => {
+    setProductToDelete(id);
+    setShowConfirmDelete(true);
+  };
+
+  const confirmDelete = () => {
+    if (productToDelete) {
+      setProductos(productos.filter(p => p.id !== productToDelete));
+      setShowAlert({ visible: true, message: 'Producto eliminado exitosamente', type: 'success' });
+    }
+    setShowConfirmDelete(false);
+    setProductToDelete(null);
+  };
+
   const toggleActive = (id: number) => {
-    setProductos(productos.map(p => 
-      p.id === id ? { ...p, activo: !p.activo } : p
-    ));
+    setProductToToggle(id);
+    setShowConfirmToggle(true);
+  };
+
+  const confirmToggle = () => {
+    if (productToToggle) {
+      const producto = productos.find(p => p.id === productToToggle);
+      setProductos(productos.map(p => 
+        p.id === productToToggle ? { ...p, activo: !p.activo } : p
+      ));
+      const nuevoEstado = !producto?.activo ? 'activado' : 'desactivado';
+      setShowAlert({ visible: true, message: `Producto ${nuevoEstado} exitosamente`, type: 'success' });
+    }
+    setShowConfirmToggle(false);
+    setProductToToggle(null);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -243,15 +311,56 @@ export default function ProductosManager() {
     }
   };
 
-  const filteredProducts = productos.filter(p =>
-    p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.categoria.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = productos.filter(p => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      (p.nombre?.toLowerCase() ?? '').includes(searchLower) ||
+      (p.categoria?.toLowerCase() ?? '').includes(searchLower) ||
+      (p.proveedor?.toLowerCase() ?? '').includes(searchLower) ||
+      (p.activo ? 'activo' : 'inactivo').includes(searchLower) ||
+      p.precioVenta.toString().includes(searchLower) ||
+      (p.variantes || []).some(v => 
+        (v.talla?.toLowerCase() ?? '').includes(searchLower) ||
+        (v.colores || []).some(c => (c.color?.toLowerCase() ?? '').includes(searchLower))
+      )
+    );
+  });
 
   const getTotalStock = (producto: Producto) => {
+    if (!producto.variantes || !Array.isArray(producto.variantes)) {
+      return 0;
+    }
     return producto.variantes.reduce((totalVariantes, variante) => {
-      return totalVariantes + variante.colores.reduce((totalColores, color) => totalColores + color.cantidad, 0);
+      if (!variante.colores || !Array.isArray(variante.colores)) {
+        return totalVariantes;
+      }
+      return totalVariantes + variante.colores.reduce((totalColores, color) => totalColores + (color.cantidad || 0), 0);
     }, 0);
+  };
+
+  const exportToExcel = () => {
+    const headers = ['Nombre', 'Categoría', 'Proveedor', 'Precio', 'Estado', 'Stock Total', 'Tallas', 'Colores'];
+    const rows = productos.map(p => [
+      p.nombre,
+      p.categoria,
+      p.proveedor,
+      p.precioVenta,
+      p.activo ? 'Activo' : 'Inactivo',
+      getTotalStock(p),
+      (p.variantes || []).map(v => v.talla).join(' / ') || 'Sin tallas',
+      (p.variantes || []).flatMap(v => v.colores.map(c => c.color)).join(' / ') || 'Sin colores'
+    ]);
+    
+    const csvContent = [
+      headers.join('\t'),
+      ...rows.map(row => row.join('\t'))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/plain;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `productos_${new Date().toISOString().split('T')[0]}.xlsx`;
+    link.click();
   };
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
@@ -259,16 +368,81 @@ export default function ProductosManager() {
 
   return (
     <div className="space-y-6">
+      {/* Alert Modal */}
+      <Modal
+        isOpen={showAlert.visible}
+        onClose={() => setShowAlert({ ...showAlert, visible: false })}
+        title={showAlert.type === 'error' ? 'Error' : showAlert.type === 'success' ? 'Éxito' : 'Información'}
+        size="sm"
+      >
+        <div className="flex items-center gap-3">
+          {showAlert.type === 'error' && <AlertCircle className="text-red-600" size={24} />}
+          {showAlert.type === 'success' && <CheckCircle className="text-green-600" size={24} />}
+          <p className="text-gray-700">{showAlert.message}</p>
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <Button onClick={() => setShowAlert({ ...showAlert, visible: false })} variant="primary">
+            Aceptar
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete Modal */}
+      <Modal
+        isOpen={showConfirmDelete}
+        onClose={() => setShowConfirmDelete(false)}
+        title="Confirmar Eliminación"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">¿Está seguro de que desea eliminar este producto? Esta acción no se puede deshacer.</p>
+          <div className="flex gap-2 justify-end">
+            <Button onClick={() => setShowConfirmDelete(false)} variant="secondary">
+              Cancelar
+            </Button>
+            <Button onClick={confirmDelete} variant="primary" className="bg-red-600 hover:bg-red-700">
+              Eliminar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Toggle Modal */}
+      <Modal
+        isOpen={showConfirmToggle}
+        onClose={() => setShowConfirmToggle(false)}
+        title="Confirmar Cambio de Estado"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">¿Desea cambiar el estado de este producto?</p>
+          <div className="flex gap-2 justify-end">
+            <Button onClick={() => setShowConfirmToggle(false)} variant="secondary">
+              Cancelar
+            </Button>
+            <Button onClick={confirmToggle} variant="primary">
+              Confirmar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-gray-900 mb-2">Gestión de Productos</h2>
           <p className="text-gray-600">Administra el inventario con múltiples tallas y colores por producto</p>
         </div>
-        <Button onClick={handleCreate} variant="primary">
-          <Plus size={20} />
-          Nuevo Producto
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={exportToExcel} variant="secondary">
+            <Download size={20} />
+            Exportar Excel
+          </Button>
+          <Button onClick={handleCreate} variant="primary">
+            <Plus size={20} />
+            Nuevo Producto
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -431,7 +605,7 @@ export default function ProductosManager() {
             <div className="border-t pt-4">
               <h3 className="font-semibold text-gray-900 mb-4">Tallas y Colores Disponibles</h3>
               
-              {viewingProduct.variantes.length === 0 ? (
+              {!viewingProduct.variantes || viewingProduct.variantes.length === 0 ? (
                 <p className="text-sm text-gray-600">No hay variantes configuradas</p>
               ) : (
                 <div className="space-y-4">
@@ -481,14 +655,16 @@ export default function ProductosManager() {
             </div>
 
             {/* Stock total */}
-            <div className="border-t pt-4">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-gray-900">Stock Total:</span>
-                <span className="text-2xl font-bold text-gray-900">
-                  {getTotalStock(viewingProduct)} unidades
-                </span>
+            {viewingProduct.variantes && viewingProduct.variantes.length > 0 && (
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-gray-900">Stock Total:</span>
+                  <span className="text-2xl font-bold text-gray-900">
+                    {getTotalStock(viewingProduct)} unidades
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </Modal>
@@ -496,11 +672,82 @@ export default function ProductosManager() {
       {/* Modal Create/Edit */}
       <Modal
         isOpen={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => {
+          setShowModal(false);
+          setFormErrors({});
+          setEditingProduct(null);
+          setFormData({
+            nombre: '',
+            proveedor: '',
+            categoria: '',
+            precioVenta: '',
+            imagen: '',
+            variantes: []
+          });
+          setNuevaVariante({ talla: '', colores: [{ color: '', cantidad: 0 }] });
+        }}
         title={editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
         size="lg"
       >
         <div className="space-y-4">
+          {/* Información Básica - Reorganizada */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-gray-700 mb-2">Nombre del Producto *</label>
+              <Input
+                value={formData.nombre}
+                onChange={(e) => handleFieldChange('nombre', e.target.value)}
+                placeholder="Ej: Vestido Elegante"
+                required
+              />
+              {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Precio de Venta *</label>
+              <Input
+                type="number"
+                value={formData.precioVenta}
+                onChange={(e) => handleFieldChange('precioVenta', e.target.value)}
+                placeholder="0"
+                required
+              />
+              {formErrors.precioVenta && <p className="text-red-600 text-sm mt-1">{formErrors.precioVenta}</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-gray-700 mb-2">Categoría *</label>
+              <select
+                value={formData.categoria}
+                onChange={(e) => handleFieldChange('categoria', e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                required
+              >
+                <option value="">Seleccionar...</option>
+                {categorias.map((cat: any) => (
+                  <option key={cat.id} value={cat.name}>{cat.name}</option>
+                ))}
+              </select>
+              {formErrors.categoria && <p className="text-red-600 text-sm mt-1">{formErrors.categoria}</p>}
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Proveedor *</label>
+              <select
+                value={formData.proveedor}
+                onChange={(e) => handleFieldChange('proveedor', e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                required
+              >
+                <option value="">Seleccionar...</option>
+                {proveedores.map((prov: any) => (
+                  <option key={prov.id} value={prov.nombre}>{prov.nombre}</option>
+                ))}
+              </select>
+              {formErrors.proveedor && <p className="text-red-600 text-sm mt-1">{formErrors.proveedor}</p>}
+            </div>
+          </div>
+
           {/* Imagen */}
           <div>
             <label className="block text-gray-700 mb-2">Imagen del Producto</label>
@@ -535,44 +782,6 @@ export default function ProductosManager() {
             </div>
           </div>
 
-          <div>
-            <label className="block text-gray-700 mb-2">Nombre del Producto *</label>
-            <Input
-              value={formData.nombre}
-              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-              placeholder="Ej: Vestido Elegante"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-gray-700 mb-2">Categoría *</label>
-              <select
-                value={formData.categoria}
-                onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                required
-              >
-                <option value="">Seleccionar...</option>
-                {categorias.map((cat: any) => (
-                  <option key={cat.id} value={cat.name}>{cat.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-gray-700 mb-2">Precio de Venta *</label>
-              <Input
-                type="number"
-                value={formData.precioVenta}
-                onChange={(e) => setFormData({ ...formData, precioVenta: e.target.value })}
-                placeholder="0"
-                required
-              />
-            </div>
-          </div>
-
           {/* Agregar variantes (tallas y colores) */}
           <div className="border-t pt-4">
             <h4 className="text-gray-900 mb-3">Tallas y Colores Disponibles</h4>
@@ -580,106 +789,52 @@ export default function ProductosManager() {
             {/* Nueva variante */}
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
               <div className="mb-3">
-                <label className="block text-gray-700 mb-2">Seleccionar Talla</label>
-                <div className="flex gap-2">
-                  <select
-                    value={nuevaVariante.talla}
-                    onChange={(e) => setNuevaVariante({ ...nuevaVariante, talla: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    <option value="">Seleccionar talla...</option>
-                    {tallas.map(talla => (
-                      <option key={talla} value={talla}>{talla}</option>
-                    ))}
-                  </select>
-                  <span className="text-gray-500 py-2">o</span>
-                  <Input
-                    value={newTalla}
-                    onChange={(e) => setNewTalla(e.target.value)}
-                    placeholder="Nueva talla"
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      if (newTalla.trim()) {
-                        setNuevaVariante({ ...nuevaVariante, talla: newTalla.trim() });
-                        setNewTalla('');
-                      }
-                    }}
-                    variant="secondary"
-                  >
-                    Usar
-                  </Button>
-                </div>
+                <label className="block text-gray-700 mb-2">Seleccionar Talla *</label>
+                <select
+                  value={nuevaVariante.talla}
+                  onChange={(e) => setNuevaVariante({ ...nuevaVariante, talla: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  <option value="">Seleccionar talla...</option>
+                  {tallas.map(talla => (
+                    <option key={talla} value={talla}>{talla}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="mb-3">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-gray-700">Colores y Cantidades</label>
-                  <button
-                    type="button"
-                    onClick={agregarColorAVariante}
-                    className="text-gray-600 hover:text-gray-900 flex items-center gap-1 text-sm"
+                <label className="block text-gray-700 mb-2">Color y Cantidad *</label>
+                <div className="flex gap-2 items-start">
+                  <select
+                    value={nuevaVariante.colores[0]?.color || ''}
+                    onChange={(e) => {
+                      const nuevoColor = e.target.value;
+                      setNuevaVariante({
+                        ...nuevaVariante,
+                        colores: [{ ...nuevaVariante.colores[0], color: nuevoColor }]
+                      });
+                    }}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                   >
-                    <Plus size={14} />
-                    Agregar Color
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {nuevaVariante.colores.map((colorItem, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex gap-2 items-start">
-                        <select
-                          value={colorItem.color}
-                          onChange={(e) => actualizarColorVariante(index, 'color', e.target.value)}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                        >
-                          <option value="">Seleccionar color...</option>
-                          {coloresDisponibles.map(color => (
-                            <option key={color.nombre} value={color.nombre}>{color.nombre}</option>
-                          ))}
-                        </select>
-                        <Input
-                          type="number"
-                          value={colorItem.cantidad}
-                          onChange={(e) => actualizarColorVariante(index, 'cantidad', parseInt(e.target.value) || 0)}
-                          placeholder="Cantidad"
-                          className="w-24"
-                        />
-                        {nuevaVariante.colores.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => eliminarColorDeVariante(index)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                          >
-                            <X size={18} />
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex gap-2 items-center ml-2">
-                        <span className="text-sm text-gray-500">o agregar nuevo:</span>
-                        <Input
-                          value={newColor}
-                          onChange={(e) => setNewColor(e.target.value)}
-                          placeholder="Nombre del color"
-                          className="flex-1"
-                        />
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            if (newColor.trim()) {
-                              actualizarColorVariante(index, 'color', newColor.trim());
-                              setNewColor('');
-                            }
-                          }}
-                          variant="secondary"
-                        >
-                          Usar
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    <option value="">Seleccionar color...</option>
+                    {coloresDisponibles.map(color => (
+                      <option key={color.nombre} value={color.nombre}>
+                        {color.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    type="number"
+                    value={nuevaVariante.colores[0]?.cantidad || 0}
+                    onChange={(e) => {
+                      setNuevaVariante({
+                        ...nuevaVariante,
+                        colores: [{ ...nuevaVariante.colores[0], cantidad: parseInt(e.target.value) || 0 }]
+                      });
+                    }}
+                    placeholder="Cantidad"
+                    className="w-24"
+                  />
                 </div>
               </div>
 
@@ -725,7 +880,20 @@ export default function ProductosManager() {
           </div>
 
           <div className="flex gap-3 justify-end pt-4">
-            <Button onClick={() => setShowModal(false)} variant="secondary">
+            <Button onClick={() => {
+              setShowModal(false);
+              setFormErrors({});
+              setEditingProduct(null);
+              setFormData({
+                nombre: '',
+                proveedor: '',
+                categoria: '',
+                precioVenta: '',
+                imagen: '',
+                variantes: []
+              });
+              setNuevaVariante({ talla: '', colores: [{ color: '', cantidad: 0 }] });
+            }} variant="secondary">
               Cancelar
             </Button>
             <Button onClick={handleSave} variant="primary">

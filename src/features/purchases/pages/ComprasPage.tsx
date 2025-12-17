@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Card, Button, Input, Label, Select, Modal, DataTable, Badge, useToast } from '../../../shared/components/native';
+import validateField from '../../../shared/utils/validation';
 import { Plus, Edit, Trash2, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
 
@@ -35,6 +36,7 @@ export default function ComprasPage() {
     size: '',
     color: '',
   });
+  const [formErrors, setFormErrors] = useState<any>({});
   const { showToast } = useToast();
   const { user } = useAuth();
 
@@ -70,8 +72,23 @@ export default function ComprasPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const quantity = parseInt(formData.quantity);
-    const unitPrice = parseFloat(formData.unitPrice);
+    const errors: any = {};
+    const providerErr = validateField('nombre', formData.provider);
+    if (providerErr) errors.provider = providerErr;
+    const productErr = validateField('name', formData.product);
+    if (productErr) errors.product = productErr;
+
+    const quantity = parseInt(formData.quantity || '0');
+    if (isNaN(quantity) || quantity <= 0) errors.quantity = 'Cantidad inválida';
+
+    const unitPrice = parseFloat(formData.unitPrice || '0');
+    if (isNaN(unitPrice) || unitPrice <= 0) errors.unitPrice = 'Precio inválido';
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
     const total = quantity * unitPrice;
 
     if (editingPurchase) {
@@ -103,6 +120,58 @@ export default function ComprasPage() {
     }
 
     setIsModalOpen(false);
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
+    setFormData({ ...formData, [field]: value });
+    // validate
+    if (field === 'provider') {
+      const err = validateField('nombre', value);
+      if (err) setFormErrors({ ...formErrors, provider: err });
+      else {
+        const { provider: _p, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'product') {
+      const err = validateField('name', value);
+      if (err) setFormErrors({ ...formErrors, product: err });
+      else {
+        const { product: _p, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'quantity') {
+      const n = parseInt(value || '0');
+      if (isNaN(n) || n <= 0) setFormErrors({ ...formErrors, quantity: 'Cantidad inválida' });
+      else {
+        const { quantity: _q, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'unitPrice') {
+      const n = parseFloat(value || '0');
+      if (isNaN(n) || n <= 0) setFormErrors({ ...formErrors, unitPrice: 'Precio inválido' });
+      else {
+        const { unitPrice: _u, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    // generic fallback
+    const err = validateField(field, value);
+    if (err) setFormErrors({ ...formErrors, [field]: err });
+    else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -233,10 +302,11 @@ export default function ComprasPage() {
             <Input
               id="provider"
               value={formData.provider}
-              onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
+              onChange={(e) => handleFieldChange('provider', e.target.value)}
               placeholder="Nombre del proveedor"
               required
             />
+            {formErrors.provider && <p className="text-red-600 text-sm mt-1">{formErrors.provider}</p>}
           </div>
 
           <div className="space-y-2">
@@ -244,10 +314,11 @@ export default function ComprasPage() {
             <Input
               id="product"
               value={formData.product}
-              onChange={(e) => setFormData({ ...formData, product: e.target.value })}
+              onChange={(e) => handleFieldChange('product', e.target.value)}
               placeholder="Descripción del producto"
               required
             />
+            {formErrors.product && <p className="text-red-600 text-sm mt-1">{formErrors.product}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -256,7 +327,7 @@ export default function ComprasPage() {
               <Input
                 id="size"
                 value={formData.size}
-                onChange={(e) => setFormData({ ...formData, size: e.target.value })}
+                onChange={(e) => handleFieldChange('size', e.target.value)}
                 placeholder="Ej: M, L, XL"
               />
             </div>
@@ -266,7 +337,7 @@ export default function ComprasPage() {
               <Input
                 id="color"
                 value={formData.color}
-                onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                onChange={(e) => handleFieldChange('color', e.target.value)}
                 placeholder="Ej: Negro, Blanco"
               />
             </div>
@@ -279,9 +350,10 @@ export default function ComprasPage() {
                 id="quantity"
                 type="number"
                 value={formData.quantity}
-                onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                onChange={(e) => handleFieldChange('quantity', e.target.value)}
                 required
               />
+              {formErrors.quantity && <p className="text-red-600 text-sm mt-1">{formErrors.quantity}</p>}
             </div>
 
             <div className="space-y-2">
@@ -290,9 +362,10 @@ export default function ComprasPage() {
                 id="unitPrice"
                 type="number"
                 value={formData.unitPrice}
-                onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
+                onChange={(e) => handleFieldChange('unitPrice', e.target.value)}
                 required
               />
+              {formErrors.unitPrice && <p className="text-red-600 text-sm mt-1">{formErrors.unitPrice}</p>}
             </div>
           </div>
 
@@ -301,7 +374,7 @@ export default function ComprasPage() {
             <Select
               id="status"
               value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value as Purchase['status'] })}
+              onChange={(e) => handleFieldChange('status', e.target.value as Purchase['status'])}
             >
               <option value="Pendiente">Pendiente</option>
               <option value="Recibido">Recibido</option>

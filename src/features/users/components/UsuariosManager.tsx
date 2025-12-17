@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Users, Search, Download, Eye, EyeOff } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
+import validateField from '../../../shared/utils/validation';
 
 const STORAGE_KEY = 'damabella_users';
 const ROLES_KEY = 'damabella_roles';
@@ -77,6 +78,45 @@ export default function UsuariosManager() {
   const validatePassword = (password: string) => {
     const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
     return regex.test(password);
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
+    setFormData({ ...formData, [field]: value });
+
+    // field-specific validation: use shared helper when applicable
+    if (field === 'password' || field === 'confirmPassword') {
+      // password has custom rules
+      if (field === 'password') {
+        if (!value && !editingUsuario) {
+          setFormErrors({ ...formErrors, password: 'Por favor ingresa la contraseña' });
+        } else if (value && !validatePassword(value)) {
+          setFormErrors({ ...formErrors, password: 'La contraseña debe tener al menos 8 caracteres, mayúscula, minúscula, número y carácter especial' });
+        } else {
+          const { password: _p, ...rest } = formErrors;
+          setFormErrors(rest);
+        }
+      }
+
+      if (field === 'confirmPassword') {
+        if (!value && !editingUsuario) {
+          setFormErrors({ ...formErrors, confirmPassword: 'Por favor repite la contraseña' });
+        } else if (formData.password && value !== formData.password) {
+          setFormErrors({ ...formErrors, confirmPassword: 'Las contraseñas no coinciden' });
+        } else {
+          const { confirmPassword: _c, ...rest } = formErrors;
+          setFormErrors(rest);
+        }
+      }
+
+      return;
+    }
+
+    const err = validateField(field, value);
+    if (err) setFormErrors({ ...formErrors, [field]: err });
+    else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
+    }
   };
 
   const handleCreate = () => {
@@ -209,10 +249,10 @@ export default function UsuariosManager() {
   };
 
   const filteredUsuarios = usuarios.filter(u =>
-    u.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.numeroDoc.includes(searchTerm) ||
-    u.role.toLowerCase().includes(searchTerm.toLowerCase())
+    (u.nombre?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
+    (u.email?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
+    (u.numeroDoc ?? '').includes(searchTerm) ||
+    (u.role?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -352,7 +392,7 @@ export default function UsuariosManager() {
             <label className="block text-gray-700 mb-2">Nombre Completo *</label>
             <Input
               value={formData.nombre}
-              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              onChange={(e) => handleFieldChange('nombre', e.target.value)}
               placeholder="Juan Pérez"
             />
             {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
@@ -363,7 +403,7 @@ export default function UsuariosManager() {
               <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
               <select
                 value={formData.tipoDoc}
-                onChange={(e) => setFormData({ ...formData, tipoDoc: e.target.value })}
+                onChange={(e) => handleFieldChange('tipoDoc', e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               >
                 <option value="CC">Cédula de Ciudadanía</option>
@@ -378,7 +418,7 @@ export default function UsuariosManager() {
               <label className="block text-gray-700 mb-2">Número de Documento *</label>
               <Input
                 value={formData.numeroDoc}
-                onChange={(e) => setFormData({ ...formData, numeroDoc: e.target.value })}
+                onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
                 placeholder="1234567890"
               />
               {formErrors.numeroDoc && <p className="text-red-600 text-sm mt-1">{formErrors.numeroDoc}</p>}
@@ -390,7 +430,7 @@ export default function UsuariosManager() {
               <label className="block text-gray-700 mb-2">Celular *</label>
               <Input
                 value={formData.celular}
-                onChange={(e) => setFormData({ ...formData, celular: e.target.value })}
+                onChange={(e) => handleFieldChange('celular', e.target.value)}
                 placeholder="3001234567"
               />
               {formErrors.celular && <p className="text-red-600 text-sm mt-1">{formErrors.celular}</p>}
@@ -400,7 +440,7 @@ export default function UsuariosManager() {
               <label className="block text-gray-700 mb-2">Rol *</label>
               <select
                 value={formData.roleId}
-                onChange={(e) => setFormData({ ...formData, roleId: e.target.value })}
+                onChange={(e) => handleFieldChange('roleId', e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               >
                 <option value="">Seleccionar rol...</option>
@@ -417,7 +457,7 @@ export default function UsuariosManager() {
             <Input
               type="email"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              onChange={(e) => handleFieldChange('email', e.target.value)}
               placeholder="usuario@ejemplo.com"
             />
             {formErrors.email && <p className="text-red-600 text-sm mt-1">{formErrors.email}</p>}
@@ -442,7 +482,7 @@ export default function UsuariosManager() {
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  onChange={(e) => handleFieldChange('password', e.target.value)}
                   placeholder="••••••••"
                 />
                 <button
@@ -467,7 +507,7 @@ export default function UsuariosManager() {
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
-                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                  onChange={(e) => handleFieldChange('confirmPassword', e.target.value)}
                   placeholder="••••••••"
                 />
                 <button

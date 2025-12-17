@@ -71,6 +71,8 @@ interface EcommerceContextType {
 
 const EcommerceContext = createContext<EcommerceContextType | undefined>(undefined);
 
+export { EcommerceContext };
+
 // Función auxiliar para colores
 function getColorHex(color: string): string {
   const map: Record<string, string> = {

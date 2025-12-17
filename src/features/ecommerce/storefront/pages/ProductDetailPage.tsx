@@ -20,6 +20,7 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
   const [quantity, setQuantity] = useState(1);
   const [realStock, setRealStock] = useState(0);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [rating, setRating] = useState(0);
 
   const product = products.find(p => p.id === productId);
 
@@ -76,6 +77,13 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
   }
 
   const selectedVariant = product.variants.find(v => v.color === selectedColor);
+  
+  // Obtener todas las tallas únicas de todas las variantes
+  const allUniqueSizes = Array.from(
+    new Set(product.variants.flatMap(v => v.sizes.map(s => s.size)))
+  ).sort();
+  
+  // Obtener stock de la talla seleccionada en la variante actual
   const availableSizes = selectedVariant?.sizes.filter(s => s.stock > 0) || [];
   const maxStock = selectedVariant?.sizes.find(s => s.size === selectedSize)?.stock || 0;
   const isFavorite = favorites.includes(product.id);
@@ -86,16 +94,7 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
       return;
     }
 
-    if (realStock > 0) {
-      if (quantity > realStock) {
-        showToast(`Stock insuficiente. Solo quedan ${realStock} unidades disponibles`, 'error');
-        return;
-      }
-    } else if (maxStock <= 0) {
-      showToast('Producto sin stock disponible', 'error');
-      return;
-    }
-
+    // Permite agregar al carrito sin restricción de stock
     addToCart({
       productId: product.id,
       productName: product.name,
@@ -107,7 +106,16 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
       quantity,
     });
 
-    showToast('Producto agregado al carrito', 'success');
+    showToast('✅ Producto agregado al carrito', 'success');
+  };
+
+  const handleToggleFavorite = () => {
+    toggleFavorite(product.id);
+    if (isFavorite) {
+      showToast('❤️ Removido de favoritos', 'info');
+    } else {
+      showToast('❤️ Agregado a favoritos', 'success');
+    }
   };
 
   const relatedProducts = products
@@ -159,7 +167,7 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
                   ${product.price.toLocaleString()}
                 </p>
                 <button
-                  onClick={() => toggleFavorite(product.id)}
+                  onClick={handleToggleFavorite}
                   className="p-3 hover:bg-gray-100 rounded-full transition-colors"
                 >
                   <Heart
@@ -169,16 +177,31 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
                 </button>
               </div>
               <div className="flex items-center gap-2 mb-4">
-                <div className="flex">
+                <div className="flex gap-1">
                   {[...Array(5)].map((_, i) => (
-                    <Star
+                    <button
                       key={i}
-                      size={18}
-                      className={i < product.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}
-                    />
+                      onClick={() => {
+                        setRating(i + 1);
+                        showToast(`⭐ Calificación de ${i + 1} estrella${i + 1 !== 1 ? 's' : ''} registrada`, 'success');
+                      }}
+                      className="cursor-pointer hover:scale-110 transition-transform"
+                      title={`Calificar con ${i + 1} estrella${i + 1 !== 1 ? 's' : ''}`}
+                    >
+                      <Star
+                        size={18}
+                        className={
+                          i < Math.max(rating, product.rating)
+                            ? i < rating
+                              ? 'fill-orange-400 text-orange-400'
+                              : 'fill-yellow-400 text-yellow-400'
+                            : 'text-gray-300'
+                        }
+                      />
+                    </button>
                   ))}
                 </div>
-                <span className="text-gray-600">({product.rating}.0)</span>
+                <span className="text-gray-600">({Math.max(rating, product.rating)}.0)</span>
               </div>
             </div>
 
@@ -193,7 +216,7 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
                 Color: <span className="font-normal text-gray-600">{selectedColor}</span>
               </h3>
               <div className="flex flex-wrap gap-3">
-                {product.variants.map((variant) => (
+                {Array.from(new Map(product.variants.map((v) => [v.color, v])).values()).map((variant) => (
                   <button
                     key={variant.color}
                     onClick={() => setSelectedColor(variant.color)}
@@ -215,19 +238,24 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
                 Talla: <span className="font-normal text-gray-600">{selectedSize || 'Seleccionar'}</span>
               </h3>
               <div className="flex flex-wrap gap-3">
-                {availableSizes.map((sizeObj) => (
-                  <button
-                    key={sizeObj.size}
-                    onClick={() => setSelectedSize(sizeObj.size)}
-                    className={`px-6 py-3 rounded-lg border-2 transition-all ${
-                      selectedSize === sizeObj.size
-                        ? 'bg-pink-50 border-pink-400 text-pink-400'
-                        : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                    }`}
-                  >
-                    {sizeObj.size}
-                  </button>
-                ))}
+                {allUniqueSizes.map((size) => {
+                  const hasStock = selectedVariant ? selectedVariant.sizes.some(s => s.size === size && s.stock > 0) : false;
+                  return (
+                    <button
+                      key={size}
+                      onClick={() => setSelectedSize(size)}
+                      className={`px-6 py-3 rounded-lg border-2 transition-all cursor-pointer ${
+                        selectedSize === size
+                          ? 'bg-pink-50 border-pink-400 text-pink-400'
+                          : hasStock
+                          ? 'border-gray-300 text-gray-700 hover:border-gray-400'
+                          : 'border-gray-200 text-gray-400 opacity-50'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
