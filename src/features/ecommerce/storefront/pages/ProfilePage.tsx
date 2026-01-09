@@ -34,6 +34,9 @@ export function ProfilePage({ onNavigate, currentUser, onLogout, onLogin }: Prof
   const [isEditing, setIsEditing] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
 
+  // Debug: Ver qué datos tiene currentUser
+  console.log('🔍 [ProfilePage] currentUser:', currentUser);
+
   // Estados para Información Personal
   const [editForm, setEditForm] = useState({
     name: currentUser?.name || '',
@@ -222,6 +225,7 @@ export function ProfilePage({ onNavigate, currentUser, onLogout, onLogin }: Prof
     // Actualizar usuario actual
     const updatedUser = { ...currentUser, ...editForm };
     localStorage.setItem('damabella_user', JSON.stringify(updatedUser));
+    onLogin(updatedUser);
 
     // Actualizar en array de usuarios
     const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
@@ -339,8 +343,18 @@ export function ProfilePage({ onNavigate, currentUser, onLogout, onLogin }: Prof
     }
 
     try {
-      // Simular petición al servidor
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Guardar nueva contraseña
+      const updatedUser = { ...currentUser, password: passwordForm.newPass };
+      localStorage.setItem('damabella_user', JSON.stringify(updatedUser));
+      onLogin(updatedUser);
+      
+      // Actualizar en array de usuarios
+      const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
+      const userIndex = users.findIndex((u: any) => u.email === currentUser.email);
+      if (userIndex !== -1) {
+        users[userIndex] = updatedUser;
+        localStorage.setItem('damabella_users', JSON.stringify(users));
+      }
 
       localStorage.setItem('damabella_password_updated', new Date().toISOString());
       setPasswordForm({ current: '', newPass: '', confirm: '' });
@@ -437,7 +451,19 @@ export function ProfilePage({ onNavigate, currentUser, onLogout, onLogin }: Prof
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl text-gray-900">Información Personal</h2>
                 <button 
-                  onClick={() => setIsEditing(!isEditing)}
+                  onClick={() => {
+                    if (!isEditing) {
+                      // Cargar datos actuales cuando abre edición
+                      setEditForm({
+                        name: currentUser?.name || '',
+                        email: currentUser?.email || '',
+                        celular: currentUser?.celular || '',
+                        direccion: currentUser?.direccion || '',
+                      });
+                      setEditErrors({});
+                    }
+                    setIsEditing(!isEditing);
+                  }}
                   className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                 >
                   <Edit2 size={18} className="text-gray-600" />

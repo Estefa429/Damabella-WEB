@@ -6,7 +6,7 @@ import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '../../../../components/ui/dialog';
 import { Textarea } from '../../../../components/ui/textarea';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, AlertCircle } from 'lucide-react';
 import validateField from '../../../../shared/utils/validation';
 import { toast } from 'sonner';
 
@@ -46,6 +46,7 @@ export function Categorias({ user }: CategoriasProps) {
   const handleAdd = () => {
     setEditMode(false);
     setFormData({ name: '', description: '' });
+    setFormErrors({});
     setDialogOpen(true);
   };
 
@@ -53,6 +54,7 @@ export function Categorias({ user }: CategoriasProps) {
     setEditMode(true);
     setSelectedCategoria(categoria);
     setFormData({ name: categoria.name, description: categoria.description || '' });
+    setFormErrors({});
     setDialogOpen(true);
   };
 
@@ -68,6 +70,8 @@ export function Categorias({ user }: CategoriasProps) {
       setFormErrors(errors);
       return;
     }
+
+    setFormErrors({});
 
     if (editMode && selectedCategoria) {
       setCategorias(
@@ -87,6 +91,7 @@ export function Categorias({ user }: CategoriasProps) {
       toast.success('Categoría creada exitosamente');
     }
     setDialogOpen(false);
+    setFormData({ name: '', description: '' });
   };
 
   const handleFieldChange = (field: string, value: string) => {
@@ -167,9 +172,17 @@ export function Categorias({ user }: CategoriasProps) {
                   id="name"
                   value={formData.name}
                   onChange={e => handleFieldChange('name', e.target.value)}
+                  placeholder="Ej: Vestidos Largos"
+                  className={formData.name && !formErrors.name ? 'border-green-500' : formErrors.name ? 'border-red-500' : ''}
                   required
                 />
-                {formErrors.name && <p className="text-red-600 text-sm mt-1">{formErrors.name}</p>}
+                {formErrors.name && (
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-red-600 text-sm">{formErrors.name}</p>
+                  </div>
+                )}
+                {formData.name && !formErrors.name && <p className="text-green-600 text-xs">✓ Nombre válido</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">Descripción</Label>
@@ -177,10 +190,18 @@ export function Categorias({ user }: CategoriasProps) {
                   id="description"
                   value={formData.description}
                   onChange={e => handleFieldChange('description', e.target.value)}
+                  placeholder="Describe esta categoría..."
                   rows={3}
+                  className={formData.description && !formErrors.description ? 'border-green-500' : formErrors.description ? 'border-red-500' : ''}
                   required
                 />
-                {formErrors.description && <p className="text-red-600 text-sm mt-1">{formErrors.description}</p>}
+                {formErrors.description && (
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-red-600 text-sm">{formErrors.description}</p>
+                  </div>
+                )}
+                {formData.description && !formErrors.description && <p className="text-green-600 text-xs">✓ Descripción válida</p>}
               </div>
             </div>
             <DialogFooter>

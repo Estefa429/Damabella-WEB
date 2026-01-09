@@ -2,13 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
 import { Button, Input, Label, Badge, Card, Modal, Select, useToast } from '../../../shared/components/native';
 import validateField from '../../../shared/utils/validation';
-import { Plus, Search, Edit, Trash2, Eye, Users, UserCheck, UserX, Shield, Download, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Eye, EyeOff, Users, UserCheck, UserX, Shield, Download, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 
 interface Usuario {
   id: string;
   nombre: string;
   email: string;
+  tipoDoc: string;
   documento: string;
+  celular: string;
+  direccion: string;
   rol: string;
   estado: 'Activo' | 'Inactivo';
   fechaCreacion: string;
@@ -16,11 +19,11 @@ interface Usuario {
 }
 
 const INITIAL_USERS: Usuario[] = [
-  { id: '1', nombre: 'Ana García', email: 'admin@damabella.com', documento: '1234567890', rol: 'Administrador', estado: 'Activo', fechaCreacion: '2024-01-15', creadoPor: 'Sistema' },
-  { id: '2', nombre: 'María López', email: 'empleado@damabella.com', documento: '0987654321', rol: 'Empleado', estado: 'Activo', fechaCreacion: '2024-02-20', creadoPor: 'Ana García' },
-  { id: '3', nombre: 'Laura Martínez', email: 'cliente@damabella.com', documento: '5555555555', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-03-10', creadoPor: 'María López' },
-  { id: '4', nombre: 'Sofía Ramírez', email: 'sofia.r@example.com', documento: '1111222233', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-06-05', creadoPor: 'María López' },
-  { id: '5', nombre: 'Carolina Ruiz', email: 'carolina.r@example.com', documento: '4444555566', rol: 'Cliente', estado: 'Inactivo', fechaCreacion: '2024-05-12', creadoPor: 'Ana García' }
+  { id: '1', nombre: 'Ana García', email: 'admin@damabella.com', tipoDoc: 'CC', documento: '1234567890', celular: '3001234567', rol: 'Administrador', estado: 'Activo', fechaCreacion: '2024-01-15', creadoPor: 'Sistema' },
+  { id: '2', nombre: 'María López', email: 'empleado@damabella.com', tipoDoc: 'CC', documento: '0987654321', celular: '3107654321', rol: 'Empleado', estado: 'Activo', fechaCreacion: '2024-02-20', creadoPor: 'Ana García' },
+  { id: '3', nombre: 'Laura Martínez', email: 'cliente@damabella.com', tipoDoc: 'CC', documento: '5555555555', celular: '3209876543', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-03-10', creadoPor: 'María López' },
+  { id: '4', nombre: 'Sofía Ramírez', email: 'sofia.r@example.com', tipoDoc: 'CE', documento: '1111222233', celular: '3156789012', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-06-05', creadoPor: 'María López' },
+  { id: '5', nombre: 'Carolina Ruiz', email: 'carolina.r@example.com', tipoDoc: 'TI', documento: '4444555566', celular: '3145678901', rol: 'Cliente', estado: 'Inactivo', fechaCreacion: '2024-05-12', creadoPor: 'Ana García' }
 ];
 
 export default function UsuariosModule() {
@@ -42,6 +45,8 @@ export default function UsuariosModule() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRol, setFilterRol] = useState<string>('todos');
   const [filterEstado, setFilterEstado] = useState<string>('todos');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -49,13 +54,19 @@ export default function UsuariosModule() {
   const [selectedUser, setSelectedUser] = useState<Usuario | null>(null);
   const [formData, setFormData] = useState({
     nombre: '',
+    tipoDoc: 'CC',
     email: '',
     documento: '',
+    celular: '',
+    direccion: '',
     rol: 'Cliente',
     estado: 'Activo' as 'Activo' | 'Inactivo',
-    password: ''
+    password: '',
+    confirmPassword: ''
   });
   const [formErrors, setFormErrors] = useState<any>({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const canDelete = user?.role === 'Administrador';
 
@@ -83,8 +94,8 @@ export default function UsuariosModule() {
     if (value.trim().length < 3) {
       return 'El nombre debe tener al menos 3 caracteres';
     }
-    // Solo letras, números y espacios
-    if (!/^[a-zA-Z0-9\s]+$/.test(value)) {
+    // Permitir letras (incluyendo tildes), números y espacios
+    if (!/^[a-záéíóúñA-ZÁÉÍÓÚÑ0-9\s]+$/.test(value)) {
       return 'El nombre no puede contener caracteres especiales';
     }
     return '';
@@ -125,6 +136,26 @@ export default function UsuariosModule() {
     return '';
   };
 
+  const validatePasswordStrength = (password: string) => {
+    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
+    return regex.test(password);
+  };
+
+  const validateCelular = (value: string): string => {
+    if (!value.trim()) {
+      return 'El celular es obligatorio';
+    }
+    // Solo números
+    if (!/^\d+$/.test(value)) {
+      return 'El celular solo puede contener números';
+    }
+    // Validar que tenga 10 dígitos (formato colombiano)
+    if (value.length !== 10) {
+      return 'El celular debe tener exactamente 10 dígitos';
+    }
+    return '';
+  };
+
   // Guardar en localStorage cuando cambien los usuarios
   useEffect(() => {
     localStorage.setItem('damabella_users', JSON.stringify(usuarios));
@@ -157,8 +188,10 @@ export default function UsuariosModule() {
 
   const handleAdd = () => {
     setSelectedUser(null);
-    setFormData({ nombre: '', email: '', documento: '', rol: 'Cliente', estado: 'Activo', password: '' });
+    setFormData({ nombre: '', tipoDoc: 'CC', email: '', documento: '', celular: '', direccion: '', rol: 'Cliente', estado: 'Activo', password: '', confirmPassword: '' });
     setFormErrors({});
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     setDialogOpen(true);
   };
 
@@ -166,12 +199,19 @@ export default function UsuariosModule() {
     setSelectedUser(usuario);
     setFormData({
       nombre: usuario.nombre,
+      tipoDoc: usuario.tipoDoc,
       email: usuario.email,
       documento: usuario.documento,
+      celular: usuario.celular,
+      direccion: usuario.direccion || '',
       rol: usuario.rol,
       estado: usuario.estado,
-      password: ''
+      password: '',
+      confirmPassword: ''
     });
+    setFormErrors({});
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     setDialogOpen(true);
   };
 
@@ -264,14 +304,30 @@ export default function UsuariosModule() {
     // Validación final antes de enviar con las nuevas funciones
     const nombreErr = validateNombre(formData.nombre);
     const documentoErr = validateDocumento(formData.documento);
+    const celularErr = validateCelular(formData.celular);
     const emailErr = validateEmail(formData.email);
     const passwordErr = validatePassword(formData.password, !selectedUser);
 
     const errors: any = {};
     if (nombreErr) errors.nombre = nombreErr;
     if (documentoErr) errors.documento = documentoErr;
+    if (celularErr) errors.celular = celularErr;
     if (emailErr) errors.email = emailErr;
     if (passwordErr) errors.password = passwordErr;
+
+    // Validar duplicados de email
+    const emailDuplicado = usuarios.some(u => 
+      u.email.toLowerCase() === formData.email.toLowerCase() && 
+      u.id !== selectedUser?.id
+    );
+    if (emailDuplicado) errors.email = 'Este email ya está registrado';
+
+    // Validar duplicados de documento
+    const docDuplicado = usuarios.some(u => 
+      u.documento === formData.documento && 
+      u.id !== selectedUser?.id
+    );
+    if (docDuplicado) errors.documento = 'Este número de documento ya está registrado';
 
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -297,6 +353,7 @@ export default function UsuariosModule() {
     }
     
     setDialogOpen(false);
+    setCurrentPage(1);
   };
 
   const handleFieldChange = (field: string, rawValue: string) => {
@@ -304,12 +361,15 @@ export default function UsuariosModule() {
 
     // PASO 1: Filtrar caracteres según el campo
     if (field === 'nombre') {
-      // Solo a-z, A-Z, 0-9 y espacios
-      cleanValue = rawValue.split('').filter(char => /^[a-zA-Z0-9\s]$/.test(char)).join('');
+      // Permitir letras (incluyendo tildes), números y espacios
+      cleanValue = rawValue.split('').filter(char => /^[a-záéíóúñA-ZÁÉÍÓÚÑ0-9\s]$/.test(char)).join('');
     } else if (field === 'documento') {
       // Solo dígitos
       cleanValue = rawValue.split('').filter(char => /^\d$/.test(char)).join('');
-    } else if (field === 'password') {
+    } else if (field === 'celular') {
+      // Solo dígitos (máximo 10)
+      cleanValue = rawValue.split('').filter(char => /^\d$/.test(char)).join('').slice(0, 10);
+    } else if (field === 'password' || field === 'confirmPassword') {
       // Filtrar caracteres problemáticos
       cleanValue = rawValue.split('').filter(char => !/['"`]/.test(char)).join('');
     }
@@ -323,10 +383,33 @@ export default function UsuariosModule() {
       errorMsg = validateNombre(cleanValue);
     } else if (field === 'documento') {
       errorMsg = validateDocumento(cleanValue);
+    } else if (field === 'celular') {
+      errorMsg = validateCelular(cleanValue);
     } else if (field === 'email') {
       errorMsg = validateEmail(cleanValue);
     } else if (field === 'password') {
-      errorMsg = validatePassword(cleanValue, !selectedUser);
+      if (!cleanValue && !selectedUser) {
+        errorMsg = 'La contraseña es obligatoria';
+      } else if (cleanValue && cleanValue.length < 6) {
+        errorMsg = 'La contraseña debe tener al menos 6 caracteres';
+      }
+      // Validar coincidencia también
+      if (formData.confirmPassword && cleanValue !== formData.confirmPassword) {
+        setFormErrors(prev => ({ ...prev, confirmPassword: 'Las contraseñas no coinciden' }));
+      } else if (formData.confirmPassword && cleanValue === formData.confirmPassword) {
+        const { confirmPassword: _c, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+    } else if (field === 'confirmPassword') {
+      if (!cleanValue && !selectedUser) {
+        errorMsg = 'Debes repetir la contraseña';
+      } else if (formData.password && cleanValue !== formData.password) {
+        errorMsg = 'Las contraseñas no coinciden';
+      }
+    } else if (field === 'direccion') {
+      if (cleanValue && cleanValue.trim().length > 0 && cleanValue.trim().length < 5) {
+        errorMsg = 'La dirección debe tener al menos 5 caracteres';
+      }
     }
 
     // PASO 4: Actualizar errores
@@ -363,7 +446,10 @@ export default function UsuariosModule() {
         <Input
           placeholder="Buscar por nombre, documento o email..."
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setCurrentPage(1);
+          }}
           className="border-0 focus-visible:ring-0"
         />
       </div>
@@ -448,7 +534,24 @@ export default function UsuariosModule() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredUsers.map((usuario) => (
+              {(() => {
+                const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+                const startIndex = (currentPage - 1) * itemsPerPage;
+                const endIndex = startIndex + itemsPerPage;
+                const paginatedUsers = filteredUsers.slice(startIndex, endIndex);
+                
+                if (paginatedUsers.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-gray-500">
+                        <Users className="mx-auto mb-2 text-gray-300" size={40} />
+                        <p>No se encontraron usuarios</p>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return paginatedUsers.map((usuario) => (
                 <tr key={usuario.id} className="hover:bg-gray-50">
                   <td className="py-3 px-4 whitespace-nowrap text-sm">{usuario.nombre}</td>
                   <td className="py-3 px-4 whitespace-nowrap text-sm">{usuario.documento}</td>
@@ -492,9 +595,47 @@ export default function UsuariosModule() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              ))})()}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Mostrando <span className="font-medium">{Math.min((currentPage - 1) * itemsPerPage + 1, filteredUsers.length)}</span> a <span className="font-medium">{Math.min(currentPage * itemsPerPage, filteredUsers.length)}</span> de <span className="font-medium">{filteredUsers.length}</span> usuarios
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Anterior
+            </button>
+            <div className="flex items-center gap-2">
+              {Array.from({ length: Math.ceil(filteredUsers.length / itemsPerPage) }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    currentPage === page
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredUsers.length / itemsPerPage)))}
+              disabled={currentPage === Math.ceil(filteredUsers.length / itemsPerPage) || filteredUsers.length === 0}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Siguiente
+            </button>
+          </div>
         </div>
       </div>
 
@@ -504,7 +645,7 @@ export default function UsuariosModule() {
         onClose={() => setDialogOpen(false)}
         title={selectedUser ? 'Editar Usuario' : 'Nuevo Usuario'}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto">
           <div className="space-y-2">
             <Label htmlFor="nombre">Nombre completo</Label>
             <Input
@@ -512,6 +653,7 @@ export default function UsuariosModule() {
               value={formData.nombre}
               onChange={(e) => handleFieldChange('nombre', e.target.value)}
               placeholder="Ej: Juan Pérez"
+              className={formData.nombre && !formErrors.nombre ? 'border-green-500' : formErrors.nombre ? 'border-red-500' : ''}
               required
             />
             {formErrors.nombre && (
@@ -520,22 +662,68 @@ export default function UsuariosModule() {
                 <p className="text-red-500 text-sm">{formErrors.nombre}</p>
               </div>
             )}
+            {formData.nombre && !formErrors.nombre && <p className="text-green-600 text-xs">✓ Nombre válido</p>}
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="documento">Documento (números)</Label>
-            <Input
-              id="documento"
-              value={formData.documento}
-              onChange={(e) => handleFieldChange('documento', e.target.value)}
-              placeholder="Ej: 1234567890"
-              required
-            />
-            {formErrors.documento && (
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                <p className="text-red-500 text-sm">{formErrors.documento}</p>
-              </div>
-            )}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="tipoDoc">Tipo de Documento</Label>
+              <Select value={formData.tipoDoc} onChange={(e) => setFormData({ ...formData, tipoDoc: e.target.value })}>
+                <option value="CC">Cédula de Ciudadanía</option>
+                <option value="CE">Cédula de Extranjería</option>
+                <option value="TI">Tarjeta de Identidad</option>
+                <option value="PAS">Pasaporte</option>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="documento">Documento (números)</Label>
+              <Input
+                id="documento"
+                value={formData.documento}
+                onChange={(e) => handleFieldChange('documento', e.target.value)}
+                placeholder="Ej: 1234567890"
+                className={formData.documento && !formErrors.documento ? 'border-green-500' : formErrors.documento ? 'border-red-500' : ''}
+                required
+              />
+              {formErrors.documento && (
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-sm">{formErrors.documento}</p>
+                </div>
+              )}
+              {formData.documento && !formErrors.documento && <p className="text-green-600 text-xs">✓ Documento válido</p>}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="celular">Celular</Label>
+              <Input
+                id="celular"
+                value={formData.celular}
+                onChange={(e) => handleFieldChange('celular', e.target.value)}
+                placeholder="Ej: 3001234567"
+                className={formData.celular && !formErrors.celular ? 'border-green-500' : formErrors.celular ? 'border-red-500' : ''}
+                required
+              />
+              {formErrors.celular && (
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-sm">{formErrors.celular}</p>
+                </div>
+              )}
+              {formData.celular && !formErrors.celular && <p className="text-green-600 text-xs">✓ Celular válido</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="rol">Rol</Label>
+              <Select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}
+                className={formData.rol && !formErrors.rol ? 'border-green-500' : formErrors.rol ? 'border-red-500' : ''}
+              >
+                <option value="Administrador">Administrador</option>
+                <option value="Empleado">Empleado</option>
+                <option value="Cliente">Cliente</option>
+              </Select>
+              {formData.rol && !formErrors.rol && <p className="text-green-600 text-xs">✓ Rol seleccionado</p>}
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
@@ -545,6 +733,7 @@ export default function UsuariosModule() {
               value={formData.email}
               onChange={(e) => handleFieldChange('email', e.target.value)}
               placeholder="Ej: usuario@ejemplo.com"
+              className={formData.email && !formErrors.email ? 'border-green-500' : formErrors.email ? 'border-red-500' : ''}
               required
             />
             {formErrors.email && (
@@ -553,33 +742,89 @@ export default function UsuariosModule() {
                 <p className="text-red-500 text-sm">{formErrors.email}</p>
               </div>
             )}
+            {formData.email && !formErrors.email && <p className="text-green-600 text-xs">✓ Email válido</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">
-              {selectedUser ? 'Contraseña (dejar en blanco para no cambiar)' : 'Contraseña'}
-            </Label>
+            <Label htmlFor="direccion">Dirección</Label>
             <Input
-              id="password"
-              type="password"
-              value={formData.password}
-              onChange={(e) => handleFieldChange('password', e.target.value)}
-              placeholder={selectedUser ? 'Dejar en blanco para no cambiar' : 'Mínimo 6 caracteres'}
-              required={!selectedUser}
+              id="direccion"
+              value={formData.direccion}
+              onChange={(e) => handleFieldChange('direccion', e.target.value)}
+              placeholder="Ej: Calle 123 # 45-67"
+              className={formData.direccion && !formErrors.direccion ? 'border-green-500' : formErrors.direccion ? 'border-red-500' : ''}
             />
-            {formErrors.password && (
+            {formErrors.direccion && (
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                <p className="text-red-500 text-sm">{formErrors.password}</p>
+                <p className="text-red-500 text-sm">{formErrors.direccion}</p>
               </div>
             )}
+            {formData.direccion && !formErrors.direccion && <p className="text-green-600 text-xs">✓ Dirección válida</p>}
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="rol">Rol</Label>
-            <Select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}>
-              <option value="Administrador">Administrador</option>
-              <option value="Empleado">Empleado</option>
-              <option value="Cliente">Cliente</option>
-            </Select>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">
+                {selectedUser ? 'Contraseña (dejar en blanco para no cambiar)' : 'Contraseña'}
+              </Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => handleFieldChange('password', e.target.value)}
+                  placeholder={selectedUser ? 'Dejar en blanco para no cambiar' : 'Mínimo 6 caracteres'}
+                  className={formData.password && !formErrors.password ? 'border-green-500' : formErrors.password ? 'border-red-500' : ''}
+                  required={!selectedUser}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+              {formErrors.password && (
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-sm">{formErrors.password}</p>
+                </div>
+              )}
+              {formData.password && !formErrors.password && <p className="text-green-600 text-xs">✓ Contraseña válida</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">
+                {selectedUser ? 'Repetir Contraseña' : 'Repetir Contraseña'}
+              </Label>
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={formData.confirmPassword}
+                  onChange={(e) => handleFieldChange('confirmPassword', e.target.value)}
+                  placeholder="Repetir contraseña"
+                  className={formData.confirmPassword && !formErrors.confirmPassword && formData.password === formData.confirmPassword ? 'border-green-500' : formErrors.confirmPassword ? 'border-red-500' : ''}
+                  required={!selectedUser}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                >
+                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+              {formErrors.confirmPassword && (
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-sm">{formErrors.confirmPassword}</p>
+                </div>
+              )}
+              {formData.password && formData.confirmPassword && !formErrors.confirmPassword && (
+                <p className="text-green-600 text-xs">✓ Las contraseñas coinciden</p>
+              )}
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="estado">Estado</Label>
@@ -588,7 +833,7 @@ export default function UsuariosModule() {
               <option value="Inactivo">Inactivo</option>
             </Select>
           </div>
-          <div className="flex gap-3 justify-end pt-4">
+          <div className="flex gap-3 justify-end pt-4 border-t">
             <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
