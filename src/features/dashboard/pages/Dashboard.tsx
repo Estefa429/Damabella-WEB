@@ -116,7 +116,7 @@ export function Dashboard() {
         {/* Ventas mensuales */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">Ventas por Mes (Pesos)</h3>
+            <h3 className="text-lg font-semibold">Ventas Por Periodo (Pesos)</h3>
             <Badge variant="info">2024</Badge>
           </div>
           <ResponsiveContainer width="100%" height={300}>

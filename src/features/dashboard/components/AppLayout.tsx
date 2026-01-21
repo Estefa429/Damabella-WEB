@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import DashboardMain from '../pages/DashboardMain';
 import { RolesPage } from '../../roles';
+
 import { PermisosPage, ConfiguracionPage } from '../../configuration';
 import { UsuariosModule } from '../../users';
 import { CategoriasManager } from '../../ecommerce/categories';

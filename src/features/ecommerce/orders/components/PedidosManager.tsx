@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, FileText, Eye, Trash2, X, CheckCircle, UserPlus, Download, AlertCircle, Edit2, ShoppingCart } from 'lucide-react';
+import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Edit2, Pencil, Ban } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { validateField } from '../../../../shared/utils/validation';
 
@@ -25,7 +25,7 @@ interface Pedido {
   clienteId: string;
   clienteNombre: string;
   fechaPedido: string;
-  estado: 'Pendiente' | 'Confirmado' | 'Enviado' | 'Entregado' | 'Anulado' | 'Venta';
+  estado: 'Pendiente' | 'Anulado' | 'Venta';
   items: ItemPedido[];
   subtotal: number;
   iva: number;
@@ -146,7 +146,14 @@ export default function PedidosManager() {
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [nuevoEstado, setNuevoEstado] = useState<Pedido['estado']>('Pendiente');
-  
+
+  // ====== BUSCADORES (Cliente / Producto) ======
+  const [clienteQuery, setClienteQuery] = useState('');
+  const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+
+  const [productoQuery, setProductoQuery] = useState('');
+  const [showProductoDropdown, setShowProductoDropdown] = useState(false);
+
   const [formData, setFormData] = useState({
     tipo: 'Pedido' as 'Pedido',
     clienteId: '',
@@ -228,10 +235,21 @@ export default function PedidosManager() {
       err = validateField('documento', value) || '';
     }
     if (field === 'email') {
-      err = validateField('email', value) || '';
+      if (!value) return '';
+
+      const emailRegex =
+        /^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+      if (!emailRegex.test(value)) {
+        err = 'Correo electrónico inválido';
+      }
     }
     if (field === 'telefono') {
-      if (!value) err = 'Teléfono obligatorio';
+      if (!value) {
+        err = 'Teléfono obligatorio';
+      } else if (!/^\d+$/.test(value)) {
+        err = 'El teléfono solo debe contener números';
+      }
     }
 
     setFormErrors((prev: any) => ({ ...prev, [`nuevoCliente_${field}`]: err }));
@@ -248,13 +266,23 @@ export default function PedidosManager() {
       if (storedProductos) setProductos(JSON.parse(storedProductos));
       if (storedClientes) setClientes(JSON.parse(storedClientes));
     };
-    
+
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
+  // Cerrar dropdowns al hacer click fuera
+  useEffect(() => {
+    const onClick = () => {
+      setShowClienteDropdown(false);
+      setShowProductoDropdown(false);
+    };
+    window.addEventListener('click', onClick);
+    return () => window.removeEventListener('click', onClick);
+  }, []);
+
   const generarNumeroPedido = () => {
-    const ultimoPedido = pedidos.length > 0 
+    const ultimoPedido = pedidos.length > 0
       ? Math.max(...pedidos.map(p => parseInt(p.numeroPedido.split('-')[1])))
       : 0;
     const nuevoNumero = (ultimoPedido + 1).toString().padStart(3, '0');
@@ -285,21 +313,43 @@ export default function PedidosManager() {
       cantidad: '1',
       precioUnitario: ''
     });
+
+    setClienteQuery('');
+    setProductoQuery('');
+    setShowClienteDropdown(false);
+    setShowProductoDropdown(false);
+
     setShowModal(true);
   };
 
   const handleEdit = (pedido: Pedido) => {
-    setEditingPedido(pedido);
-    setFormData({
-      tipo: pedido.tipo,
-      clienteId: pedido.clienteId,
-      fechaPedido: pedido.fechaPedido,
-      metodoPago: pedido.metodoPago,
-      observaciones: pedido.observaciones,
-      items: pedido.items
-    });
-    setShowModal(true);
-  };
+  // ✅ No permitir editar si ya está en Venta o Anulado
+  if (pedido.estado === 'Venta' || pedido.estado === 'Anulado') {
+    setNotificationMessage(`No puedes editar un pedido en estado "${pedido.estado}".`);
+    setNotificationType('error');
+    setShowNotificationModal(true);
+    return;
+  }
+
+  setEditingPedido(pedido);
+  setFormData({
+    tipo: pedido.tipo,
+    clienteId: pedido.clienteId,
+    fechaPedido: pedido.fechaPedido,
+    metodoPago: pedido.metodoPago,
+    observaciones: pedido.observaciones,
+    items: pedido.items
+  });
+
+  const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
+  setClienteQuery(cliente ? `${cliente.nombre} - ${cliente.numeroDoc}` : (pedido.clienteNombre || ''));
+  setProductoQuery('');
+  setShowClienteDropdown(false);
+  setShowProductoDropdown(false);
+
+  setShowModal(true);
+};
+
 
   const getProductoSeleccionado = () => {
     return productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
@@ -322,19 +372,19 @@ export default function PedidosManager() {
   const getColoresDisponibles = () => {
     const producto = getProductoSeleccionado();
     if (!producto) return [];
-    
+
     // Si tiene estructura de variantes (antiguo formato)
     if (producto.variantes && nuevoItem.talla) {
       const variante = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
       if (!variante) return [];
       return variante.colores.map((c: any) => c.color);
     }
-    
+
     // Si tiene colores directos (nuevo formato)
     if (producto.colores) {
       return producto.colores;
     }
-    
+
     return [];
   };
 
@@ -384,6 +434,10 @@ export default function PedidosManager() {
       cantidad: '1',
       precioUnitario: ''
     });
+
+    setProductoQuery('');
+    setShowProductoDropdown(false);
+
     setFormErrors((prev: any) => ({
       ...prev,
       'nuevoItem_productoId': '',
@@ -408,65 +462,75 @@ export default function PedidosManager() {
   };
 
   const handleSave = () => {
-    // Validar campos obligatorios
-    const errors: any = {};
-    
-    if (!formData.clienteId) {
-      errors.clienteId = 'Debes seleccionar un cliente';
-    }
-
-    if (!formData.fechaPedido) {
-      errors.fechaPedido = 'La fecha del pedido es obligatoria';
-    }
-
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      setNotificationMessage('Por favor completa todos los campos obligatorios');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-    if (formData.items.length === 0) {
-      setNotificationMessage('Agrega al menos un producto');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-    const cliente = clientes.find((c: any) => c.id.toString() === formData.clienteId);
-    if (!cliente) return;
-
-    const totales = calcularTotales(formData.items);
-
-    const pedidoData: Pedido = {
-      id: editingPedido?.id || Date.now(),
-      numeroPedido: editingPedido?.numeroPedido || generarNumeroPedido(),
-      tipo: formData.tipo,
-      clienteId: formData.clienteId,
-      clienteNombre: cliente.nombre,
-      fechaPedido: formData.fechaPedido,
-      estado: 'Pendiente',
-      items: formData.items,
-      subtotal: totales.subtotal,
-      iva: totales.iva,
-      total: totales.total,
-      metodoPago: formData.metodoPago,
-      observaciones: formData.observaciones,
-      createdAt: editingPedido?.createdAt || new Date().toISOString()
-    };
-
-    if (editingPedido) {
-      setPedidos(pedidos.map(p => p.id === editingPedido.id ? pedidoData : p));
-      setNotificationMessage(`Pedido ${pedidoData.numeroPedido} actualizado correctamente`);
-    } else {
-      setPedidos([...pedidos, pedidoData]);
-      setNotificationMessage(`Pedido ${pedidoData.numeroPedido} creado correctamente`);
-    }
-    setNotificationType('success');
+  // ✅ Bloqueo extra si intentan guardar un pedido ya finalizado
+  if (editingPedido && (editingPedido.estado === 'Venta' || editingPedido.estado === 'Anulado')) {
+    setNotificationMessage(`No puedes editar un pedido en estado "${editingPedido.estado}".`);
+    setNotificationType('error');
     setShowNotificationModal(true);
-    setShowModal(false);
+    return;
+  }
+
+  // Validar campos obligatorios
+  const errors: any = {};
+
+  if (!formData.clienteId) {
+    errors.clienteId = 'Debes seleccionar un cliente';
+  }
+
+  if (!formData.fechaPedido) {
+    errors.fechaPedido = 'La fecha del pedido es obligatoria';
+  }
+
+  if (Object.keys(errors).length > 0) {
+    setFormErrors(errors);
+    setNotificationMessage('Por favor completa todos los campos obligatorios');
+    setNotificationType('error');
+    setShowNotificationModal(true);
+    return;
+  }
+
+  if (formData.items.length === 0) {
+    setNotificationMessage('Agrega al menos un producto');
+    setNotificationType('error');
+    setShowNotificationModal(true);
+    return;
+  }
+
+  const cliente = clientes.find((c: any) => c.id.toString() === formData.clienteId);
+  if (!cliente) return;
+
+  const totales = calcularTotales(formData.items);
+
+  const pedidoData: Pedido = {
+    id: editingPedido?.id || Date.now(),
+    numeroPedido: editingPedido?.numeroPedido || generarNumeroPedido(),
+    tipo: formData.tipo,
+    clienteId: formData.clienteId,
+    clienteNombre: cliente.nombre,
+    fechaPedido: formData.fechaPedido,
+    // ✅ Mantener el estado si se edita (no forzar Pendiente)
+    estado: editingPedido?.estado || 'Pendiente',
+    items: formData.items,
+    subtotal: totales.subtotal,
+    iva: totales.iva,
+    total: totales.total,
+    metodoPago: formData.metodoPago,
+    observaciones: formData.observaciones,
+    createdAt: editingPedido?.createdAt || new Date().toISOString()
   };
+
+  if (editingPedido) {
+    setPedidos(pedidos.map(p => p.id === editingPedido.id ? pedidoData : p));
+    setNotificationMessage(`Pedido ${pedidoData.numeroPedido} actualizado correctamente`);
+  } else {
+    setPedidos([...pedidos, pedidoData]);
+    setNotificationMessage(`Pedido ${pedidoData.numeroPedido} creado correctamente`);
+  }
+  setNotificationType('success');
+  setShowNotificationModal(true);
+  setShowModal(false);
+};
+
 
   const handleAnular = (pedido: Pedido) => {
     setConfirmMessage(`¿Seguro que deseas ANULAR este pedido ${pedido.numeroPedido}? Esta acción no se puede deshacer.`);
@@ -477,7 +541,7 @@ export default function PedidosManager() {
   };
 
   const anularPedido = (pedido: Pedido) => {
-    setPedidos(pedidos.map(p => 
+    setPedidos(pedidos.map(p =>
       p.id === pedido.id ? { ...p, estado: 'Anulado' } : p
     ));
     setShowConfirmModal(false);
@@ -487,19 +551,19 @@ export default function PedidosManager() {
   };
 
   const cambiarEstado = (pedido: Pedido, nuevoEstado: Pedido['estado']) => {
-    setPedidos(pedidos.map(p => 
+    setPedidos(pedidos.map(p =>
       p.id === pedido.id ? { ...p, estado: nuevoEstado } : p
     ));
-    
+
     // Si el estado es "Venta", sincronizar con el módulo de ventas
     if (nuevoEstado === 'Venta') {
-      const evento = new CustomEvent('pedidoConvertidoAVenta', { 
-        detail: { 
+      const evento = new CustomEvent('pedidoConvertidoAVenta', {
+        detail: {
           pedido: { ...pedido, estado: nuevoEstado }
-        } 
+        }
       });
       window.dispatchEvent(evento);
-      
+
       setNotificationMessage(`Pedido ${pedido.numeroPedido} convertido a venta exitosamente`);
       setNotificationType('success');
       setShowNotificationModal(true);
@@ -534,9 +598,13 @@ export default function PedidosManager() {
 
     const clientesActuales = JSON.parse(localStorage.getItem(CLIENTES_KEY) || '[]');
     localStorage.setItem(CLIENTES_KEY, JSON.stringify([...clientesActuales, clienteData]));
-    
+
     setClientes([...clientes, clienteData]);
     setFormData({ ...formData, clienteId: clienteData.id.toString() });
+
+    setClienteQuery(`${clienteData.nombre} - ${clienteData.numeroDoc}`);
+    setShowClienteDropdown(false);
+
     setShowClienteModal(false);
     setNuevoCliente({
       nombre: '',
@@ -622,12 +690,32 @@ DAMABELLA - Moda Femenina
     (c.telefono && c.telefono.includes(clienteSearch))
   );
 
+  // ====== LISTAS FILTRADAS PARA SELECT BUSCABLE ======
+  const clientesFiltradosSelect = clientes
+    .filter((c: any) => c.activo !== false)
+    .filter((c: any) => {
+      const q = clienteQuery.toLowerCase();
+      return (
+        (c.nombre?.toLowerCase() ?? '').includes(q) ||
+        (c.numeroDoc ?? '').includes(clienteQuery) ||
+        (c.telefono ?? '').includes(clienteQuery)
+      );
+    });
+
+  const productosFiltradosSelect = productos
+    .filter((p: any) => p.activo)
+    .filter((p: any) => {
+      const q = productoQuery.toLowerCase();
+      const nombre = (p.nombre?.toLowerCase() ?? '');
+      const ref = (p.referencia?.toLowerCase() ?? '');
+      const cod = (p.codigoInterno?.toLowerCase() ?? '');
+      return nombre.includes(q) || ref.includes(q) || cod.includes(q);
+    });
+
   const getEstadoColor = (estado: Pedido['estado']) => {
     switch (estado) {
       case 'Pendiente': return 'bg-yellow-100 text-yellow-700';
-      case 'Confirmado': return 'bg-blue-100 text-blue-700';
-      case 'Enviado': return 'bg-purple-100 text-purple-700';
-      case 'Entregado': return 'bg-green-100 text-green-700';
+      case 'Venta': return 'bg-green-100 text-green-700';
       case 'Anulado': return 'bg-red-100 text-red-700';
       default: return 'bg-gray-100 text-gray-700';
     }
@@ -654,7 +742,7 @@ DAMABELLA - Moda Femenina
       const headers = Object.keys(datosExcel[0] || {});
       const csvContent = [
         headers.join(','),
-        ...datosExcel.map(row => 
+        ...datosExcel.map(row =>
           headers.map(header => {
             const valor = row[header as keyof typeof row];
             const valorStr = String(valor || '');
@@ -823,19 +911,50 @@ DAMABELLA - Moda Femenina
                 Nuevo Cliente
               </button>
             </div>
-            <select
-              value={formData.clienteId}
-              onChange={(e) => handleFieldChange('clienteId', e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-              required
-            >
-              <option value="">Seleccionar cliente...</option>
-              {clientes.map((cliente: any) => (
-                <option key={cliente.id} value={cliente.id}>
-                  {cliente.nombre} - {cliente.numeroDoc}
-                </option>
-              ))}
-            </select>
+
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              <Input
+                value={clienteQuery}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setClienteQuery(value);
+                  setShowClienteDropdown(true);
+
+                  if (value === '') {
+                    handleFieldChange('clienteId', '');
+                  }
+                }}
+                onFocus={() => setShowClienteDropdown(true)}
+                placeholder="Buscar cliente por nombre, documento o teléfono..."
+              />
+
+              {showClienteDropdown && (
+                <div className="absolute z-[9999] mt-2 w-full max-h-56 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                  {clientesFiltradosSelect.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
+                  ) : (
+                    clientesFiltradosSelect.map((cliente: any) => (
+                      <button
+                        type="button"
+                        key={cliente.id}
+                        className="w-full text-left px-4 py-2 hover:bg-gray-50"
+                        onClick={() => {
+                          handleFieldChange('clienteId', cliente.id.toString());
+                          setClienteQuery(`${cliente.nombre} - ${cliente.numeroDoc}`);
+                          setShowClienteDropdown(false);
+                        }}
+                      >
+                        <div className="text-sm text-gray-900">{cliente.nombre}</div>
+                        <div className="text-xs text-gray-500">
+                          {cliente.numeroDoc} {cliente.telefono ? `• ${cliente.telefono}` : ''}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
             {formErrors.clienteId && <p className="text-red-500 text-sm mt-1">{formErrors.clienteId}</p>}
           </div>
 
@@ -871,60 +990,91 @@ DAMABELLA - Moda Femenina
           {/* Productos */}
           <div className="border-t pt-4">
             <h4 className="text-gray-900 mb-3">Agregar Productos</h4>
-            
+
             <div className="bg-gray-50 rounded-lg p-4 mb-4 space-y-3">
               <div>
                 <label className="block text-gray-700 mb-2 text-sm">Producto</label>
-                <select
-                  value={nuevoItem.productoId}
-                  onChange={(e) => handleNuevoItemChange('productoId', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                >
-                  <option value="">Seleccionar producto...</option>
-                  {productos.filter((p: any) => p.activo).map((producto: any) => {
-                    const displayText = `${producto.nombre}${producto.referencia ? ` (REF: ${producto.referencia})` : ''}${producto.codigoInterno ? ` [${producto.codigoInterno}]` : ''} - $${(producto.precioVenta || 0).toLocaleString()}`;
-                    return (
-                      <option key={producto.id} value={producto.id} title={`${producto.nombre} | Ref: ${producto.referencia || 'N/A'} | Código: ${producto.codigoInterno || 'N/A'}`}>
-                        {displayText}
-                      </option>
-                    );
-                  })}
-                </select>
+
+                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <Input
+                    value={productoQuery}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setProductoQuery(value);
+                      setShowProductoDropdown(true);
+
+                      if (value === '') {
+                        handleNuevoItemChange('productoId', '');
+                      }
+                    }}
+                    onFocus={() => setShowProductoDropdown(true)}
+                    placeholder="Buscar producto por nombre, ref o código..."
+                  />
+
+                  {showProductoDropdown && (
+                    <div className="absolute z-[9999] mt-2 w-full max-h-56 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                      {productosFiltradosSelect.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
+                      ) : (
+                        productosFiltradosSelect.map((producto: any) => (
+                          <button
+                            type="button"
+                            key={producto.id}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-50"
+                            onClick={() => {
+                              handleNuevoItemChange('productoId', producto.id.toString());
+                              const label = `${producto.nombre}${producto.referencia ? ` (REF: ${producto.referencia})` : ''}${producto.codigoInterno ? ` [${producto.codigoInterno}]` : ''} - $${(producto.precioVenta || 0).toLocaleString()}`;
+                              setProductoQuery(label);
+                              setShowProductoDropdown(false);
+                            }}
+                          >
+                            <div className="text-sm text-gray-900">{producto.nombre}</div>
+                            <div className="text-xs text-gray-500">
+                              {producto.referencia ? `REF: ${producto.referencia}` : 'REF: N/A'}
+                              {producto.codigoInterno ? ` • ${producto.codigoInterno}` : ''}
+                              {` • $${(producto.precioVenta || 0).toLocaleString()}`}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {nuevoItem.productoId && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="grid grid-cols-2 gap-3">
-  <div>
-    <label className="block text-gray-700 mb-2 text-sm">Talla</label>
-    <select
-      value={nuevoItem.talla}
-      onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
-      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-    >
-      <option value="">Seleccionar...</option>
-      {getTallasDisponibles().map((talla: string) => (
-        <option key={talla} value={talla}>{talla}</option>
-      ))}
-    </select>
-  </div>
+                      <div>
+                        <label className="block text-gray-700 mb-2 text-sm">Talla</label>
+                        <select
+                          value={nuevoItem.talla}
+                          onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                        >
+                          <option value="">Seleccionar...</option>
+                          {getTallasDisponibles().map((talla: string) => (
+                            <option key={talla} value={talla}>{talla}</option>
+                          ))}
+                        </select>
+                      </div>
 
-  <div>
-    <label className="block text-gray-700 mb-2 text-sm">Color</label>
-    <select
-      value={nuevoItem.color}
-      onChange={(e) => handleNuevoItemChange('color', e.target.value)}
-      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-      disabled={!nuevoItem.talla}
-    >
-      <option value="">Seleccionar...</option>
-      {getColoresDisponibles().map((color: string) => (
-        <option key={color} value={color}>{color}</option>
-      ))}
-    </select>
-  </div>
-</div>
+                      <div>
+                        <label className="block text-gray-700 mb-2 text-sm">Color</label>
+                        <select
+                          value={nuevoItem.color}
+                          onChange={(e) => handleNuevoItemChange('color', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                          disabled={!nuevoItem.talla}
+                        >
+                          <option value="">Seleccionar...</option>
+                          {getColoresDisponibles().map((color: string) => (
+                            <option key={color} value={color}>{color}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
 
                   </div>
 
@@ -1094,18 +1244,14 @@ DAMABELLA - Moda Femenina
             <div className="border-t pt-4">
               <div className="text-sm text-gray-600 mb-2">Cambiar Estado</div>
               <div className="flex flex-wrap gap-2">
-                {(['Pendiente', 'Confirmado', 'Enviado', 'Entregado', 'Anulado'] as const).map(estado => (
+                {(['Pendiente', 'Venta', 'Anulado'] as const).map(estado => (
                   <button
                     key={estado}
                     onClick={() => {
                       cambiarEstado(viewingPedido, estado);
                       setViewingPedido({ ...viewingPedido, estado });
-                      if (estado === 'Anulado') {
-                        setNotificationMessage(`Pedido ${viewingPedido.numeroPedido} anulado correctamente`);
-                        setNotificationType('success');
-                        setShowNotificationModal(true);
-                      }
                     }}
+
                     className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
                       viewingPedido.estado === estado
                         ? getEstadoColor(estado) + ' ring-2 ring-gray-400'
@@ -1128,17 +1274,8 @@ DAMABELLA - Moda Femenina
         title="Nuevo Cliente"
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-gray-700 mb-2">Nombre Completo *</label>
-            <Input
-              value={nuevoCliente.nombre}
-              onChange={(e) => handleNuevoClienteChange('nombre', e.target.value)}
-              placeholder="Nombre del cliente"
-              required
-            />
-            {formErrors['nuevoCliente_nombre'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_nombre']}</p>}
-          </div>
 
+          {/* ✅ DOCUMENTO PRIMERO */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
@@ -1162,20 +1299,48 @@ DAMABELLA - Moda Femenina
                 placeholder="1234567890"
                 required
               />
-              {formErrors['nuevoCliente_numeroDoc'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_numeroDoc']}</p>}
+              {formErrors['nuevoCliente_numeroDoc'] && (
+                <p className="text-red-500 text-sm mt-1">
+                  {formErrors['nuevoCliente_numeroDoc']}
+                </p>
+              )}
             </div>
           </div>
 
+          {/* ✅ NOMBRE DESPUÉS */}
+          <div>
+            <label className="block text-gray-700 mb-2">Nombre Completo *</label>
+            <Input
+              value={nuevoCliente.nombre}
+              onChange={(e) => handleNuevoClienteChange('nombre', e.target.value)}
+              placeholder="Nombre del cliente"
+              required
+            />
+            {formErrors['nuevoCliente_nombre'] && (
+              <p className="text-red-500 text-sm mt-1">
+                {formErrors['nuevoCliente_nombre']}
+              </p>
+            )}
+          </div>
+
+          {/* RESTO IGUAL */}
           <div>
             <label className="block text-gray-700 mb-2">Teléfono *</label>
             <Input
               value={nuevoCliente.telefono}
-              onChange={(e) => handleNuevoClienteChange('telefono', e.target.value)}
+              onChange={(e) =>
+                handleNuevoClienteChange('telefono', e.target.value)
+              }
               placeholder="3001234567"
               required
             />
-            {formErrors['nuevoCliente_telefono'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_telefono']}</p>}
+            {formErrors['nuevoCliente_telefono'] && (
+              <p className="text-red-500 text-sm mt-1">
+                {formErrors['nuevoCliente_telefono']}
+              </p>
+            )}
           </div>
+
 
           <div>
             <label className="block text-gray-700 mb-2">Correo Electrónico</label>
@@ -1185,7 +1350,11 @@ DAMABELLA - Moda Femenina
               onChange={(e) => handleNuevoClienteChange('email', e.target.value)}
               placeholder="correo@ejemplo.com"
             />
-            {formErrors['nuevoCliente_email'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_email']}</p>}
+            {formErrors['nuevoCliente_email'] && (
+              <p className="text-red-500 text-sm mt-1">
+                {formErrors['nuevoCliente_email']}
+              </p>
+            )}
           </div>
 
           <div>
@@ -1205,8 +1374,10 @@ DAMABELLA - Moda Femenina
               Crear Cliente
             </Button>
           </div>
+
         </div>
       </Modal>
+
 
       {/* Modal de Notificación */}
       <Modal
@@ -1250,11 +1421,11 @@ DAMABELLA - Moda Femenina
             <Button onClick={() => setShowConfirmModal(false)} variant="secondary">
               Cancelar
             </Button>
-            <Button 
+            <Button
               onClick={() => {
                 if (confirmAction) confirmAction();
-              }} 
-              variant="primary" 
+              }}
+              variant="primary"
               className="bg-red-600 hover:bg-red-700"
             >
               Confirmar
@@ -1284,7 +1455,7 @@ DAMABELLA - Moda Femenina
               <div>
                 <label className="block text-gray-700 mb-3 font-semibold">Nuevo Estado</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {(['Pendiente', 'Confirmado', 'Enviado', 'Entregado', 'Venta', 'Anulado'] as const).map((estado) => (
+                  {(['Pendiente', 'Venta', 'Anulado'] as const).map((estado) => (
                     <button
                       key={estado}
                       onClick={() => setNuevoEstado(estado)}
@@ -1323,4 +1494,5 @@ DAMABELLA - Moda Femenina
     </div>
   );
 }
+
 

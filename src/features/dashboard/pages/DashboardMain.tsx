@@ -70,6 +70,10 @@ export default function DashboardMain() {
     { id: 'PED-005', customer: 'Sofía Torres', product: 'Set Ejecutivo', amount: 410, status: 'Devolución' }
   ];
 
+  const pendingOrders = recentOrders.filter(
+    (order) => order.status === 'Pendiente'
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -105,22 +109,49 @@ export default function DashboardMain() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Ventas por Mes */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-gray-900 mb-4">Ventas por Periodo</h3>
+          <h3 className="text-gray-900 mb-4">
+            Ventas mensuales (COP) 
+          </h3>
+
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={salesData}>
+            <LineChart 
+            data={salesData}
+            margin={{top: 20, right: 20, left: 60, bottom: 20}}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="month" stroke="#6b7280" />
-              <YAxis stroke="#6b7280" />
-              <Tooltip />
+
+              <XAxis 
+              dataKey="month" 
+              stroke="#6b7280" 
+              label={{
+                value: 'Mes',
+                position: 'InsideBottom',
+                offset: -10
+                }}
+                />
+
+              <YAxis 
+              stroke="#6b7280" 
+              tickMargin={12}
+              tickFormatter={(value) => `$${value.toLocaleString()}`}
+            
+                />
+
+              <Tooltip
+                formatter={(value) =>
+                   `$${Number(value).toLocaleString()}`}  
+              />
+
               <Legend />
-              <Line type="monotone" dataKey="ventas" stroke="#6366f1" strokeWidth={2} name="Ventas ($)" />
+
+              <Line type="monotone" dataKey="ventas" stroke="#6366f1" strokeWidth={2} name="Ventas" />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
         {/* Distribución por Categoría */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-gray-900 mb-4">Distribución por Categoría</h3>
+          <h3 className="text-gray-900 mb-4">Distribución porcentual de ventas por categoría</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -160,7 +191,7 @@ export default function DashboardMain() {
 
       {/* Pedidos Recientes */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Pedidos Recientes</h3>
+        <h3 className="text-gray-900 mb-4">Pedidos Pendientes</h3>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -173,7 +204,7 @@ export default function DashboardMain() {
               </tr>
             </thead>
             <tbody>
-              {recentOrders.map((order) => (
+              {pendingOrders.map((order) => (
                 <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4 text-gray-900">{order.id}</td>
                   <td className="py-3 px-4 text-gray-600">{order.customer}</td>
