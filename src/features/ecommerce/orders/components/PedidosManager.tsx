@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Edit2, Pencil, Ban } from 'lucide-react';
+import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Edit2, Pencil, Ban, ShoppingCart } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { validateField } from '../../../../shared/utils/validation';
 
@@ -854,6 +854,7 @@ DAMABELLA - Moda Femenina
                         >
                           <Eye size={18} />
                         </button>
+
                         <button
                           onClick={() => descargarComprobante(pedido)}
                           className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
@@ -861,6 +862,7 @@ DAMABELLA - Moda Femenina
                         >
                           <Download size={18} />
                         </button>
+
                         <button
                           onClick={() => { setPedidoParaCambiarEstado(pedido); setNuevoEstado(pedido.estado); setShowEstadoModal(true); }}
                           className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600"
@@ -868,19 +870,41 @@ DAMABELLA - Moda Femenina
                         >
                           <Edit2 size={18} />
                         </button>
+
+                        {/* ✅ Editar (solo si NO está en Venta ni Anulado) */}
                         <button
                           onClick={() => handleEdit(pedido)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                          title="Editar"
+                          disabled={pedido.estado === 'Venta' || pedido.estado === 'Anulado'}
+                          className={`p-2 rounded-lg transition-colors ${
+                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'hover:bg-gray-100 text-gray-600'
+                          }`}
+                          title={
+                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                              ? `No se puede editar en estado ${pedido.estado}`
+                              : 'Editar'
+                          }
                         >
-                          <ShoppingCart size={18} />
+                          <Pencil size={18} />
                         </button>
+
+                        {/* ✅ Anular (solo si NO está en Venta ni Anulado) */}
                         <button
                           onClick={() => handleAnular(pedido)}
-                          className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                          title="Anular"
+                          disabled={pedido.estado === 'Venta' || pedido.estado === 'Anulado'}
+                          className={`p-2 rounded-lg transition-colors ${
+                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'hover:bg-red-50 text-red-600'
+                          }`}
+                          title={
+                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                              ? `No se puede anular en estado ${pedido.estado}`
+                              : 'Anular'
+                          }
                         >
-                          <Trash2 size={18} />
+                          <Ban size={18} />
                         </button>
                       </div>
                     </td>
