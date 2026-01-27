@@ -107,6 +107,80 @@ const convertSampleProducts = (): Product[] => {
   }));
 };
 
+// Función para convertir productos del admin al formato de ecommerce
+const convertAdminProductsToDisplayFormat = (): Product[] => {
+  const adminProductosRaw = localStorage.getItem('damabella_productos');
+  const adminProducts: Product[] = [];
+  
+  if (adminProductosRaw) {
+    try {
+      const adminProductos = JSON.parse(adminProductosRaw);
+      console.log('[EcommerceContext] Productos encontrados en localStorage:', adminProductos.length);
+      
+      adminProductos.forEach((p: any, index: number) => {
+        // Mostrar estado de cada producto para debugging
+        console.log(`[EcommerceContext] Producto ${index + 1}: ${p.nombre} | Categoría: ${p.categoria} | activo: ${p.activo}`);
+        
+        // ✅ CAMBIO: Mostrar productos activos O productos que no tengan el campo definido (null/undefined)
+        // Esto es más tolerante con productos que no especifiquen explícitamente 'activo'
+        if (p.activo !== false) {
+          const variants: ProductVariant[] = [];
+          
+          if (p.variantes && Array.isArray(p.variantes)) {
+            p.variantes.forEach((variant: any) => {
+              const colors = variant.colores || [];
+              if (colors.length > 0) {
+                colors.forEach((color: any) => {
+                  variants.push({
+                    color: color.color || 'Negro',
+                    colorHex: getColorHex(color.color || 'Negro'),
+                    sizes: [{ size: variant.talla, stock: color.cantidad || 0 }]
+                  });
+                });
+              } else {
+                variants.push({
+                  color: 'Negro',
+                  colorHex: '#000000',
+                  sizes: [{ size: variant.talla, stock: 0 }]
+                });
+              }
+            });
+          }
+          
+          adminProducts.push({
+            id: `admin_${p.id}`,
+            name: p.nombre,
+            description: `Proveedor: ${p.proveedor}`,
+            price: p.precioVenta,
+            image: p.imagen || 'https://images.unsplash.com/photo-1505252585461-04db1921b902?w=500&h=500&fit=crop',
+            category: p.categoria,
+            featured: Math.random() > 0.6,
+            new: true,
+            variants: variants.length > 0 ? variants : [{
+              color: 'Negro',
+              colorHex: '#000000',
+              sizes: [{ size: 'Única', stock: 0 }]
+            }],
+            rating: 4.5
+          });
+          
+          console.log(`[EcommerceContext] ✅ Producto incluido: ${p.nombre}`);
+        } else {
+          console.log(`[EcommerceContext] ❌ Producto excluido (inactivo): ${p.nombre}`);
+        }
+      });
+      
+      console.log('[EcommerceContext] Total productos para mostrar:', adminProducts.length);
+    } catch (e) {
+      console.error('Error al convertir productos del admin:', e);
+    }
+  } else {
+    console.log('[EcommerceContext] No hay productos en localStorage');
+  }
+  
+  return adminProducts;
+};
+
 export function EcommerceProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -127,125 +201,32 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
     if (savedOrders) setOrders(JSON.parse(savedOrders));
     
     // Cargar productos del admin (damabella_productos)
-    const adminProductosRaw = localStorage.getItem('damabella_productos');
-    const adminProducts: Product[] = [];
-    
-    if (adminProductosRaw) {
-      try {
-        const adminProductos = JSON.parse(adminProductosRaw);
-        // Convertir productos del admin al formato de ecommerce
-        adminProductos.forEach((p: any) => {
-          if (p.activo === true) { // Solo mostrar productos activos
-            const variants: ProductVariant[] = [];
-            
-            if (p.variantes && Array.isArray(p.variantes)) {
-              p.variantes.forEach((variant: any) => {
-                const colors = variant.colores || [];
-                if (colors.length > 0) {
-                  colors.forEach((color: any) => {
-                    variants.push({
-                      color: color.color || 'Negro',
-                      colorHex: getColorHex(color.color || 'Negro'),
-                      sizes: [{ size: variant.talla, stock: color.cantidad || 0 }]
-                    });
-                  });
-                } else {
-                  variants.push({
-                    color: 'Negro',
-                    colorHex: '#000000',
-                    sizes: [{ size: variant.talla, stock: 0 }]
-                  });
-                }
-              });
-            }
-            
-            adminProducts.push({
-              id: `admin_${p.id}`,
-              name: p.nombre,
-              description: `Proveedor: ${p.proveedor}`,
-              price: p.precioVenta,
-              image: p.imagen || 'https://images.unsplash.com/photo-1505252585461-04db1921b902?w=500&h=500&fit=crop',
-              category: p.categoria,
-              featured: Math.random() > 0.6,
-              new: true,
-              variants: variants.length > 0 ? variants : [{
-                color: 'Negro',
-                colorHex: '#000000',
-                sizes: [{ size: 'Única', stock: 0 }]
-              }],
-              rating: 4.5
-            });
-          }
-        });
-      } catch (e) {
-        console.error('Error al cargar productos del admin:', e);
-      }
-    }
-    
+    const adminProducts = convertAdminProductsToDisplayFormat();
     const sampleProds = convertSampleProducts();
     setProducts([...adminProducts, ...sampleProds]);
 
-    // Listener para cambios en los productos del admin
+    // Listener para cambios en los productos del admin (desde otra pestaña)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'damabella_productos' && e.newValue) {
-        try {
-          const adminProductos = JSON.parse(e.newValue);
-          const updatedAdminProducts: Product[] = [];
-          
-          adminProductos.forEach((p: any) => {
-            if (p.activo === true) {
-              const variants: ProductVariant[] = [];
-              
-              if (p.variantes && Array.isArray(p.variantes)) {
-                p.variantes.forEach((variant: any) => {
-                  const colors = variant.colores || [];
-                  if (colors.length > 0) {
-                    colors.forEach((color: any) => {
-                      variants.push({
-                        color: color.color || 'Negro',
-                        colorHex: getColorHex(color.color || 'Negro'),
-                        sizes: [{ size: variant.talla, stock: color.cantidad || 0 }]
-                      });
-                    });
-                  } else {
-                    variants.push({
-                      color: 'Negro',
-                      colorHex: '#000000',
-                      sizes: [{ size: variant.talla, stock: 0 }]
-                    });
-                  }
-                });
-              }
-              
-              updatedAdminProducts.push({
-                id: `admin_${p.id}`,
-                name: p.nombre,
-                description: `Proveedor: ${p.proveedor}`,
-                price: p.precioVenta,
-                image: p.imagen || 'https://images.unsplash.com/photo-1505252585461-04db1921b902?w=500&h=500&fit=crop',
-                category: p.categoria,
-                featured: Math.random() > 0.6,
-                new: true,
-                variants: variants.length > 0 ? variants : [{
-                  color: 'Negro',
-                  colorHex: '#000000',
-                  sizes: [{ size: 'Única', stock: 0 }]
-                }],
-                rating: 4.5
-              });
-            }
-          });
-          
-          const sampleProds = convertSampleProducts();
-          setProducts([...updatedAdminProducts, ...sampleProds]);
-        } catch (error) {
-          console.error('Error al actualizar productos del admin:', error);
-        }
+        const adminProducts = convertAdminProductsToDisplayFormat();
+        const sampleProds = convertSampleProducts();
+        setProducts([...adminProducts, ...sampleProds]);
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    
+    // Polling para sincronización en la misma pestaña (cada 1 segundo)
+    const pollInterval = setInterval(() => {
+      const adminProducts = convertAdminProductsToDisplayFormat();
+      const sampleProds = convertSampleProducts();
+      setProducts([...adminProducts, ...sampleProds]);
+    }, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(pollInterval);
+    };
   }, []);
 
   // Guardar cambios en localStorage

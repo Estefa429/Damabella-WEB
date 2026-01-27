@@ -87,8 +87,8 @@ export default function App() {
   console.log(`  - currentUser: ${currentUser ? currentUser.email : 'null'}`);
   console.log(`  - role: ${currentUser ? currentUser.role : 'null'}`);
 
-  // Si está autenticado y es Admin, mostrar panel administrativo
-  if (isAuthenticated && currentUser?.role === "Administrador") {
+  // Si está autenticado y es Admin o Empleado, mostrar panel administrativo
+  if (isAuthenticated && (currentUser?.role === "Administrador" || currentUser?.role === "Empleado")) {
     console.log(`✅ [App.render] Renderizando: DASHBOARD ADMINISTRATIVO\n`);
     return (
       <AppLayout currentUser={currentUser} onLogout={handleLogout} />

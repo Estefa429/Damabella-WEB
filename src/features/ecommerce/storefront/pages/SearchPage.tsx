@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Heart, SlidersHorizontal, X } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
 import { useToast } from '../../../../shared/components/native';
@@ -22,6 +22,43 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
   const [priceRange, setPriceRange] = useState({ min: 0, max: 300000 });
   const [sortBy, setSortBy] = useState('popular');
   const [showFilters, setShowFilters] = useState(false);
+  const [categories, setCategories] = useState<string[]>(['Todas']);
+  const loadedCategoriesRef = useRef<string>(''); // Para detectar cambios
+
+  // Cargar categorías desde localStorage + Polling para cambios
+  useEffect(() => {
+    const loadCategories = () => {
+      const stored = localStorage.getItem('damabella_categorias');
+      
+      // Solo actualizar si cambió
+      if (stored !== loadedCategoriesRef.current) {
+        loadedCategoriesRef.current = stored || '';
+        console.log('[SearchPage] Leyendo categorías desde localStorage...', stored ? JSON.parse(stored).length + ' categorías' : 'ninguna');
+        
+        if (stored) {
+          try {
+            const categorias = JSON.parse(stored);
+            const categoryNames = ['Todas', ...categorias.map((cat: any) => cat.name)];
+            setCategories(categoryNames);
+            console.log('[SearchPage] ✅ Categorías actualizadas:', categoryNames.join(', '));
+          } catch (error) {
+            console.error('[SearchPage] Error cargando categorías:', error);
+            setCategories(['Todas']);
+          }
+        } else {
+          console.log('[SearchPage] ⚠️ No hay categorías en localStorage');
+          setCategories(['Todas']);
+        }
+      }
+    };
+
+    // Cargar una vez al inicio
+    loadCategories();
+    
+    // Polling cada 500ms para detectar nuevas categorías
+    const interval = setInterval(loadCategories, 500);
+    return () => clearInterval(interval);
+  }, []);
 
   // Actualizar selectedCategory cuando cambie initialCategory
   useEffect(() => {
@@ -29,8 +66,6 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
       setSelectedCategory(initialCategory);
     }
   }, [initialCategory]);
-
-  const categories = ['Todas', 'Vestidos Largos', 'Vestidos Cortos', 'Sets', 'Enterizos'];
   
   const allColors = useMemo(() => {
     const colors = new Set<string>();

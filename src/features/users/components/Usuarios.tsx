@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { Card, Button, Input, Label, Select, Modal, DataTable, Badge, useToast } from '../../../shared/components/native';
 import { mockUsers } from '../../../shared/utils/mockData';
@@ -36,6 +36,26 @@ export const Usuarios: React.FC = () => {
   }));
 
   const [usuarios, setUsuarios] = useState<Usuario[]>(usuariosIniciales);
+  const [roles, setRoles] = useState<any[]>(() => {
+    const stored = localStorage.getItem('damabella_roles');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Error loading roles:', e);
+      }
+    }
+    const defaultRoles = [
+      { id: '1', nombre: 'Administrador', descripcion: 'Acceso completo al sistema', usuariosAsociados: 1, permisos: [] },
+      { id: '2', nombre: 'Empleado', descripcion: 'Gestión de ventas y productos', usuariosAsociados: 1, permisos: [] },
+      { id: '3', nombre: 'Cliente', descripcion: 'Acceso limitado para compras', usuariosAsociados: 3, permisos: [] }
+    ];
+    localStorage.setItem('damabella_roles', JSON.stringify(defaultRoles));
+    return defaultRoles;
+  });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedUsuario, setSelectedUsuario] = useState<Usuario | null>(null);
@@ -45,6 +65,38 @@ export const Usuarios: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const canDelete = user?.role === 'Administrador';
+
+  // Escuchar cambios en roles desde otros módulos
+  useEffect(() => {
+    let lastStoredRoles: string | null = null;
+
+    const checkForChanges = () => {
+      const stored = localStorage.getItem('damabella_roles');
+      if (stored !== lastStoredRoles) {
+        lastStoredRoles = stored;
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              console.log(`🔄 [Usuarios] Roles actualizados`);
+              setRoles(parsed);
+            }
+          } catch (e) {
+            console.error('Error updating roles:', e);
+          }
+        }
+      }
+    };
+
+    checkForChanges();
+    window.addEventListener('storage', checkForChanges);
+    const interval = setInterval(checkForChanges, 300);
+
+    return () => {
+      window.removeEventListener('storage', checkForChanges);
+      clearInterval(interval);
+    };
+  }, []);
 
   const validatePassword = (password: string) => {
     const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
@@ -324,9 +376,11 @@ export const Usuarios: React.FC = () => {
                 className={formData.rol && !formErrors.rol ? 'border-green-500' : formErrors.rol ? 'border-red-500' : ''}
               >
                 <option value="">Seleccione un rol</option>
-                <option value="Administrador">Administrador</option>
-                <option value="Empleado">Empleado</option>
-                <option value="Cliente">Cliente</option>
+                {roles.map((rol: any) => (
+                  <option key={rol.id} value={rol.nombre}>
+                    {rol.nombre}
+                  </option>
+                ))}
               </Select>
               {formErrors.rol && <p className="text-red-600 text-sm mt-1">{formErrors.rol}</p>}
               {formData.rol && !formErrors.rol && <p className="text-green-600 text-xs mt-1">✓ Rol seleccionado</p>}

@@ -16,31 +16,92 @@ interface Usuario {
   estado: 'Activo' | 'Inactivo';
   fechaCreacion: string;
   creadoPor: string;
+  password: string;
 }
 
 const INITIAL_USERS: Usuario[] = [
-  { id: '1', nombre: 'Ana García', email: 'admin@damabella.com', tipoDoc: 'CC', documento: '1234567890', celular: '3001234567', rol: 'Administrador', estado: 'Activo', fechaCreacion: '2024-01-15', creadoPor: 'Sistema' },
-  { id: '2', nombre: 'María López', email: 'empleado@damabella.com', tipoDoc: 'CC', documento: '0987654321', celular: '3107654321', rol: 'Empleado', estado: 'Activo', fechaCreacion: '2024-02-20', creadoPor: 'Ana García' },
-  { id: '3', nombre: 'Laura Martínez', email: 'cliente@damabella.com', tipoDoc: 'CC', documento: '5555555555', celular: '3209876543', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-03-10', creadoPor: 'María López' },
-  { id: '4', nombre: 'Sofía Ramírez', email: 'sofia.r@example.com', tipoDoc: 'CE', documento: '1111222233', celular: '3156789012', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-06-05', creadoPor: 'María López' },
-  { id: '5', nombre: 'Carolina Ruiz', email: 'carolina.r@example.com', tipoDoc: 'TI', documento: '4444555566', celular: '3145678901', rol: 'Cliente', estado: 'Inactivo', fechaCreacion: '2024-05-12', creadoPor: 'Ana García' }
+  { id: '1', nombre: 'Ana García', email: 'admin@damabella.com', tipoDoc: 'CC', documento: '1234567890', celular: '3001234567', direccion: 'Calle 123', rol: 'Administrador', estado: 'Activo', fechaCreacion: '2024-01-15', creadoPor: 'Sistema', password: 'Admin123!' },
+  { id: '2', nombre: 'María López', email: 'empleado@damabella.com', tipoDoc: 'CC', documento: '0987654321', celular: '3107654321', direccion: 'Carrera 456', rol: 'Empleado', estado: 'Activo', fechaCreacion: '2024-02-20', creadoPor: 'Ana García', password: 'Empleado123!' },
+  { id: '3', nombre: 'Laura Martínez', email: 'cliente@damabella.com', tipoDoc: 'CC', documento: '5555555555', celular: '3209876543', direccion: 'Avenida 789', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-03-10', creadoPor: 'María López', password: 'Cliente123!' },
+  { id: '4', nombre: 'Sofía Ramírez', email: 'sofia.r@example.com', tipoDoc: 'CE', documento: '1111222233', celular: '3156789012', direccion: 'Calle 321', rol: 'Cliente', estado: 'Activo', fechaCreacion: '2024-06-05', creadoPor: 'María López', password: 'Sofia123!' },
+  { id: '5', nombre: 'Carolina Ruiz', email: 'carolina.r@example.com', tipoDoc: 'TI', documento: '4444555566', celular: '3145678901', direccion: 'Carrera 654', rol: 'Cliente', estado: 'Inactivo', fechaCreacion: '2024-05-12', creadoPor: 'Ana García', password: 'Carolina123!' }
 ];
 
 export default function UsuariosModule() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const [usuarios, setUsuarios] = useState<Usuario[]>(() => {
+    console.log(`📋 [UsuariosModule] INICIALIZANDO - Verificando localStorage...`);
     const stored = localStorage.getItem('damabella_users');
+    console.log(`   📦 damabella_users existe: ${!!stored}`);
     if (stored) {
-      const parsed = JSON.parse(stored);
-      // Validar que tengan la estructura correcta
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].documento && parsed[0].fechaCreacion) {
-        return parsed;
+      console.log(`   📏 Largo de dato: ${stored.length} caracteres`);
+    }
+    
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        console.log(`   ✅ JSON parseado correctamente`);
+        console.log(`   📊 Total de registros: ${Array.isArray(parsed) ? parsed.length : 'no es array'}`);
+        
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Convertir datos de cualquier formato a formato UsuariosModule
+          const converted = parsed.map((u: any) => {
+            const usuario: Usuario = {
+              id: u.id?.toString() || String(Date.now()),
+              nombre: u.nombre || u.name || '',
+              email: u.email || '',
+              tipoDoc: u.tipoDoc || 'CC',
+              documento: u.documento || u.numeroDoc || '',
+              celular: u.celular || u.phone || '',
+              direccion: u.direccion || u.address || '',
+              rol: u.rol || u.role || 'Cliente',
+              estado: (u.estado === 'Activo' || u.estado === 'Inactivo') ? u.estado : (u.status === 'Activo' ? 'Activo' : 'Inactivo'),
+              fechaCreacion: u.fechaCreacion || u.createdAt || new Date().toISOString().split('T')[0],
+              creadoPor: u.creadoPor || 'Sistema',
+              password: u.password || ''
+            };
+            return usuario;
+          });
+          console.log(`✅ [Init] Cargados ${converted.length} usuarios desde localStorage`);
+          console.log(`   Usuarios cargados:`, converted.map(u => ({ nombre: u.nombre, rol: u.rol, email: u.email })));
+          return converted;
+        }
+      } catch (e) {
+        console.error('❌ [Init] Error parsing users:', e);
       }
     }
     // Si no hay datos válidos, usar datos iniciales
+    console.log('ℹ️ [Init] Usando INITIAL_USERS');
     localStorage.setItem('damabella_users', JSON.stringify(INITIAL_USERS));
     return INITIAL_USERS;
+  });
+  const [roles, setRoles] = useState<any[]>(() => {
+    console.log(`📋 [UsuariosModule] Cargando roles desde localStorage...`);
+    const stored = localStorage.getItem('damabella_roles');
+    console.log(`   📦 localStorage.damabella_roles:`, stored);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`✅ Roles cargados desde localStorage: ${parsed.map((r: any) => r.nombre).join(', ')}`);
+          return parsed;
+        }
+      } catch (e) {
+        console.error('❌ Error loading roles:', e);
+      }
+    }
+    // Roles por defecto si no existen en localStorage
+    console.log('ℹ️ Usando roles por defecto');
+    const defaultRoles = [
+      { id: '1', nombre: 'Administrador', descripcion: 'Acceso completo al sistema', usuariosAsociados: 1, permisos: [] },
+      { id: '2', nombre: 'Empleado', descripcion: 'Gestión de ventas y productos', usuariosAsociados: 1, permisos: [] },
+      { id: '3', nombre: 'Cliente', descripcion: 'Acceso limitado para compras', usuariosAsociados: 3, permisos: [] }
+    ];
+    // Guardar los roles por defecto en localStorage para que persistan
+    console.log(`   💾 Guardando roles por defecto en localStorage`);
+    localStorage.setItem('damabella_roles', JSON.stringify(defaultRoles));
+    return defaultRoles;
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRol, setFilterRol] = useState<string>('todos');
@@ -130,8 +191,27 @@ export default function UsuariosModule() {
     if (isNew && !value) {
       return 'La contraseña es obligatoria';
     }
-    if (value && value.length < 6) {
-      return 'La contraseña debe tener al menos 6 caracteres';
+    if (value) {
+      const errors: string[] = [];
+      if (value.length < 8) {
+        errors.push('al menos 8 caracteres');
+      }
+      if (!/[A-Z]/.test(value)) {
+        errors.push('una letra mayúscula');
+      }
+      if (!/[a-z]/.test(value)) {
+        errors.push('una letra minúscula');
+      }
+      if (!/\d/.test(value)) {
+        errors.push('un número');
+      }
+      if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(value)) {
+        errors.push('un carácter especial');
+      }
+      
+      if (errors.length > 0) {
+        return `La contraseña debe contener: ${errors.join(', ')}`;
+      }
     }
     return '';
   };
@@ -158,8 +238,69 @@ export default function UsuariosModule() {
 
   // Guardar en localStorage cuando cambien los usuarios
   useEffect(() => {
-    localStorage.setItem('damabella_users', JSON.stringify(usuarios));
+    if (usuarios && usuarios.length > 0) {
+      try {
+        const dataToSave = JSON.stringify(usuarios);
+        localStorage.setItem('damabella_users', dataToSave);
+        
+        // Verificar que se guardó correctamente
+        const saved = localStorage.getItem('damabella_users');
+        if (saved === dataToSave) {
+          console.log(`✅ [UsuariosModule] Guardados ${usuarios.length} usuarios correctamente`);
+        } else {
+          console.error('⚠️ [UsuariosModule] Error: datos no guardados correctamente');
+        }
+      } catch (error) {
+        console.error('❌ [UsuariosModule] Error guardando usuarios:', error);
+      }
+    }
   }, [usuarios]);
+
+  // Escuchar cambios en roles desde otros módulos (Gestión de Roles)
+  useEffect(() => {
+    console.log(`🔔 [UsuariosModule] useEffect iniciado - Roles actuales:`, roles.map((r: any) => r.nombre));
+    let lastStoredRoles: string | null = null;
+
+    const checkForChanges = () => {
+      const stored = localStorage.getItem('damabella_roles');
+      
+      // Si los datos RAW son diferentes, actualizar
+      if (stored !== lastStoredRoles) {
+        console.log(`🔍 [UsuariosModule] Storage cambió. Antes:`, lastStoredRoles ? `${lastStoredRoles.length} chars` : 'null', `Ahora:`, stored ? `${stored.length} chars` : 'null');
+        lastStoredRoles = stored;
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              console.log(`🔄 [UsuariosModule] Roles actualizados:`, parsed.map((r: any) => r.nombre));
+              setRoles(parsed);
+            }
+          } catch (e) {
+            console.error('❌ Error updating roles:', e);
+          }
+        }
+      }
+    };
+
+    // Verificar inmediatamente
+    checkForChanges();
+
+    // Escuchar cambios de storage desde otros tabs/ventanas
+    const handleStorageChange = () => {
+      console.log('🔔 [UsuariosModule] Storage cambió en otro tab');
+      checkForChanges();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // También verificar periódicamente (para cambios en el mismo tab)
+    const interval = setInterval(checkForChanges, 300);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Estadísticas
   const totalUsuarios = usuarios.length;
@@ -233,10 +374,18 @@ export default function UsuariosModule() {
 
   const confirmDelete = () => {
     if (selectedUser) {
-      setUsuarios(usuarios.filter(u => u.id !== selectedUser.id));
-      showToast(`Usuario "${selectedUser.nombre}" eliminado correctamente`, 'success');
-      setDeleteDialogOpen(false);
-      setSelectedUser(null);
+      try {
+        const updatedUsers = usuarios.filter(u => u.id !== selectedUser.id);
+        setUsuarios(updatedUsers);
+        // Guardar inmediatamente en localStorage
+        localStorage.setItem('damabella_users', JSON.stringify(updatedUsers));
+        showToast(`Usuario "${selectedUser.nombre}" eliminado correctamente`, 'success');
+        setDeleteDialogOpen(false);
+        setSelectedUser(null);
+      } catch (error) {
+        console.error('Error al eliminar usuario:', error);
+        showToast('Error al eliminar el usuario', 'error');
+      }
     }
   };
 
@@ -247,15 +396,23 @@ export default function UsuariosModule() {
 
   const confirmToggleState = () => {
     if (selectedUser) {
-      const nuevoEstado = selectedUser.estado === 'Activo' ? 'Inactivo' : 'Activo';
-      setUsuarios(usuarios.map(u => 
-        u.id === selectedUser.id 
-          ? { ...u, estado: nuevoEstado }
-          : u
-      ));
-      showToast(`Usuario "${selectedUser.nombre}" ${nuevoEstado === 'Activo' ? 'activado' : 'desactivado'} correctamente`, 'success');
-      setToggleStateDialogOpen(false);
-      setSelectedUser(null);
+      try {
+        const nuevoEstado: 'Activo' | 'Inactivo' = selectedUser.estado === 'Activo' ? 'Inactivo' : 'Activo';
+        const updatedUsers = usuarios.map(u => 
+          u.id === selectedUser.id 
+            ? { ...u, estado: nuevoEstado }
+            : u
+        );
+        setUsuarios(updatedUsers);
+        // Guardar inmediatamente en localStorage
+        localStorage.setItem('damabella_users', JSON.stringify(updatedUsers));
+        showToast(`Usuario "${selectedUser.nombre}" ${nuevoEstado === 'Activo' ? 'activado' : 'desactivado'} correctamente`, 'success');
+        setToggleStateDialogOpen(false);
+        setSelectedUser(null);
+      } catch (error) {
+        console.error('Error al cambiar estado:', error);
+        showToast('Error al cambiar el estado del usuario', 'error');
+      }
     }
   };
 
@@ -332,28 +489,80 @@ export default function UsuariosModule() {
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
-    if (selectedUser) {
-      // Edit
-      setUsuarios(usuarios.map(u => 
-        u.id === selectedUser.id 
-          ? { ...u, ...formData }
-          : u
-      ));
-      showToast('Usuario actualizado correctamente', 'success');
-    } else {
-      // Add new
-      const newUser: Usuario = {
-        id: Date.now().toString(),
-        ...formData,
-        fechaCreacion: new Date().toISOString().split('T')[0],
-        creadoPor: user?.name || 'Sistema'
-      };
-      setUsuarios([...usuarios, newUser]);
-      showToast('Usuario creado correctamente', 'success');
+    try {
+      if (selectedUser) {
+        // Edit
+        const updatedUser: any = {
+          ...selectedUser,
+          nombre: formData.nombre,
+          tipoDoc: formData.tipoDoc,
+          documento: formData.documento,
+          email: formData.email,
+          celular: formData.celular,
+          direccion: formData.direccion,
+          rol: formData.rol,
+          role: formData.rol, // ← GUARDAR TAMBIÉN EN 'role' PARA COMPATIBILIDAD
+          estado: selectedUser.estado, // Mantener estado actual
+          password: formData.password || selectedUser.password,
+          // Mantener fechaCreacion y creadoPor originales
+          fechaCreacion: selectedUser.fechaCreacion,
+          creadoPor: selectedUser.creadoPor
+        };
+        const updatedUsers = usuarios.map(u => 
+          u.id === selectedUser.id ? updatedUser : u
+        );
+        setUsuarios(updatedUsers);
+        // Guardar inmediatamente en localStorage
+        localStorage.setItem('damabella_users', JSON.stringify(updatedUsers));
+        showToast('Usuario actualizado correctamente', 'success');
+      } else {
+        // Add new
+        const nuevoEstado: 'Activo' | 'Inactivo' = 'Activo';
+        console.log(`📝 [handleSubmit] Creando nuevo usuario con rol: ${formData.rol}`);
+        const newUser: any = {
+          id: Date.now().toString(),
+          nombre: formData.nombre,
+          tipoDoc: formData.tipoDoc,
+          documento: formData.documento,
+          email: formData.email,
+          celular: formData.celular,
+          direccion: formData.direccion,
+          rol: formData.rol,
+          role: formData.rol, // ← GUARDAR TAMBIÉN EN 'role' PARA COMPATIBILIDAD
+          estado: nuevoEstado,
+          password: formData.password,
+          fechaCreacion: new Date().toISOString().split('T')[0],
+          creadoPor: user?.name || 'Sistema'
+        };
+        console.log(`✅ [handleSubmit] Usuario creado:`, JSON.stringify(newUser, null, 2));
+        console.log(`   ✓ rol: ${newUser.rol}, role: ${newUser.role}`);
+        const newUsers = [...usuarios, newUser];
+        setUsuarios(newUsers);
+        // Guardar inmediatamente en localStorage
+        localStorage.setItem('damabella_users', JSON.stringify(newUsers));
+        console.log(`💾 [handleSubmit] Guardados en localStorage:`, localStorage.getItem('damabella_users'));
+        showToast('Usuario creado correctamente', 'success');
+      }
+      
+      setDialogOpen(false);
+      setFormData({
+        nombre: '',
+        tipoDoc: 'CC',
+        email: '',
+        documento: '',
+        celular: '',
+        direccion: '',
+        rol: 'Cliente',
+        estado: 'Activo' as 'Activo' | 'Inactivo',
+        password: '',
+        confirmPassword: ''
+      });
+      setFormErrors({});
+      setCurrentPage(1);
+    } catch (error) {
+      console.error('Error al guardar usuario:', error);
+      showToast('Error al guardar el usuario', 'error');
     }
-    
-    setDialogOpen(false);
-    setCurrentPage(1);
   };
 
   const handleFieldChange = (field: string, rawValue: string) => {
@@ -388,11 +597,7 @@ export default function UsuariosModule() {
     } else if (field === 'email') {
       errorMsg = validateEmail(cleanValue);
     } else if (field === 'password') {
-      if (!cleanValue && !selectedUser) {
-        errorMsg = 'La contraseña es obligatoria';
-      } else if (cleanValue && cleanValue.length < 6) {
-        errorMsg = 'La contraseña debe tener al menos 6 caracteres';
-      }
+      errorMsg = validatePassword(cleanValue, !selectedUser);
       // Validar coincidencia también
       if (formData.confirmPassword && cleanValue !== formData.confirmPassword) {
         setFormErrors(prev => ({ ...prev, confirmPassword: 'Las contraseñas no coinciden' }));
@@ -458,9 +663,11 @@ export default function UsuariosModule() {
       <div className="flex items-center gap-4">
         <Select value={filterRol} onChange={(e) => setFilterRol(e.target.value)}>
           <option value="todos">Todos</option>
-          <option value="Administrador">Administrador</option>
-          <option value="Empleado">Empleado</option>
-          <option value="Cliente">Cliente</option>
+          {roles.map((rol: any) => (
+            <option key={rol.id} value={rol.nombre}>
+              {rol.nombre}
+            </option>
+          ))}
         </Select>
         <Select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)}>
           <option value="todos">Todos</option>
@@ -718,9 +925,12 @@ export default function UsuariosModule() {
               <Select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}
                 className={formData.rol && !formErrors.rol ? 'border-green-500' : formErrors.rol ? 'border-red-500' : ''}
               >
-                <option value="Administrador">Administrador</option>
-                <option value="Empleado">Empleado</option>
-                <option value="Cliente">Cliente</option>
+                <option value="">Seleccione un rol</option>
+                {roles.map((rol: any) => (
+                  <option key={rol.id} value={rol.nombre}>
+                    {rol.nombre}
+                  </option>
+                ))}
               </Select>
               {formData.rol && !formErrors.rol && <p className="text-green-600 text-xs">✓ Rol seleccionado</p>}
             </div>

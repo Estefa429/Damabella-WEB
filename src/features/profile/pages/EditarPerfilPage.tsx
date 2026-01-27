@@ -197,7 +197,8 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
       tipoDoc: formData.tipoDoc || 'CC',
       numeroDoc: formData.numeroDoc.trim() || '',
       avatar: formData.avatar || currentUser?.avatar || null,
-      role: currentUser?.role || 'Cliente',
+      role: currentUser?.role || currentUser?.rol || 'Cliente',  // Buscar en ambos campos
+      rol: currentUser?.rol || currentUser?.role || 'Cliente',    // Guardar también en 'rol' para compatibilidad
       password: userIndex !== -1 ? users[userIndex].password : undefined // Preservar contraseña existente
     };
     
