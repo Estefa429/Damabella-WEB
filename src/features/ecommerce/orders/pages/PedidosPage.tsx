@@ -63,6 +63,7 @@ export function PedidosPage() {
   const [viewMode, setViewMode] = useState<'create' | 'view'>('create');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [formData, setFormData] = useState({
+    
     clientName: '',
     clientEmail: '',
     clientPhone: '',
