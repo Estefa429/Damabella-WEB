@@ -12,6 +12,5 @@ export {  ContactPage } from './pages/ContactPage';
 // Storefront components
 export {  PremiumNavbar } from './components/PremiumNavbar';
 export {  PremiumFooter } from './components/PremiumFooter';
-export {  EcommerceLayout } from './components/EcommerceLayout';
 export {  LoginModal } from './components/LoginModal';
 export { default as ClienteApp } from './components/ClienteApp';

@@ -9,20 +9,37 @@ interface EditarPerfilPageProps {
 }
 
 export default function EditarPerfilPage({ currentUser, onSave, onCancel }: EditarPerfilPageProps) {
-  // Obtener usuario desde localStorage si currentUser no tiene datos
+  // Debug: Ver qué datos tiene currentUser
+  console.log('🔍 [EditarPerfilPage] currentUser:', currentUser);
+
+  // Obtener usuario desde localStorage primero (datos más completos)
   const getUserData = () => {
-    // Si currentUser tiene nombre, usarlo
-    if (currentUser?.nombre) {
-      return currentUser;
-    }
-    
-    // Si no, intentar obtener de localStorage
+    // Intentar primero desde localStorage (tiene todos los datos)
     const storedUser = localStorage.getItem('damabella_current_user');
     if (storedUser) {
-      return JSON.parse(storedUser);
+      try {
+        const parsed = JSON.parse(storedUser);
+        if (parsed?.id || parsed?.email) {
+          console.log('✅ [getUserData] Datos cargados desde localStorage:', parsed);
+          return parsed;
+        }
+      } catch (e) {
+        console.log('❌ Error parsing localStorage');
+      }
     }
     
-    // Si aún no hay datos, retornar currentUser tal cual
+    // Si no hay en localStorage, buscar en damabella_users por email
+    if (currentUser?.email) {
+      const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
+      const foundUser = users.find((u: any) => u.email === currentUser.email);
+      if (foundUser) {
+        console.log('✅ [getUserData] Usuario encontrado en damabella_users:', foundUser);
+        return foundUser;
+      }
+    }
+    
+    // Como último recurso, usar currentUser
+    console.log('✅ [getUserData] Usando currentUser:', currentUser);
     return currentUser;
   };
 
@@ -30,10 +47,10 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
 
   // Inicializar con los datos del usuario (de currentUser o localStorage)
   const [formData, setFormData] = useState(() => ({
-    nombre: userData?.nombre || '',
+    nombre: userData?.nombre || userData?.name || '',
     email: userData?.email || '',
-    celular: userData?.celular || '',
-    direccion: userData?.direccion || '',
+    celular: userData?.celular || userData?.phone || '',
+    direccion: userData?.direccion || userData?.address || '',
     tipoDoc: userData?.tipoDoc || 'CC',
     numeroDoc: userData?.numeroDoc || '',
     avatar: userData?.avatar || null
@@ -54,12 +71,13 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
 
   // Sincronizar cuando currentUser cambia
   useEffect(() => {
-    const user = currentUser?.nombre ? currentUser : JSON.parse(localStorage.getItem('damabella_current_user') || '{}');
+    const user = getUserData();
+    console.log('📋 [useEffect] Sincronizando con usuario:', user);
     setFormData({
-      nombre: user?.nombre || '',
+      nombre: user?.nombre || user?.name || '',
       email: user?.email || '',
-      celular: user?.celular || '',
-      direccion: user?.direccion || '',
+      celular: user?.celular || user?.phone || '',
+      direccion: user?.direccion || user?.address || '',
       tipoDoc: user?.tipoDoc || 'CC',
       numeroDoc: user?.numeroDoc || '',
       avatar: user?.avatar || null
@@ -96,23 +114,33 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     }, 3000);
   };
 
-  // Validaciones
-  const isValidEmail = (email: string) => /^[a-zA-Z0-9][\w.-]*@[^\s@]+\.[^\s@]+$/.test(email);
-  const isValidDocumentNumber = (num: string) => /^[1-9][0-9]{4,19}$/.test(num);
-  const isValidCellNumber = (num: string) => /^[1-9][0-9]{6,14}$/.test(num);
-  const isValidDireccion = (dir: string) => dir.trim().length >= 5;
+  // Validaciones más simples
+  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const isValidDocumentNumber = (num: string) => num.trim().length >= 5;
+  const isValidCellNumber = (num: string) => /^\d{7,15}$/.test(num.replace(/\D/g, ''));
+  const isValidDireccion = (dir: string) => dir.trim().length >= 3;
 
   useEffect(() => {
     const newErrors: any = {};
-    if (!formData.nombre.trim()) newErrors.nombre = 'El nombre es obligatorio.';
-    if (!formData.email.trim()) newErrors.email = 'El email es obligatorio.';
-    else if (!isValidEmail(formData.email)) newErrors.email = 'El email no es válido o empieza con un guion bajo.';
-    if (!formData.celular.trim()) newErrors.celular = 'El celular es obligatorio.';
-    else if (!isValidCellNumber(formData.celular)) newErrors.celular = 'El celular debe tener entre 7 y 15 dígitos y no puede empezar con 0.';
-    if (!formData.direccion.trim()) newErrors.direccion = 'La dirección es obligatoria.';
-    else if (!isValidDireccion(formData.direccion)) newErrors.direccion = 'La dirección debe tener al menos 5 caracteres.';
-    if (!formData.numeroDoc.trim()) newErrors.numeroDoc = 'El número de documento es obligatorio.';
-    else if (!isValidDocumentNumber(formData.numeroDoc)) newErrors.numeroDoc = 'El número de documento debe tener entre 5 y 20 dígitos y no puede empezar con 0.';
+    // Validaciones simples
+    if (!formData.nombre.trim()) {
+      newErrors.nombre = 'El nombre es obligatorio';
+    }
+    if (!formData.email.trim()) {
+      newErrors.email = 'El email es obligatorio';
+    } else if (!isValidEmail(formData.email)) {
+      newErrors.email = 'Email inválido';
+    }
+    // Campos opcionales - solo validar si tienen valor
+    if (formData.celular && formData.celular.trim() && !isValidCellNumber(formData.celular)) {
+      newErrors.celular = 'Celular inválido (7-15 dígitos)';
+    }
+    if (formData.direccion && formData.direccion.trim() && formData.direccion.trim().length < 3) {
+      newErrors.direccion = 'Dirección muy corta';
+    }
+    if (formData.numeroDoc && formData.numeroDoc.trim() && formData.numeroDoc.trim().length < 5) {
+      newErrors.numeroDoc = 'Número de documento inválido';
+    }
     setErrors(newErrors);
   }, [formData]);
 
@@ -120,67 +148,133 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     e.preventDefault();
     console.log('💾 [handleSubmit] GUARDANDO CAMBIOS DEL PERFIL');
     console.log('  📋 Datos del formulario:', JSON.stringify(formData, null, 2));
-    console.log('  👤 Usuario actual ID:', currentUser?.id);
+    console.log('  👤 Usuario actual:', JSON.stringify(currentUser, null, 2));
+    console.log('  🔍 Errores encontrados:', errors);
     
-    if (Object.keys(errors).length > 0) {
-      console.log('  ❌ Error: Hay errores de validación:', errors);
+    // Validación simple: solo nombre y email son obligatorios
+    if (!formData.nombre.trim()) {
+      showToast('❌ El nombre es obligatorio');
+      return;
+    }
+    if (!formData.email.trim()) {
+      showToast('❌ El email es obligatorio');
+      return;
+    }
+    if (!isValidEmail(formData.email)) {
+      showToast('❌ Email inválido');
+      return;
+    }
+    
+    // Validar campos opcionales solo si tienen contenido
+    if (formData.celular && formData.celular.trim() && !isValidCellNumber(formData.celular)) {
+      showToast('❌ Celular inválido');
       return;
     }
 
     const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
-    const userIndex = users.findIndex((u: any) => u.id === currentUser.id);
+    console.log('  📋 Total de usuarios en BD:', users.length);
+    console.log('  🔎 Buscando usuario con ID:', currentUser?.id, 'o email:', currentUser?.email);
+    
+    // Buscar por ID primero, luego por email como fallback
+    let userIndex = users.findIndex((u: any) => u.id === currentUser?.id);
+    if (userIndex === -1) {
+      console.log('  ⚠️ ID no encontrado, buscando por email...');
+      userIndex = users.findIndex((u: any) => u.email === currentUser?.email);
+    }
+    
     console.log('  🔍 Usuario encontrado en índice:', userIndex);
 
+    // Construir usuario actualizado (con datos del formulario actual)
+    const updatedUser = { 
+      id: currentUser?.id || `user_${Date.now()}`,
+      nombre: formData.nombre.trim() || 'Sin nombre',
+      name: formData.nombre.trim() || 'Sin nombre',
+      email: formData.email.trim(),
+      celular: formData.celular.trim() || '',
+      phone: formData.celular.trim() || '',
+      direccion: formData.direccion.trim() || '',
+      address: formData.direccion.trim() || '',
+      tipoDoc: formData.tipoDoc || 'CC',
+      numeroDoc: formData.numeroDoc.trim() || '',
+      avatar: formData.avatar || currentUser?.avatar || null,
+      role: currentUser?.role || currentUser?.rol || 'Cliente',  // Buscar en ambos campos
+      rol: currentUser?.rol || currentUser?.role || 'Cliente',    // Guardar también en 'rol' para compatibilidad
+      password: userIndex !== -1 ? users[userIndex].password : undefined // Preservar contraseña existente
+    };
+    
+    console.log('  📝 Usuario actualizado completo:', JSON.stringify(updatedUser, null, 2));
+    
     if (userIndex !== -1) {
-      users[userIndex] = { ...users[userIndex], ...formData };
-      localStorage.setItem('damabella_users', JSON.stringify(users));
-      console.log('  ✅ Cambios guardados en localStorage');
-      onSave({ ...currentUser, ...formData });
-      showToast('Perfil guardado exitosamente ✅');
+      // Actualizar usuario existente
+      users[userIndex] = updatedUser;
+      console.log('  ✅ Usuario actualizado en índice:', userIndex);
     } else {
-      console.log('  ❌ Error: Usuario no encontrado en la base de datos');
+      // Crear nuevo usuario si no existe
+      console.log('  📝 Creando nuevo usuario...');
+      users.push(updatedUser);
+      console.log('  ✅ Nuevo usuario creado y añadido');
     }
+    
+    // Guardar en localStorage
+    localStorage.setItem('damabella_users', JSON.stringify(users));
+    localStorage.setItem('damabella_current_user', JSON.stringify(updatedUser));
+    console.log('  ✅ Cambios guardados en localStorage');
+    onSave(updatedUser);
+    showToast('✅ Perfil guardado correctamente');
   };
 
   const handleChangePassword = () => {
     console.log('🔐 [handleChangePassword] INICIANDO CAMBIO DE CONTRASEÑA');
-    console.log('  👤 Usuario ID:', currentUser?.id);
     
-    if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
-      console.log('  ❌ Error: Campos incompletos');
-      showToast('Por favor completa todos los campos');
-      return;
-    }
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      console.log('  ❌ Error: Las nuevas contraseñas no coinciden');
-      showToast('Las contraseñas nuevas no coinciden');
+    // Validación simple - sin requerir contraseña actual
+    if (!passwordData.newPassword || !passwordData.confirmPassword) {
+      showToast('❌ Completa la nueva contraseña y confirmación');
       return;
     }
     if (passwordData.newPassword.length < 6) {
-      console.log('  ❌ Error: Nueva contraseña muy corta (mínimo 6 caracteres)');
-      showToast('La nueva contraseña debe tener al menos 6 caracteres');
+      showToast('❌ La contraseña debe tener mínimo 6 caracteres');
+      return;
+    }
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      showToast('❌ Las contraseñas no coinciden');
       return;
     }
 
-    const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
-    const userIndex = users.findIndex((u: any) => u.id === currentUser.id);
-    console.log('  🔍 Usuario encontrado en índice:', userIndex);
-    
-    if (userIndex !== -1) {
-      if (users[userIndex].password !== passwordData.currentPassword) {
-        console.log('  ❌ Error: Contraseña actual incorrecta');
-        showToast('La contraseña actual es incorrecta');
-        return;
+    try {
+      // Obtener el usuario actual con todos sus datos
+      const currentUserData = getUserData();
+      console.log('  👤 Usuario actual:', JSON.stringify(currentUserData, null, 2));
+      
+      const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
+      
+      // Buscar por email (más confiable)
+      const userIndex = users.findIndex((u: any) => u.email === currentUserData?.email);
+      
+      console.log('  🔎 Usuario encontrado en índice:', userIndex);
+      console.log('  📧 Buscando por email:', currentUserData?.email);
+      
+      if (userIndex !== -1) {
+        // Actualizar contraseña
+        const updatedUser = { 
+          ...users[userIndex], 
+          password: passwordData.newPassword 
+        };
+        users[userIndex] = updatedUser;
+        
+        localStorage.setItem('damabella_users', JSON.stringify(users));
+        localStorage.setItem('damabella_current_user', JSON.stringify(updatedUser));
+        
+        console.log('  ✅ Contraseña actualizada exitosamente');
+        setShowPasswordModal(false);
+        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        showToast('✅ Contraseña actualizada correctamente');
+      } else {
+        console.log('  ❌ Usuario no encontrado. Emails en BD:', users.map((u: any) => u.email));
+        showToast('❌ Usuario no encontrado en la base de datos');
       }
-      users[userIndex].password = passwordData.newPassword;
-      localStorage.setItem('damabella_users', JSON.stringify(users));
-      console.log('  ✅ Contraseña actualizada en localStorage');
-      setShowPasswordModal(false);
-      console.log('  🔒 Modal de contraseña cerrado');
-      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      showToast('Contraseña actualizada ✅');
-    } else {
-      console.log('  ❌ Error: Usuario no encontrado');
+    } catch (error) {
+      console.error('❌ Error al cambiar contraseña:', error);
+      showToast('❌ Error al actualizar contraseña');
     }
   };
 
@@ -371,7 +465,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
       }} title="Cambiar Contraseña">
         <div className="space-y-4">
           <div>
-            <label className="block text-gray-700 mb-2">Contraseña Actual *</label>
+            <label className="block text-gray-700 mb-2">Contraseña Actual (opcional si es la primera vez)</label>
             <div className="relative">
               <Input
                 type={showCurrentPassword ? 'text' : 'password'}

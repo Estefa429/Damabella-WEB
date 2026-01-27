@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Heart, ShoppingCart, User } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
 
@@ -10,11 +10,39 @@ interface PremiumNavbarProps {
 
 export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: PremiumNavbarProps) {
   const { cart, favorites } = useEcommerce();
+  const [categories, setCategories] = useState<string[]>(['Vestidos Largos', 'Vestidos Cortos', 'Sets', 'Enterizos']);
+  const loadedCategoriesRef = useRef<string>('');
+
+  // Cargar categorías dinámicas desde localStorage con polling
+  useEffect(() => {
+    const loadCategories = () => {
+      const stored = localStorage.getItem('damabella_categorias');
+      
+      if (stored !== loadedCategoriesRef.current) {
+        loadedCategoriesRef.current = stored || '';
+        
+        if (stored) {
+          try {
+            const categorias = JSON.parse(stored);
+            const categoryNames = categorias.map((cat: any) => cat.name);
+            setCategories(categoryNames);
+            console.log('[PremiumNavbar] ✅ Categorías actualizadas:', categoryNames.join(', '));
+          } catch (error) {
+            console.error('[PremiumNavbar] Error cargando categorías:', error);
+          }
+        }
+      }
+    };
+
+    loadCategories();
+    
+    // Polling cada 500ms
+    const interval = setInterval(loadCategories, 500);
+    return () => clearInterval(interval);
+  }, []);
 
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const favoritesCount = favorites.length;
-
-  const categories = ['Vestidos Largos', 'Vestidos Cortos', 'Sets', 'Enterizos'];
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">

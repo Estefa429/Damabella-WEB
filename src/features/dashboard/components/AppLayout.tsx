@@ -61,6 +61,21 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
     const roles = JSON.parse(localStorage.getItem('damabella_roles') || '[]');
     const userRole = roles.find((r: any) => r.id === user.roleId || r.nombre === user.role);
     
+    // Si encontramos el rol y tiene permisos definidos, usarlos
+    if (userRole && userRole.permisos && Array.isArray(userRole.permisos)) {
+      const permisosMap: any = {};
+      userRole.permisos.forEach((p: any) => {
+        permisosMap[p.modulo.toLowerCase()] = {
+          ver: p.ver,
+          crear: p.crear,
+          editar: p.editar,
+          eliminar: p.eliminar
+        };
+      });
+      return permisosMap;
+    }
+    
+    // Fallback a permisos por rol si no están definidos dinámicamente
     if (!userRole || !userRole.permisos) {
       // Si es Administrador y no tiene permisos definidos, dar acceso total
       if (user.role === 'Administrador') {
@@ -69,7 +84,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
           roles: { ver: true, crear: true, editar: true, eliminar: true },
           permisos: { ver: true, crear: true, editar: true, eliminar: true },
           usuarios: { ver: true, crear: true, editar: true, eliminar: true },
-          categorias: { ver: true, crear: true, editar: true, eliminar: true },
+          categorías: { ver: true, crear: true, editar: true, eliminar: true },
           productos: { ver: true, crear: true, editar: true, eliminar: true },
           proveedores: { ver: true, crear: true, editar: true, eliminar: true },
           compras: { ver: true, crear: true, editar: true, eliminar: true },
@@ -101,8 +116,9 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   const permisos = getUserPermissions();
 
   const hasPermission = (modulo: string, accion: string = 'ver') => {
-    if (!permisos[modulo]) return false;
-    return permisos[modulo][accion] === true;
+    const moduloKey = modulo.toLowerCase();
+    if (!permisos[moduloKey]) return false;
+    return permisos[moduloKey][accion] === true;
   };
 
   const toggleMenu = (menuId: string) => {
@@ -194,17 +210,19 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   ];
 
   // Filtrar menús según permisos
-  const filteredMenuItems = menuItems.map(menu => {
-    // Si el menú tiene enlace directo (page), verificar permiso
-    if (menu.page) {
-      return hasPermission(menu.modulo || menu.id) ? menu : null;
-    }
-    // Si tiene submenu, filtrar items del submenu
-    return {
-      ...menu,
-      submenu: menu.submenu?.filter((item: any) => hasPermission(item.modulo || item.id))
-    };
-  }).filter(menu => menu && (menu.page || (menu.submenu && menu.submenu.length > 0)));
+  const filteredMenuItems = user.role === 'Administrador' 
+    ? menuItems // Los admins ven TODO sin filtrar
+    : menuItems.map(menu => {
+      // Si el menú tiene enlace directo (page), verificar permiso
+      if (menu.page) {
+        return hasPermission(menu.modulo || menu.id) ? menu : null;
+      }
+      // Si tiene submenu, filtrar items del submenu
+      return {
+        ...menu,
+        submenu: menu.submenu?.filter((item: any) => hasPermission(item.modulo || item.id))
+      };
+    }).filter(menu => menu && (menu.page || (menu.submenu && menu.submenu.length > 0)));
 
   const renderContent = () => {
     switch (currentPage) {

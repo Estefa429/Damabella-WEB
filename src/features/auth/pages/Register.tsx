@@ -85,17 +85,17 @@ export default function Registro() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6">
+      <div className="w-full max-w-2xl">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6 max-h-[90vh] overflow-y-auto">
           <div className="text-center space-y-2">
             <h1 className="text-2xl font-bold">Crear Cuenta</h1>
             <p className="text-gray-600 text-sm">Completa todos los campos para registrarte</p>
           </div>
 
-          <form className="space-y-3" onSubmit={handleSubmit}>
+          <form className="space-y-3 grid grid-cols-2 gap-4" onSubmit={handleSubmit}>
 
             {/* NOMBRE */}
-            <div>
+            <div className="col-span-2">
               <label className="block text-gray-700 text-sm font-medium mb-1">Nombre</label>
               <input
                 name="nombre"
@@ -108,7 +108,7 @@ export default function Registro() {
             </div>
 
             {/* EMAIL */}
-            <div>
+            <div className="col-span-2">
               <label className="block text-gray-700 text-sm font-medium mb-1">Correo electrónico</label>
               <input
                 name="email"
@@ -165,7 +165,7 @@ export default function Registro() {
             </div>
 
             {/* PASSWORD */}
-            <div>
+            <div className="col-span-2">
               <label className="block text-gray-700 text-sm font-medium mb-1">Contraseña</label>
               <input
                 type="password"
@@ -178,7 +178,7 @@ export default function Registro() {
               {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
             </div>
 
-            <button type="submit" className="w-full bg-black text-white font-medium py-2 rounded-lg hover:bg-gray-800 transition-colors text-sm mt-4">
+            <button type="submit" className="w-full bg-black text-white font-medium py-2 rounded-lg hover:bg-gray-800 transition-colors text-sm col-span-2 mt-2">
               Crear Cuenta
             </button>
           </form>

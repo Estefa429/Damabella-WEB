@@ -15,8 +15,8 @@ export function initializeAdminStorage() {
   if (existingUsers) {
     try {
       const parsed = JSON.parse(existingUsers);
-      // Validar que los usuarios tengan email y role (password puede estar en diferentes formatos)
-      usersToKeep = parsed.filter((u: any) => u.email && u.role && (u.nombre || u.name));
+      // Validar que los usuarios tengan email y role/rol (password puede estar en diferentes formatos)
+      usersToKeep = parsed.filter((u: any) => u.email && (u.role || u.rol) && (u.nombre || u.name));
       
       if (parsed.length !== usersToKeep.length) {
         console.log(`⚠️  [initializeStorage] Se filtraron ${parsed.length - usersToKeep.length} usuarios corruptos`);
@@ -52,22 +52,34 @@ export function initializeAdminStorage() {
   
   console.log(`\n✅ [initializeStorage] Total de usuarios a guardar: ${usersToKeep.length}`);
   
-  // PASO 3: Guardar usuarios validados
-  console.log('\n💾 [initializeStorage] PASO 3: Guardando usuarios...');
-  localStorage.setItem('damabella_users', JSON.stringify(usersToKeep));
-  console.log('✅ [initializeStorage] Usuarios guardados en localStorage');
-  
-  // PASO 4: Mostrar usuarios guardados
-  console.log('\n👥 [initializeStorage] PASO 4: Listando usuarios almacenados:');
-  usersToKeep.forEach((u: any, idx: number) => {
-    console.log(`  [${idx}] ${u.email}`);
-    console.log(`       ├─ Nombre: ${u.nombre}`);
-    console.log(`       ├─ Rol: ${u.role}`);
-    console.log(`       └─ Status: ${u.status}`);
+  // PASO 3: Normalizar usuarios antes de guardar (asegurar campo 'rol' y 'role')
+  console.log('\n🔄 [initializeStorage] PASO 3: Normalizando usuarios...');
+  const normalizedUsers = usersToKeep.map((u: any) => {
+    const rolValue = u.rol || u.role || 'Cliente';
+    return {
+      ...u,
+      rol: rolValue,      // Normalizar a 'rol'
+      role: rolValue,     // TAMBIÉN guardar en 'role' para compatibilidad
+      estado: u.estado || u.status || 'Activo' // Normalizar a 'estado'
+    };
   });
   
-  // PASO 5: Crear claves administrativas
-  console.log('\n🔑 [initializeStorage] PASO 5: Inicializando claves administrativas...');
+  // PASO 4: Guardar usuarios normalizados
+  console.log('\n💾 [initializeStorage] PASO 4: Guardando usuarios normalizados...');
+  localStorage.setItem('damabella_users', JSON.stringify(normalizedUsers));
+  console.log('✅ [initializeStorage] Usuarios guardados en localStorage');
+  
+  // PASO 5: Mostrar usuarios guardados
+  console.log('\n👥 [initializeStorage] PASO 5: Listando usuarios almacenados:');
+  normalizedUsers.forEach((u: any, idx: number) => {
+    console.log(`  [${idx}] ${u.email}`);
+    console.log(`       ├─ Nombre: ${u.nombre || u.name}`);
+    console.log(`       ├─ Rol: ${u.rol || u.role}`);
+    console.log(`       └─ Estado: ${u.estado || u.status}`);
+  });
+  
+  // PASO 6: Crear claves administrativas
+  console.log('\n🔑 [initializeStorage] PASO 6: Inicializando claves administrativas...');
   const adminKeys = [
     'damabella_productos',
     'damabella_categorias',
@@ -86,8 +98,8 @@ export function initializeAdminStorage() {
     }
   });
   
-  // PASO 6: Mostrar TODO el localStorage
-  console.log('\n💾 [initializeStorage] PASO 6: CONTENIDO COMPLETO DE LOCALSTORAGE:');
+  // PASO 7: Mostrar TODO el localStorage
+  console.log('\n💾 [initializeStorage] PASO 7: CONTENIDO COMPLETO DE LOCALSTORAGE:');
   console.log('═'.repeat(60));
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
@@ -190,18 +202,24 @@ export function validateCredentials(email: string, password: string): any | null
   console.log(`   - ¿Coinciden? ${user.password === password ? '✅ SÍ' : '❌ NO'}`);
   
   if (user.password === password) {
-    // Retornar sin incluir la contraseña - mantener rol correcto (puede ser 'role' o 'rol')
-    const rolField = user.role || user.rol;
+    // Retornar sin incluir la contraseña - normalizar rol a 'rol' (consistente con BD)
+    const rolField = user.rol || user.role;
+    console.log(`\n🔍 [validateCredentials] ROL DETECTADO:`);
+    console.log(`   - user.role: "${user.role}"`);
+    console.log(`   - user.rol: "${user.rol}"`);
+    console.log(`   - rolField final: "${rolField}"`);
+    
     const { password, ...userWithoutPassword } = user;
     const result = {
       ...userWithoutPassword,
-      // Normalizar el rol a 'role'
-      role: rolField,
+      // Normalizar el rol a 'rol' (consistente con damabella_users)
+      rol: rolField || 'Cliente',  // ← Usar 'rol' (con 'l') para consistencia
+      role: rolField || 'Cliente', // ← Mantener 'role' también para compatibilidad
       isAuthenticated: true,
     };
     console.log(`\n✅ [validateCredentials] LOGIN EXITOSO`);
     console.log(`   - Nombre: ${result.nombre || result.name}`);
-    console.log(`   - Rol: "${result.role || 'SIN ROLE'}"`);
+    console.log(`   - Rol EN RESULTADO: "${result.rol || 'UNDEFINED'}" (rol field)`);
     console.log(`   - Email: ${result.email}`);
     console.log(`\n📊 [validateCredentials] OBJETO COMPLETO DEL USUARIO:`, JSON.stringify(result, null, 2));
     console.log(`${'='.repeat(60)}\n`);

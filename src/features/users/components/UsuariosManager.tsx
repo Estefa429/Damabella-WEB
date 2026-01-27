@@ -44,6 +44,8 @@ export default function UsuariosManager() {
   const [showReporte, setShowReporte] = useState(false);
   const [editingUsuario, setEditingUsuario] = useState<Usuario | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const [formData, setFormData] = useState({
     nombre: '',
@@ -70,6 +72,7 @@ export default function UsuariosManager() {
   }>({});
 
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(usuarios));
@@ -84,38 +87,56 @@ export default function UsuariosManager() {
     setFormData({ ...formData, [field]: value });
 
     // field-specific validation: use shared helper when applicable
-    if (field === 'password' || field === 'confirmPassword') {
-      // password has custom rules
-      if (field === 'password') {
-        if (!value && !editingUsuario) {
-          setFormErrors({ ...formErrors, password: 'Por favor ingresa la contraseña' });
-        } else if (value && !validatePassword(value)) {
-          setFormErrors({ ...formErrors, password: 'La contraseña debe tener al menos 8 caracteres, mayúscula, minúscula, número y carácter especial' });
-        } else {
-          const { password: _p, ...rest } = formErrors;
-          setFormErrors(rest);
-        }
+    if (field === 'password') {
+      if (!value && !editingUsuario) {
+        setFormErrors({ ...formErrors, password: 'Por favor ingresa la contraseña' });
+      } else if (value && !validatePassword(value)) {
+        setFormErrors({ ...formErrors, password: 'La contraseña debe tener al menos 8 caracteres, mayúscula, minúscula, número y carácter especial' });
+      } else {
+        const { password: _p, ...rest } = formErrors;
+        setFormErrors(rest);
       }
-
-      if (field === 'confirmPassword') {
-        if (!value && !editingUsuario) {
-          setFormErrors({ ...formErrors, confirmPassword: 'Por favor repite la contraseña' });
-        } else if (formData.password && value !== formData.password) {
-          setFormErrors({ ...formErrors, confirmPassword: 'Las contraseñas no coinciden' });
-        } else {
-          const { confirmPassword: _c, ...rest } = formErrors;
-          setFormErrors(rest);
-        }
+      // Validar coincidencia también
+      if (formData.confirmPassword && value !== formData.confirmPassword) {
+        setFormErrors(prev => ({ ...prev, confirmPassword: 'Las contraseñas no coinciden' }));
+      } else if (formData.confirmPassword && value === formData.confirmPassword) {
+        const { confirmPassword: _c, ...rest } = formErrors;
+        setFormErrors(rest);
       }
+      return;
+    }
 
+    if (field === 'confirmPassword') {
+      if (!value && !editingUsuario) {
+        setFormErrors({ ...formErrors, confirmPassword: 'Por favor repite la contraseña' });
+      } else if (formData.password && value !== formData.password) {
+        setFormErrors({ ...formErrors, confirmPassword: 'Las contraseñas no coinciden' });
+      } else {
+        const { confirmPassword: _c, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
+      return;
+    }
+
+    if (field === 'direccion') {
+      // Dirección no es requerida, pero si se ingresa, validar que tenga formato
+      if (value && value.trim().length > 0 && value.trim().length < 5) {
+        setFormErrors({ ...formErrors, direccion: 'La dirección debe tener al menos 5 caracteres' });
+      } else {
+        const { direccion: _d, ...rest } = formErrors;
+        setFormErrors(rest);
+      }
       return;
     }
 
     const err = validateField(field, value);
     if (err) setFormErrors({ ...formErrors, [field]: err });
     else {
-      const { [field]: _removed, ...rest } = formErrors;
-      setFormErrors(rest);
+      setFormErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field as keyof typeof newErrors];
+        return newErrors;
+      });
     }
   };
 
@@ -160,6 +181,21 @@ export default function UsuariosManager() {
     if (!formData.numeroDoc.trim()) errors.numeroDoc = 'Por favor completa el número de documento';
     if (!formData.email.trim()) errors.email = 'Por favor completa el correo';
     if (!formData.roleId) errors.roleId = 'Por favor selecciona un rol';
+    if (!formData.celular.trim()) errors.celular = 'Por favor completa el celular';
+
+    // Validar duplicados de email
+    const emailDuplicado = usuarios.some(u => 
+      u.email.toLowerCase() === formData.email.toLowerCase() && 
+      u.id !== editingUsuario?.id
+    );
+    if (emailDuplicado) errors.email = 'Este email ya está registrado';
+
+    // Validar duplicados de documento
+    const docDuplicado = usuarios.some(u => 
+      u.numeroDoc === formData.numeroDoc && 
+      u.id !== editingUsuario?.id
+    );
+    if (docDuplicado) errors.numeroDoc = 'Este número de documento ya está registrado';
 
     if (!editingUsuario || formData.password || formData.confirmPassword) {
       if (!formData.password) errors.password = 'Por favor ingresa la contraseña';
@@ -213,6 +249,7 @@ export default function UsuariosManager() {
     }
 
     setShowModal(false);
+    setCurrentPage(1);
   };
 
   const handleDelete = (id: number) => {
@@ -255,6 +292,20 @@ export default function UsuariosManager() {
     (u.role?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
   );
 
+  // Paginación
+  const totalPages = Math.ceil(filteredUsuarios.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedUsuarios = filteredUsuarios.slice(startIndex, endIndex);
+
+  const handlePreviousPage = () => {
+    setCurrentPage(prev => Math.max(prev - 1, 1));
+  };
+
+  const handleNextPage = () => {
+    setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -282,7 +333,10 @@ export default function UsuariosManager() {
           <Input
             placeholder="Buscar usuarios..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
             className="pl-10"
           />
         </div>
@@ -311,7 +365,7 @@ export default function UsuariosManager() {
                   </td>
                 </tr>
               ) : (
-                filteredUsuarios.map((usuario) => (
+                paginatedUsuarios.map((usuario) => (
                   <tr key={usuario.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
@@ -379,6 +433,44 @@ export default function UsuariosManager() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Mostrando <span className="font-medium">{startIndex + 1}</span> a <span className="font-medium">{Math.min(endIndex, filteredUsuarios.length)}</span> de <span className="font-medium">{filteredUsuarios.length}</span> usuarios
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handlePreviousPage}
+              disabled={currentPage === 1}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Anterior
+            </button>
+            <div className="flex items-center gap-2">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    currentPage === page
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleNextPage}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Modal Create/Edit */}
@@ -394,8 +486,10 @@ export default function UsuariosManager() {
               value={formData.nombre}
               onChange={(e) => handleFieldChange('nombre', e.target.value)}
               placeholder="Juan Pérez"
+              className={formData.nombre && !formErrors.nombre ? 'border-green-500' : formErrors.nombre ? 'border-red-500' : ''}
             />
             {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
+            {formData.nombre && !formErrors.nombre && <p className="text-green-600 text-xs mt-1">✓ Nombre válido</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -420,8 +514,10 @@ export default function UsuariosManager() {
                 value={formData.numeroDoc}
                 onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
                 placeholder="1234567890"
+                className={formData.numeroDoc && !formErrors.numeroDoc ? 'border-green-500' : formErrors.numeroDoc ? 'border-red-500' : ''}
               />
               {formErrors.numeroDoc && <p className="text-red-600 text-sm mt-1">{formErrors.numeroDoc}</p>}
+              {formData.numeroDoc && !formErrors.numeroDoc && <p className="text-green-600 text-xs mt-1">✓ Documento válido</p>}
             </div>
           </div>
 
@@ -432,8 +528,10 @@ export default function UsuariosManager() {
                 value={formData.celular}
                 onChange={(e) => handleFieldChange('celular', e.target.value)}
                 placeholder="3001234567"
+                className={formData.celular && !formErrors.celular ? 'border-green-500' : formErrors.celular ? 'border-red-500' : ''}
               />
               {formErrors.celular && <p className="text-red-600 text-sm mt-1">{formErrors.celular}</p>}
+              {formData.celular && !formErrors.celular && <p className="text-green-600 text-xs mt-1">✓ Celular válido</p>}
             </div>
 
             <div>
@@ -441,7 +539,7 @@ export default function UsuariosManager() {
               <select
                 value={formData.roleId}
                 onChange={(e) => handleFieldChange('roleId', e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 ${formData.roleId && !formErrors.roleId ? 'border-green-500' : formErrors.roleId ? 'border-red-500' : 'border-gray-300'}`}
               >
                 <option value="">Seleccionar rol...</option>
                 {roles.filter((r: any) => r.activo).map((r: any) => (
@@ -449,6 +547,7 @@ export default function UsuariosManager() {
                 ))}
               </select>
               {formErrors.roleId && <p className="text-red-600 text-sm mt-1">{formErrors.roleId}</p>}
+              {formData.roleId && !formErrors.roleId && <p className="text-green-600 text-xs mt-1">✓ Rol seleccionado</p>}
             </div>
           </div>
 
@@ -459,18 +558,22 @@ export default function UsuariosManager() {
               value={formData.email}
               onChange={(e) => handleFieldChange('email', e.target.value)}
               placeholder="usuario@ejemplo.com"
+              className={formData.email && !formErrors.email ? 'border-green-500' : formErrors.email ? 'border-red-500' : ''}
             />
             {formErrors.email && <p className="text-red-600 text-sm mt-1">{formErrors.email}</p>}
+            {formData.email && !formErrors.email && <p className="text-green-600 text-xs mt-1">✓ Email válido</p>}
           </div>
 
           <div>
             <label className="block text-gray-700 mb-2">Dirección</label>
             <Input
               value={formData.direccion}
-              onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+              onChange={(e) => handleFieldChange('direccion', e.target.value)}
               placeholder="Calle 123 # 45-67"
+              className={formData.direccion && !formErrors.direccion ? 'border-green-500' : formErrors.direccion ? 'border-red-500' : ''}
             />
             {formErrors.direccion && <p className="text-red-600 text-sm mt-1">{formErrors.direccion}</p>}
+            {formData.direccion && !formErrors.direccion && <p className="text-green-600 text-xs mt-1">✓ Dirección válida</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -484,6 +587,7 @@ export default function UsuariosManager() {
                   value={formData.password}
                   onChange={(e) => handleFieldChange('password', e.target.value)}
                   placeholder="••••••••"
+                  className={formErrors.password ? 'border-red-500' : formData.password && !formErrors.password ? 'border-green-500' : ''}
                 />
                 <button
                   type="button"
@@ -494,6 +598,7 @@ export default function UsuariosManager() {
                 </button>
               </div>
               {formErrors.password && <p className="text-red-600 text-sm mt-1">{formErrors.password}</p>}
+              {formData.password && !formErrors.password && <p className="text-green-600 text-xs mt-1">✓ Contraseña válida</p>}
               <p className="text-xs text-gray-500 mt-1">
                 Mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial
               </p>
@@ -505,17 +610,18 @@ export default function UsuariosManager() {
               </label>
               <div className="relative">
                 <Input
-                  type={showPassword ? 'text' : 'password'}
+                  type={showConfirmPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
                   onChange={(e) => handleFieldChange('confirmPassword', e.target.value)}
                   placeholder="••••••••"
+                  className={formErrors.confirmPassword ? 'border-red-500' : formData.confirmPassword && !formErrors.confirmPassword && formData.password === formData.confirmPassword ? 'border-green-500' : ''}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                 >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
               {formErrors.confirmPassword && <p className="text-red-600 text-sm mt-1">{formErrors.confirmPassword}</p>}
