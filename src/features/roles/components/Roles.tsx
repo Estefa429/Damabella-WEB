@@ -2,6 +2,18 @@ import React, { useState } from 'react';
 import { Card, Button, Input, Label, Textarea, Modal, DataTable, useToast } from '../../../shared/components/native';
 import validateField from '../../../shared/utils/validation';
 
+
+const validateRoleName = (value: string) => {
+  if (!value?.trim()) return 'El nombre es obligatorio';
+  if (value.trim().length < 3) return 'Debe tener al menos 3 caracteres';
+  if (!/^[a-zA-Z0-9\s]+$/.test(value)) {
+    return 'No se permiten caracteres especiales';
+  }
+  return '';
+};
+
+
+
 // Mock roles ya tipados correctamente
 interface Rol {
   id: string;
@@ -34,6 +46,7 @@ const mockRoles: Rol[] = [
 export const Roles: React.FC = () => {
   const { showToast } = useToast();
   const [roles, setRoles] = useState<Rol[]>(mockRoles);
+  const [searchTerm, setSearchTerm] = useState(''); // 👈 NUEVO
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedRol, setSelectedRol] = useState<Rol | null>(null);
@@ -41,14 +54,57 @@ export const Roles: React.FC = () => {
   const [formErrors, setFormErrors] = useState<any>({});
 
   const columns = [
-    { key: 'nombre', label: 'Nombre' },
-    { key: 'descripcion', label: 'Descripción' },
-    {
-      key: 'permisos',
-      label: 'Permisos',
-      render: (item: Rol) => item.permisos.join(', '),
-    },
-  ];
+  { key: 'nombre', label: 'Nombre' },
+  { key: 'descripcion', label: 'Descripción' },
+  {
+    key: 'permisos',
+    label: 'Permisos',
+    render: (item: Rol) => item.permisos.join(', '),
+  },
+  {
+    key: 'id', // 👈 usamos una key que SÍ existe
+    label: 'Acciones',
+    render: (item: Rol) => (
+      <div className="flex gap-2 justify-end">
+        <Button size="sm" onClick={() => handleEdit(item)}>
+          Editar
+        </Button>
+        <Button
+          size="sm"
+          className="bg-red-600 hover:bg-red-700 text-white"
+          onClick={() => handleDelete(item)}
+        >
+          Eliminar
+        </Button>
+      </div>
+    ),
+  },
+];
+
+
+
+  // 🔍 FILTRADO POR TEXTO Y CANTIDAD DE MÓDULOS
+  const filteredRoles = roles.filter((rol) => {
+    const search = searchTerm.toLowerCase().trim();
+
+    const nombre = rol.nombre.toLowerCase();
+    const descripcion = rol.descripcion.toLowerCase();
+    const cantidad = rol.permisos.length;
+
+    const busquedasCantidad = [
+      `${cantidad}`,
+      `${cantidad} permiso`,
+      `${cantidad} permisos`,
+      `${cantidad} módulo`,
+      `${cantidad} módulos`,
+    ];
+
+    return (
+      nombre.includes(search) ||
+      descripcion.includes(search) ||
+      busquedasCantidad.some((t) => t.includes(search))
+    );
+  });
 
   const handleAdd = () => {
     setSelectedRol(null);
@@ -108,22 +164,41 @@ export const Roles: React.FC = () => {
   };
 
   const handleFieldChange = (field: string, value: any) => {
-    setFormData({ ...formData, [field]: value });
-    const err = validateField(field, value);
-    if (err) setFormErrors({ ...formErrors, [field]: err });
-    else {
-      const { [field]: _removed, ...rest } = formErrors;
-      setFormErrors(rest);
-    }
-  };
+  setFormData({ ...formData, [field]: value });
+
+  let err = '';
+  if (field === 'nombre') {
+    err = validateRoleName(value);
+  } else {
+    err = validateField(field, value);
+  }
+
+  if (err) {
+    setFormErrors({ ...formErrors, [field]: err });
+  } else {
+    const { [field]: _removed, ...rest } = formErrors;
+    setFormErrors(rest);
+  }
+};
+
 
   return (
     <>
+      {/*🔍 BUSCADOR CONTROLADO --------*/}
+      <div className="mb-4">
+        <Input
+          placeholder="Buscar por rol, descripción o cantidad de módulos"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
       <DataTable
-        data={roles}
+        data={filteredRoles}
         columns={columns}
-        searchPlaceholder="Buscar rol..."
       />
+
+
 
       <Modal
         isOpen={isDialogOpen}

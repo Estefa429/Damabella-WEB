@@ -43,3 +43,9 @@ export const documentExists = (numeroDoc: string) => {
   const users = getStoredUsers();
   return users.some((u: any) => u.numeroDoc === numeroDoc);
 };
+
+
+
+
+
+
