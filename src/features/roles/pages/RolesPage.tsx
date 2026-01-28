@@ -215,11 +215,6 @@ export function RolesPage() {
   };
 
   const handleDelete = (id: string) => {
-    if (!canDelete) {
-      showToast('No tienes permisos para eliminar roles', 'error');
-      return;
-    }
-    
     const rol = roles.find(r => r.id === id);
     if (rol && rol.name === 'Administrador') {
       showToast('No se puede eliminar el rol Administrador', 'error');
@@ -271,17 +266,19 @@ export function RolesPage() {
       key: 'actions',
       label: 'Acciones',
       render: (role: Role) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 justify-end">
           <button
             onClick={() => handleOpenModal(role)}
-            className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+            className="p-1.5 hover:bg-gray-100 rounded-md transition-colors"
+            title="Editar rol"
           >
             <Edit className="h-4 w-4 text-gray-600" />
           </button>
-          {canDelete && role.name !== 'Administrador' && (
+          {role.name !== 'Administrador' && (
             <button
               onClick={() => handleDelete(role.id)}
-              className="p-1 hover:bg-red-50 rounded-md transition-colors"
+              className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
+              title="Eliminar rol"
             >
               <Trash2 className="h-4 w-4 text-red-600" />
             </button>

@@ -1,63 +1,176 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Button, Input, Label, Select, Modal, DataTable, Badge, useToast } from '../../../shared/components/native';
-import { Plus, Edit, Trash2, Search, User } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, User, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
+
+const STORAGE_KEY = 'damabella_users'; // Cambiar de 'damabella_usuarios' a 'damabella_users' para sincronizar con AuthContext
 
 interface UserType {
   id: string;
-  name: string;
-  document: string;
+  nombre: string;
+  name?: string;
+  numeroDoc?: string;
+  document?: string;
   email: string;
-  phone: string;
+  celular?: string;
+  phone?: string;
+  direccion?: string;
+  address?: string;
+  password: string;
+  tipoDoc?: string;
   role: string;
+  roleId?: number;
   status: 'Activo' | 'Inactivo';
+  activo?: boolean;
   createdAt: string;
+  creadoPor?: string;
 }
 
 const mockUsers: UserType[] = [
-  { id: '1', name: 'María García', document: '1234567890', email: 'maria@damabella.com', phone: '3001234567', role: 'Administrador', status: 'Activo', createdAt: '2024-01-15' },
-  { id: '2', name: 'Juan Pérez', document: '9876543210', email: 'juan@damabella.com', phone: '3107654321', role: 'Empleado', status: 'Activo', createdAt: '2024-02-01' },
-  { id: '3', name: 'Ana López', document: '5555555555', email: 'ana@damabella.com', phone: '3209876543', role: 'Empleado', status: 'Inactivo', createdAt: '2024-01-20' },
-  { id: '4', name: 'Carlos Ramírez', document: '1111111111', email: 'carlos@example.com', phone: '3156789012', role: 'Cliente', status: 'Activo', createdAt: '2024-03-10' },
+  { id: '1', nombre: 'María García', email: 'maria@damabella.com', numeroDoc: '1234567890', celular: '3001234567', role: 'Administrador', status: 'Activo', createdAt: '2024-01-15', password: 'Password123!' },
+  { id: '2', nombre: 'Juan Pérez', email: 'juan@damabella.com', numeroDoc: '9876543210', celular: '3107654321', role: 'Empleado', status: 'Activo', createdAt: '2024-02-01', password: 'Password123!' },
+  { id: '3', nombre: 'Ana López', email: 'ana@damabella.com', numeroDoc: '5555555555', celular: '3209876543', role: 'Empleado', status: 'Inactivo', createdAt: '2024-01-20', password: 'Password123!' },
+  { id: '4', nombre: 'Carlos Ramírez', email: 'carlos@example.com', numeroDoc: '1111111111', celular: '3156789012', role: 'Cliente', status: 'Activo', createdAt: '2024-03-10', password: 'Password123!' },
 ];
 
 export function UsuariosPage() {
-  const [users, setUsers] = useState<UserType[]>(mockUsers);
+  const [users, setUsers] = useState<UserType[]>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Error parsing stored users:', e);
+      }
+    }
+    return mockUsers;
+  });
+  const [roles, setRoles] = useState<any[]>(() => {
+    const stored = localStorage.getItem('damabella_roles');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`✅ Roles cargados desde localStorage en UsuariosPage`);
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Error loading roles:', e);
+      }
+    }
+    const defaultRoles = [
+      { id: '1', nombre: 'Administrador', descripcion: 'Acceso completo al sistema', usuariosAsociados: 1, permisos: [] },
+      { id: '2', nombre: 'Empleado', descripcion: 'Gestión de ventas y productos', usuariosAsociados: 1, permisos: [] },
+      { id: '3', nombre: 'Cliente', descripcion: 'Acceso limitado para compras', usuariosAsociados: 3, permisos: [] }
+    ];
+    localStorage.setItem('damabella_roles', JSON.stringify(defaultRoles));
+    return defaultRoles;
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState('Todos');
   const [filterStatus, setFilterStatus] = useState('Todos');
   const [formData, setFormData] = useState({
-    name: '',
-    document: '',
+    nombre: '',
+    numeroDoc: '',
     email: '',
-    phone: '',
+    celular: '',
+    password: '',
     role: 'Cliente',
     status: 'Activo' as 'Activo' | 'Inactivo',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<any>({});
   const { showToast } = useToast();
   const { user: currentUser } = useAuth();
 
-  const canDelete = currentUser?.role === 'Administrador';
+  // Guardar usuarios en localStorage cuando cambien
+  useEffect(() => {
+    if (users && users.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+        console.log(`✅ Usuarios guardados: ${users.length} registros`);
+      } catch (error) {
+        console.error('Error guardando usuarios:', error);
+        showToast('Error al guardar usuarios', 'error');
+      }
+    }
+  }, [users, showToast]);
+
+  // Escuchar cambios en roles desde otros módulos
+  useEffect(() => {
+    let lastStoredRoles: string | null = null;
+
+    const checkForChanges = () => {
+      const stored = localStorage.getItem('damabella_roles');
+      if (stored !== lastStoredRoles) {
+        lastStoredRoles = stored;
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              console.log(`🔄 [UsuariosPage] Roles actualizados`);
+              setRoles(parsed);
+            }
+          } catch (e) {
+            console.error('Error updating roles:', e);
+          }
+        }
+      }
+    };
+
+    checkForChanges();
+    window.addEventListener('storage', checkForChanges);
+    const interval = setInterval(checkForChanges, 300);
+
+    return () => {
+      window.removeEventListener('storage', checkForChanges);
+      clearInterval(interval);
+    };
+  }, []);
+
+  const validatePassword = (password: string) => {
+    const errors: string[] = [];
+    
+    if (password.length < 8) {
+      errors.push('al menos 8 caracteres');
+    }
+    if (!/[A-Z]/.test(password)) {
+      errors.push('una letra mayúscula');
+    }
+    if (!/[a-z]/.test(password)) {
+      errors.push('una letra minúscula');
+    }
+    if (!/\d/.test(password)) {
+      errors.push('un número');
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      errors.push('un carácter especial (!@#$%^&*)');
+    }
+
+    return errors;
+  };
 
   const validateField = (field: string, value: string) => {
     const errors: any = {};
     
-    if (field === 'name') {
+    if (field === 'nombre') {
       if (!value.trim()) {
-        errors.name = 'Este campo es obligatorio';
+        errors.nombre = 'Este campo es obligatorio';
       } else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/.test(value)) {
-        errors.name = 'Solo se permiten letras y espacios';
+        errors.nombre = 'Solo se permiten letras y espacios';
       }
     }
     
-    if (field === 'document') {
+    if (field === 'numeroDoc') {
       if (!value.trim()) {
-        errors.document = 'Este campo es obligatorio';
+        errors.numeroDoc = 'Este campo es obligatorio';
       } else if (!/^\d{6,12}$/.test(value)) {
-        errors.document = 'Debe tener entre 6 y 12 dígitos';
+        errors.numeroDoc = 'Debe tener entre 6 y 12 dígitos';
       }
     }
     
@@ -69,11 +182,22 @@ export function UsuariosPage() {
       }
     }
     
-    if (field === 'phone') {
+    if (field === 'celular') {
       if (!value.trim()) {
-        errors.phone = 'Este campo es obligatorio';
+        errors.celular = 'Este campo es obligatorio';
       } else if (!/^\d{10}$/.test(value)) {
-        errors.phone = 'Debe tener exactamente 10 dígitos';
+        errors.celular = 'Debe tener exactamente 10 dígitos';
+      }
+    }
+
+    if (field === 'password') {
+      if (!value && !editingUser) {
+        errors.password = 'La contraseña es obligatoria';
+      } else if (value) {
+        const passwordErrors = validatePassword(value);
+        if (passwordErrors.length > 0) {
+          errors.password = `La contraseña debe contener: ${passwordErrors.join(', ')}`;
+        }
       }
     }
     
@@ -90,20 +214,22 @@ export function UsuariosPage() {
     if (user) {
       setEditingUser(user);
       setFormData({
-        name: user.name,
-        document: user.document,
+        nombre: user.nombre,
+        numeroDoc: user.numeroDoc || '',
         email: user.email,
-        phone: user.phone,
+        celular: user.celular || '',
+        password: user.password || '',
         role: user.role,
         status: user.status,
       });
     } else {
       setEditingUser(null);
       setFormData({
-        name: '',
-        document: '',
+        nombre: '',
+        numeroDoc: '',
         email: '',
-        phone: '',
+        celular: '',
+        password: '',
         role: 'Cliente',
         status: 'Activo',
       });
@@ -117,7 +243,7 @@ export function UsuariosPage() {
 
     // Validar todos los campos
     const allErrors: any = {};
-    ['name', 'document', 'email', 'phone'].forEach(field => {
+    ['nombre', 'numeroDoc', 'email', 'celular', 'password'].forEach(field => {
       const fieldErrors = validateField(field, (formData as any)[field]);
       if (fieldErrors[field]) {
         allErrors[field] = fieldErrors[field];
@@ -126,33 +252,57 @@ export function UsuariosPage() {
 
     if (Object.keys(allErrors).length > 0) {
       setFormErrors(allErrors);
+      showToast('Por favor corrige los errores del formulario', 'error');
       return;
     }
 
-    if (editingUser) {
-      setUsers(users.map(u => u.id === editingUser.id ? { ...u, ...formData } : u));
-      showToast('Usuario actualizado correctamente', 'success');
-    } else {
-      const newUser: UserType = {
-        id: Date.now().toString(),
-        ...formData,
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-      setUsers([...users, newUser]);
-      showToast('Usuario creado correctamente', 'success');
-    }
+    try {
+      if (editingUser) {
+        const updatedUsers = users.map(u => u.id === editingUser.id ? { ...u, ...formData } : u);
+        setUsers(updatedUsers);
+        // Guardar inmediatamente en localStorage
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUsers));
+        showToast('Usuario actualizado correctamente', 'success');
+      } else {
+        const newUser: UserType = {
+          id: Date.now().toString(),
+          nombre: formData.nombre,
+          numeroDoc: formData.numeroDoc,
+          email: formData.email,
+          celular: formData.celular,
+          password: formData.password,
+          role: formData.role,
+          status: formData.status,
+          createdAt: new Date().toISOString().split('T')[0],
+        };
+        const newUsers = [...users, newUser];
+        setUsers(newUsers);
+        // Guardar inmediatamente en localStorage
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newUsers));
+        showToast('Usuario creado correctamente', 'success');
+      }
 
-    setIsModalOpen(false);
+      setIsModalOpen(false);
+      setFormData({ nombre: '', numeroDoc: '', email: '', celular: '', password: '', role: 'Cliente', status: 'Activo' });
+      setFormErrors({});
+    } catch (error) {
+      console.error('Error al guardar usuario:', error);
+      showToast('Error al guardar el usuario', 'error');
+    }
   };
 
   const handleDelete = (id: string) => {
-    if (!canDelete) {
-      showToast('No tienes permisos para eliminar usuarios', 'error');
-      return;
-    }
     if (confirm('¿Estás seguro de eliminar este usuario?')) {
-      setUsers(users.filter(u => u.id !== id));
-      showToast('Usuario eliminado correctamente', 'success');
+      try {
+        const updatedUsers = users.filter(u => u.id !== id);
+        setUsers(updatedUsers);
+        // Guardar inmediatamente en localStorage
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUsers));
+        showToast('Usuario eliminado correctamente', 'success');
+      } catch (error) {
+        console.error('Error al eliminar usuario:', error);
+        showToast('Error al eliminar el usuario', 'error');
+      }
     }
   };
 
@@ -171,20 +321,20 @@ export function UsuariosPage() {
 
   const columns = [
     {
-      key: 'name',
+      key: 'nombre',
       label: 'Usuario',
       render: (user: UserType) => (
         <div className="flex items-center gap-2">
           <User className="h-4 w-4 text-gray-600" />
           <div>
-            <p className="font-medium">{user.name}</p>
+            <p className="font-medium">{user.nombre}</p>
             <p className="text-xs text-gray-600">{user.email}</p>
           </div>
         </div>
       ),
     },
-    { key: 'document', label: 'Documento' },
-    { key: 'phone', label: 'Teléfono' },
+    { key: 'numeroDoc', label: 'Documento' },
+    { key: 'celular', label: 'Teléfono' },
     {
       key: 'role',
       label: 'Rol',
@@ -216,21 +366,21 @@ export function UsuariosPage() {
       key: 'actions',
       label: 'Acciones',
       render: (user: UserType) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 justify-end">
           <button
             onClick={() => handleOpenModal(user)}
             className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+            title="Editar usuario"
           >
             <Edit className="h-4 w-4 text-gray-600" />
           </button>
-          {canDelete && (
-            <button
-              onClick={() => handleDelete(user.id)}
-              className="p-1 hover:bg-red-50 rounded-md transition-colors"
-            >
-              <Trash2 className="h-4 w-4 text-red-600" />
-            </button>
-          )}
+          <button
+            onClick={() => handleDelete(user.id)}
+            className="p-1 hover:bg-red-50 rounded-md transition-colors"
+            title="Eliminar usuario"
+          >
+            <Trash2 className="h-4 w-4 text-red-600" />
+          </button>
         </div>
       ),
     },
@@ -263,9 +413,11 @@ export function UsuariosPage() {
           </div>
           <Select value={filterRole} onChange={(e) => setFilterRole(e.target.value)}>
             <option value="Todos">Todos los roles</option>
-            <option value="Administrador">Administrador</option>
-            <option value="Empleado">Empleado</option>
-            <option value="Cliente">Cliente</option>
+            {roles.map((rol: any) => (
+              <option key={rol.id} value={rol.nombre}>
+                {rol.nombre}
+              </option>
+            ))}
           </Select>
           <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
             <option value="Todos">Todos los estados</option>
@@ -291,34 +443,33 @@ export function UsuariosPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Nombre Completo</Label>
+              <Label htmlFor="nombre">Nombre Completo</Label>
               <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => handleFieldChange('name', e.target.value)}
+                id="nombre"
+                value={formData.nombre}
+                onChange={(e) => handleFieldChange('nombre', e.target.value)}
                 required
               />
-              {formErrors.name && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.name}</p>
+              {formErrors.nombre && (
+                <p className="text-red-600 text-xs mt-1">{formErrors.nombre}</p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="document">Documento</Label>
+              <Label htmlFor="numeroDoc">Documento</Label>
               <Input
-                id="document"
-                value={formData.document}
+                id="numeroDoc"
+                value={formData.numeroDoc}
                 onChange={(e) => {
-                  // Solo permitir números
                   const value = e.target.value.replace(/\D/g, '');
-                  handleFieldChange('document', value);
+                  handleFieldChange('numeroDoc', value);
                 }}
                 placeholder="Cédula o documento"
                 maxLength={12}
                 required
               />
-              {formErrors.document && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.document}</p>
+              {formErrors.numeroDoc && (
+                <p className="text-red-600 text-xs mt-1">{formErrors.numeroDoc}</p>
               )}
             </div>
 
@@ -337,21 +488,63 @@ export function UsuariosPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone">Teléfono</Label>
+              <Label htmlFor="celular">Teléfono</Label>
               <Input
-                id="phone"
-                value={formData.phone}
+                id="celular"
+                value={formData.celular}
                 onChange={(e) => {
-                  // Solo permitir números
                   const value = e.target.value.replace(/\D/g, '');
-                  handleFieldChange('phone', value);
+                  handleFieldChange('celular', value);
                 }}
                 placeholder="3001234567"
                 maxLength={10}
                 required
               />
-              {formErrors.phone && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.phone}</p>
+              {formErrors.celular && (
+                <p className="text-red-600 text-xs mt-1">{formErrors.celular}</p>
+              )}
+            </div>
+
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="password">Contraseña *</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => handleFieldChange('password', e.target.value)}
+                  placeholder="Mínimo 8 caracteres con mayúscula, minúscula, número y símbolo"
+                  required={!editingUser}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {formData.password && (
+                <div className="text-xs space-y-1 mt-2 p-2 bg-blue-50 rounded">
+                  <div className={`flex items-center gap-2 ${formData.password.length >= 8 ? 'text-green-700' : 'text-gray-600'}`}>
+                    <span>✓ Mínimo 8 caracteres</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${/[A-Z]/.test(formData.password) ? 'text-green-700' : 'text-gray-600'}`}>
+                    <span>✓ Una letra mayúscula (A-Z)</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${/[a-z]/.test(formData.password) ? 'text-green-700' : 'text-gray-600'}`}>
+                    <span>✓ Una letra minúscula (a-z)</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${/\d/.test(formData.password) ? 'text-green-700' : 'text-gray-600'}`}>
+                    <span>✓ Un número (0-9)</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) ? 'text-green-700' : 'text-gray-600'}`}>
+                    <span>✓ Un carácter especial (!@#$%^&*)</span>
+                  </div>
+                </div>
+              )}
+              {formErrors.password && (
+                <p className="text-red-600 text-xs mt-1">{formErrors.password}</p>
               )}
             </div>
 
@@ -362,9 +555,12 @@ export function UsuariosPage() {
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               >
-                <option value="Administrador">Administrador</option>
-                <option value="Empleado">Empleado</option>
-                <option value="Cliente">Cliente</option>
+                <option value="">Seleccione un rol</option>
+                {roles.map((rol: any) => (
+                  <option key={rol.id} value={rol.nombre}>
+                    {rol.nombre}
+                  </option>
+                ))}
               </Select>
             </div>
 

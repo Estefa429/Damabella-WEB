@@ -66,39 +66,125 @@ export default function ProductosManager() {
     ];
   });
 
+  // Polling para detectar nuevas categorías cada 1 segundo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const stored = localStorage.getItem(CATEGORIAS_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setCategorias(parsed);
+          console.log('[ProductosManager] ✅ Categorías actualizadas:', parsed.length);
+        } catch (error) {
+          console.error('[ProductosManager] Error al actualizar categorías:', error);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const [proveedores, setProveedores] = useState(() => {
     const stored = localStorage.getItem(PROVEEDORES_KEY);
     return stored ? JSON.parse(stored) : [];
   });
+
+  // Polling para detectar nuevos proveedores cada 1 segundo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const stored = localStorage.getItem(PROVEEDORES_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setProveedores(parsed);
+        } catch (error) {
+          console.error('[ProductosManager] Error al actualizar proveedores:', error);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const [tallas, setTallas] = useState(() => {
     const stored = localStorage.getItem(TALLAS_KEY);
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        return parsed.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
+        const mapped = parsed.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
+        // Solo usar si tiene contenido
+        if (mapped.length > 0) return mapped;
       } catch {
-        return ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+        // Si hay error, usar por defecto
       }
     }
+    // SIEMPRE retornar valores por defecto si localStorage está vacío o es inválido
     return ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
   });
+
+  // Polling para detectar nuevas tallas cada 1 segundo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const stored = localStorage.getItem(TALLAS_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          const newTallas = parsed.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
+          // Solo actualizar si tiene contenido, sino mantener los valores por defecto
+          if (newTallas.length > 0) {
+            setTallas(newTallas);
+          }
+        } catch (error) {
+          console.error('[ProductosManager] Error al actualizar tallas:', error);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const [coloresDisponibles, setColoresDisponibles] = useState(() => {
     const stored = localStorage.getItem(COLORES_KEY);
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        return parsed.map((c: any) => ({
+        const mapped = parsed.map((c: any) => ({
           nombre: c.name || c.nombre || '',
           hex: c.hexCode || c.hex || '#000000'
         })).filter((c: any) => c.nombre);
+        // Solo usar si tiene contenido
+        if (mapped.length > 0) return mapped;
       } catch {
-        return getColoresTemporales();
+        // Si hay error, usar por defecto
       }
     }
+    // SIEMPRE retornar valores por defecto si localStorage está vacío o es inválido
     return getColoresTemporales();
   });
+
+  // Polling para detectar nuevos colores cada 1 segundo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const stored = localStorage.getItem(COLORES_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          const newColores = parsed.map((c: any) => ({
+            nombre: c.name || c.nombre || '',
+            hex: c.hexCode || c.hex || '#000000'
+          })).filter((c: any) => c.nombre);
+          // Solo actualizar si tiene contenido, sino mantener los valores por defecto
+          if (newColores.length > 0) {
+            setColoresDisponibles(newColores);
+          }
+        } catch (error) {
+          console.error('[ProductosManager] Error al actualizar colores:', error);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);

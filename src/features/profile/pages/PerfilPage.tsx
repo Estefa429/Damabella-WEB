@@ -7,6 +7,10 @@ type UserRole = 'Admin' | 'Empleado' | 'Cliente';
 
 export default function PerfilPage() {
   const { user, updateProfile } = useAuth();
+  
+  // Debug: Ver qué datos tiene user
+  console.log('🔍 [PerfilPage] user:', user);
+
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -30,7 +34,34 @@ export default function PerfilPage() {
     console.log('👤 [handleUpdateProfile] ACTUALIZANDO PERFIL DE USUARIO');
     console.log('  📋 Datos a actualizar:', JSON.stringify(formData, null, 2));
     console.log('  👥 Usuario actual:', JSON.stringify(user, null, 2));
+    
+    // Actualizar en contexto
     updateProfile(formData);
+    
+    // Sincronizar con localStorage - preservar todos los campos
+    const updatedUser = { 
+      ...user, 
+      ...formData,
+      // Mapear campos alias para consistencia
+      nombre: formData.name,
+      // Preservar otros campos
+      id: user?.id,
+      role: user?.role
+    };
+    console.log('  💾 Usuario a guardar en localStorage:', JSON.stringify(updatedUser, null, 2));
+    localStorage.setItem('damabella_current_user', JSON.stringify(updatedUser));
+    
+    // Actualizar en damabella_users array
+    const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
+    const userIndex = users.findIndex((u: any) => u.id === user?.id || u.email === user?.email);
+    if (userIndex !== -1) {
+      users[userIndex] = updatedUser;
+      localStorage.setItem('damabella_users', JSON.stringify(users));
+      console.log('  ✅ Usuario actualizado en damabella_users índice:', userIndex);
+    } else {
+      console.log('  ℹ️ Usuario no encontrado en damabella_users, no se sincronizó allí');
+    }
+    
     console.log('  ✅ Perfil actualizado correctamente');
     showToast('Perfil actualizado correctamente', 'success');
   };
@@ -40,25 +71,42 @@ export default function PerfilPage() {
     console.log('🔐 [handleChangePassword] CAMBIANDO CONTRASEÑA');
     console.log('  👤 Email del usuario:', user?.email);
 
+    if (!passwordData.newPassword || !passwordData.confirmPassword) {
+      showToast('Completa la nueva contraseña y confirmación', 'error');
+      return;
+    }
+
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       console.log('  ❌ Error: Las contraseñas no coinciden');
       showToast('Las contraseñas no coinciden', 'error');
       return;
     }
 
-    if (passwordData.newPassword.length < 8) {
-      console.log('  ❌ Error: Contraseña muy corta. Mínimo 8 caracteres requeridos');
-      showToast('La contraseña debe tener al menos 8 caracteres', 'error');
+    if (passwordData.newPassword.length < 6) {
+      console.log('  ❌ Error: Contraseña muy corta. Mínimo 6 caracteres requeridos');
+      showToast('La contraseña debe tener al menos 6 caracteres', 'error');
       return;
     }
 
     console.log('  ✅ Validación exitosa, contraseña será actualizada');
+    
+    // Guardar contraseña en localStorage
+    const updatedUser = { ...user, password: passwordData.newPassword };
+    localStorage.setItem('damabella_current_user', JSON.stringify(updatedUser));
+    
+    // Actualizar en damabella_users array
+    const users = JSON.parse(localStorage.getItem('damabella_users') || '[]');
+    const userIndex = users.findIndex((u: any) => u.id === user?.id || u.email === user?.email);
+    if (userIndex !== -1) {
+      users[userIndex] = updatedUser;
+      localStorage.setItem('damabella_users', JSON.stringify(users));
+      console.log('  ✅ Contraseña actualizada en índice:', userIndex);
+    }
+    
+    // Limpiar formulario
+    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    console.log('  ✅ Formulario limpiado');
     showToast('Contraseña actualizada correctamente', 'success');
-    setPasswordData({
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
-    });
   };
 
   // Función para mostrar el rol de manera segura

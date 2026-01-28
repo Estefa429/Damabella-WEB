@@ -2,35 +2,92 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
 import { Button, Input, Label, Textarea, Modal, useToast } from '../../../shared/components/native';
 import validateField from '../../../shared/utils/validation';
-import { Plus, Search, Edit, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, AlertCircle, Shield } from 'lucide-react';
+
+interface Permiso {
+  modulo: string;
+  ver: boolean;
+  crear: boolean;
+  editar: boolean;
+  eliminar: boolean;
+}
 
 interface Rol {
   id: string;
   nombre: string;
   descripcion: string;
   usuariosAsociados: number;
+  permisos: Permiso[];
 }
 
+const MODULOS_DISPONIBLES = [
+  'Dashboard',
+  'Roles',
+  'Permisos',
+  'Usuarios',
+  'Categorías',
+  'Productos',
+  'Proveedores',
+  'Compras',
+  'Clientes',
+  'Pedidos',
+  'Ventas',
+  'Devoluciones'
+];
+
 const INITIAL_ROLES: Rol[] = [
-  { id: '1', nombre: 'Administrador', descripcion: 'Acceso completo al sistema', usuariosAsociados: 1 },
-  { id: '2', nombre: 'Empleado', descripcion: 'Gestión de ventas y productos', usuariosAsociados: 1 },
-  { id: '3', nombre: 'Cliente', descripcion: 'Acceso limitado para compras', usuariosAsociados: 3 }
+  { 
+    id: '1', 
+    nombre: 'Administrador', 
+    descripcion: 'Acceso completo al sistema', 
+    usuariosAsociados: 1,
+    permisos: MODULOS_DISPONIBLES.map(modulo => ({ modulo, ver: true, crear: true, editar: true, eliminar: true }))
+  },
+  { 
+    id: '2', 
+    nombre: 'Empleado', 
+    descripcion: 'Gestión de ventas y productos', 
+    usuariosAsociados: 1,
+    permisos: [
+      { modulo: 'Dashboard', ver: true, crear: false, editar: false, eliminar: false },
+      { modulo: 'Productos', ver: true, crear: false, editar: false, eliminar: false },
+      { modulo: 'Clientes', ver: true, crear: true, editar: true, eliminar: false },
+      { modulo: 'Pedidos', ver: true, crear: true, editar: true, eliminar: false },
+      { modulo: 'Ventas', ver: true, crear: true, editar: false, eliminar: false },
+      { modulo: 'Devoluciones', ver: true, crear: true, editar: false, eliminar: false }
+    ]
+  },
+  { 
+    id: '3', 
+    nombre: 'Cliente', 
+    descripcion: 'Acceso limitado para compras', 
+    usuariosAsociados: 3,
+    permisos: [
+      { modulo: 'Dashboard', ver: true, crear: false, editar: false, eliminar: false }
+    ]
+  }
 ];
 
 export default function RolesModule() {
   const { user } = useAuth();
   const { showToast } = useToast();
+  console.log(`🚀 [RolesModule] Componente cargando...`);
   const [roles, setRoles] = useState<Rol[]>(() => {
     const stored = localStorage.getItem('damabella_roles');
-    return stored ? JSON.parse(stored) : INITIAL_ROLES;
+    console.log(`📦 [RolesModule] Inicializando estado. Storage:`, stored ? `${stored.length} chars` : 'null');
+    const initialRoles = stored ? JSON.parse(stored) : INITIAL_ROLES;
+    console.log(`✔️ [RolesModule] Estado inicial con ${initialRoles.length} roles:`, initialRoles.map((r: any) => r.nombre));
+    return initialRoles;
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [permisosDialogOpen, setPermisosDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedRol, setSelectedRol] = useState<Rol | null>(null);
   const [formData, setFormData] = useState({
     nombre: '',
-    descripcion: ''
+    descripcion: '',
+    permisos: [] as Permiso[]
   });
   const [formErrors, setFormErrors] = useState<any>({});
 
@@ -54,7 +111,9 @@ export default function RolesModule() {
 
   // Guardar en localStorage cuando cambien los roles
   useEffect(() => {
+    console.log(`💾 [RolesModule] Guardando roles en localStorage. Total:`, roles.length, `Roles:`, roles.map(r => r.nombre));
     localStorage.setItem('damabella_roles', JSON.stringify(roles));
+    console.log(`✅ [RolesModule] Guardado completado. Storage ahora contiene:`, localStorage.getItem('damabella_roles'));
   }, [roles]);
 
   const filteredRoles = roles.filter(r => {
@@ -68,7 +127,11 @@ export default function RolesModule() {
 
   const handleAdd = () => {
     setSelectedRol(null);
-    setFormData({ nombre: '', descripcion: '' });
+    setFormData({ 
+      nombre: '', 
+      descripcion: '',
+      permisos: MODULOS_DISPONIBLES.map(modulo => ({ modulo, ver: false, crear: false, editar: false, eliminar: false }))
+    });
     setFormErrors({});
     setDialogOpen(true);
   };
@@ -77,7 +140,8 @@ export default function RolesModule() {
     setSelectedRol(rol);
     setFormData({
       nombre: rol.nombre,
-      descripcion: rol.descripcion
+      descripcion: rol.descripcion,
+      permisos: rol.permisos || MODULOS_DISPONIBLES.map(modulo => ({ modulo, ver: false, crear: false, editar: false, eliminar: false }))
     });
     setFormErrors({});
     setDialogOpen(true);
@@ -124,17 +188,54 @@ export default function RolesModule() {
     }
   };
 
+  const handlePermissionChange = (moduloIndex: number, permission: string, checked: boolean) => {
+    const updatedPermisos = [...formData.permisos];
+    updatedPermisos[moduloIndex] = {
+      ...updatedPermisos[moduloIndex],
+      [permission]: checked
+    };
+    setFormData({ ...formData, permisos: updatedPermisos });
+  };
+
+  const handleEditPermissions = (rol: Rol) => {
+    setSelectedRol(rol);
+    setFormData({
+      nombre: rol.nombre,
+      descripcion: rol.descripcion,
+      permisos: rol.permisos || MODULOS_DISPONIBLES.map(modulo => ({ modulo, ver: false, crear: false, editar: false, eliminar: false }))
+    });
+    setPermisosDialogOpen(true);
+  };
+
+  const handleSavePermissions = () => {
+    if (selectedRol) {
+      setRoles(roles.map(r => 
+        r.id === selectedRol.id 
+          ? { ...r, permisos: formData.permisos }
+          : r
+      ));
+      showToast('Permisos actualizados correctamente', 'success');
+      setPermisosDialogOpen(false);
+      setSelectedRol(null);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log(`🔵 [RolesModule] handleSubmit iniciado. Modo:`, selectedRol ? 'EDITAR' : 'CREAR');
     const nombreErr = validateRoleName(formData.nombre);
     const descripcionErr = validateField('description' as any, formData.descripcion);
     const errors: any = {};
     if (nombreErr) errors.nombre = nombreErr;
     if (descripcionErr) errors.descripcion = descripcionErr;
     setFormErrors(errors);
-    if (Object.keys(errors).length > 0) return;
+    if (Object.keys(errors).length > 0) {
+      console.log(`❌ [RolesModule] Errores de validación:`, errors);
+      return;
+    }
 
     if (selectedRol) {
+      console.log(`📝 [RolesModule] Editando rol existente:`, selectedRol.nombre);
       setRoles(roles.map(r => 
         r.id === selectedRol.id 
           ? { ...r, ...formData }
@@ -147,7 +248,10 @@ export default function RolesModule() {
         ...formData,
         usuariosAsociados: 0
       };
+      console.log(`✅ [RolesModule] Nuevo rol creado:`, newRol.nombre, '- Estado actualizando...');
+      console.log(`   Datos completos:`, newRol);
       setRoles([...roles, newRol]);
+      console.log(`   setRoles llamado. Esperando cambio de estado...`);
       showToast('Rol creado correctamente', 'success');
     }
     
@@ -196,6 +300,13 @@ export default function RolesModule() {
                   <td className="py-3 px-4">{rol.usuariosAsociados}</td>
                   <td className="py-3 px-4">
                     <div className="flex justify-end gap-2">
+                      <button 
+                        onClick={() => handleEditPermissions(rol)} 
+                        className="p-1 hover:bg-blue-50 rounded text-blue-600 transition-colors"
+                        title="Editar permisos"
+                      >
+                        <Shield className="w-4 h-4" />
+                      </button>
                       <button 
                         onClick={() => handleEdit(rol)} 
                         className="p-1 hover:bg-gray-100 rounded transition-colors"
@@ -300,6 +411,75 @@ export default function RolesModule() {
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Eliminar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={permisosDialogOpen}
+        onClose={() => setPermisosDialogOpen(false)}
+        title={`Editar Permisos - ${selectedRol?.nombre}`}
+      >
+        <div className="space-y-4 max-h-96 overflow-y-auto">
+          <div className="grid grid-cols-4 gap-2 font-semibold text-sm py-2 border-b">
+            <div>Módulo</div>
+            <div className="text-center">Ver</div>
+            <div className="text-center">Crear</div>
+            <div className="text-center">Editar/Eliminar</div>
+          </div>
+          {formData.permisos.map((permiso, index) => (
+            <div key={index} className="grid grid-cols-4 gap-2 items-center py-2 border-b">
+              <div className="text-sm font-medium">{permiso.modulo}</div>
+              <div className="flex justify-center">
+                <input
+                  type="checkbox"
+                  checked={permiso.ver}
+                  onChange={(e) => handlePermissionChange(index, 'ver', e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+                />
+              </div>
+              <div className="flex justify-center">
+                <input
+                  type="checkbox"
+                  checked={permiso.crear}
+                  onChange={(e) => handlePermissionChange(index, 'crear', e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+                />
+              </div>
+              <div className="flex justify-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={permiso.editar}
+                  onChange={(e) => handlePermissionChange(index, 'editar', e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+                  title="Editar"
+                />
+                <input
+                  type="checkbox"
+                  checked={permiso.eliminar}
+                  onChange={(e) => handlePermissionChange(index, 'eliminar', e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+                  title="Eliminar"
+                />
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-3 justify-end pt-4 border-t">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => setPermisosDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              type="button" 
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={handleSavePermissions}
+            >
+              <Shield className="w-4 h-4 mr-2" />
+              Guardar Permisos
             </Button>
           </div>
         </div>
