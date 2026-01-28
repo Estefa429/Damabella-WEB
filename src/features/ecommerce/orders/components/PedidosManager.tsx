@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Edit2, Pencil, Ban, ShoppingCart } from 'lucide-react';
+import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Pencil, Ban, ShoppingCart, Repeat } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { validateField } from '../../../../shared/utils/validation';
 
 const STORAGE_KEY = 'damabella_pedidos';
 const CLIENTES_KEY = 'damabella_clientes';
 const PRODUCTOS_KEY = 'damabella_productos';
+
+// ✅ NUEVO: keys para Ventas (persistencia)
+const VENTAS_KEY = 'damabella_ventas';
+const VENTA_COUNTER_KEY = 'damabella_venta_counter';
 
 interface ItemPedido {
   id: string;
@@ -150,6 +154,7 @@ export default function PedidosManager() {
   // ====== BUSCADORES (Cliente / Producto) ======
   const [clienteQuery, setClienteQuery] = useState('');
   const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+  const [selectedClienteNombre, setSelectedClienteNombre] = useState('');
 
   const [productoQuery, setProductoQuery] = useState('');
   const [showProductoDropdown, setShowProductoDropdown] = useState(false);
@@ -268,7 +273,11 @@ export default function PedidosManager() {
     };
 
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('salesUpdated', handleStorageChange);
+
+    return () => 
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('salesUpdated', handleStorageChange);
   }, []);
 
   // Cerrar dropdowns al hacer click fuera
@@ -323,33 +332,36 @@ export default function PedidosManager() {
   };
 
   const handleEdit = (pedido: Pedido) => {
-  // ✅ No permitir editar si ya está en Venta o Anulado
-  if (pedido.estado === 'Venta' || pedido.estado === 'Anulado') {
-    setNotificationMessage(`No puedes editar un pedido en estado "${pedido.estado}".`);
-    setNotificationType('error');
-    setShowNotificationModal(true);
-    return;
-  }
+    // ✅ No permitir editar si ya está en Venta o Anulado
+    if (pedido.estado === 'Venta' || pedido.estado === 'Anulado') {
+      setNotificationMessage(`No puedes editar un pedido en estado "${pedido.estado}".`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
 
-  setEditingPedido(pedido);
-  setFormData({
-    tipo: pedido.tipo,
-    clienteId: pedido.clienteId,
-    fechaPedido: pedido.fechaPedido,
-    metodoPago: pedido.metodoPago,
-    observaciones: pedido.observaciones,
-    items: pedido.items
-  });
+    setEditingPedido(pedido);
+    setFormData({
+      tipo: pedido.tipo,
+      clienteId: pedido.clienteId,
+      fechaPedido: pedido.fechaPedido,
+      metodoPago: pedido.metodoPago,
+      observaciones: pedido.observaciones,
+      items: pedido.items
+    });
 
-  const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
-  setClienteQuery(cliente ? `${cliente.nombre} - ${cliente.numeroDoc}` : (pedido.clienteNombre || ''));
-  setProductoQuery('');
-  setShowClienteDropdown(false);
-  setShowProductoDropdown(false);
+    const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
+    setClienteQuery(cliente ? `${cliente.nombre} - ${cliente.numeroDoc}` : (pedido.clienteNombre || ''));
+    const label = cliente ? `${cliente.nombre} - ${cliente.numeroDoc}` : (pedido.clienteNombre || '');
+    setClienteQuery(label);
+    setSelectedClienteNombre(label);
 
-  setShowModal(true);
-};
+    setProductoQuery('');
+    setShowClienteDropdown(false);
+    setShowProductoDropdown(false);
 
+    setShowModal(true);
+  };
 
   const getProductoSeleccionado = () => {
     return productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
@@ -462,75 +474,74 @@ export default function PedidosManager() {
   };
 
   const handleSave = () => {
-  // ✅ Bloqueo extra si intentan guardar un pedido ya finalizado
-  if (editingPedido && (editingPedido.estado === 'Venta' || editingPedido.estado === 'Anulado')) {
-    setNotificationMessage(`No puedes editar un pedido en estado "${editingPedido.estado}".`);
-    setNotificationType('error');
+    // ✅ Bloqueo extra si intentan guardar un pedido ya finalizado
+    if (editingPedido && (editingPedido.estado === 'Venta' || editingPedido.estado === 'Anulado')) {
+      setNotificationMessage(`No puedes editar un pedido en estado "${editingPedido.estado}".`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // Validar campos obligatorios
+    const errors: any = {};
+
+    if (!formData.clienteId) {
+      errors.clienteId = 'Debes seleccionar un cliente';
+    }
+
+    if (!formData.fechaPedido) {
+      errors.fechaPedido = 'La fecha del pedido es obligatoria';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      setNotificationMessage('Por favor completa todos los campos obligatorios');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    if (formData.items.length === 0) {
+      setNotificationMessage('Agrega al menos un producto');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    const cliente = clientes.find((c: any) => c.id.toString() === formData.clienteId);
+    if (!cliente) return;
+
+    const totales = calcularTotales(formData.items);
+
+    const pedidoData: Pedido = {
+      id: editingPedido?.id || Date.now(),
+      numeroPedido: editingPedido?.numeroPedido || generarNumeroPedido(),
+      tipo: formData.tipo,
+      clienteId: formData.clienteId,
+      clienteNombre: cliente.nombre,
+      fechaPedido: formData.fechaPedido,
+      // ✅ Mantener el estado si se edita (no forzar Pendiente)
+      estado: editingPedido?.estado || 'Pendiente',
+      items: formData.items,
+      subtotal: totales.subtotal,
+      iva: totales.iva,
+      total: totales.total,
+      metodoPago: formData.metodoPago,
+      observaciones: formData.observaciones,
+      createdAt: editingPedido?.createdAt || new Date().toISOString()
+    };
+
+    if (editingPedido) {
+      setPedidos(pedidos.map(p => p.id === editingPedido.id ? pedidoData : p));
+      setNotificationMessage(`Pedido ${pedidoData.numeroPedido} actualizado correctamente`);
+    } else {
+      setPedidos([...pedidos, pedidoData]);
+      setNotificationMessage(`Pedido ${pedidoData.numeroPedido} creado correctamente`);
+    }
+    setNotificationType('success');
     setShowNotificationModal(true);
-    return;
-  }
-
-  // Validar campos obligatorios
-  const errors: any = {};
-
-  if (!formData.clienteId) {
-    errors.clienteId = 'Debes seleccionar un cliente';
-  }
-
-  if (!formData.fechaPedido) {
-    errors.fechaPedido = 'La fecha del pedido es obligatoria';
-  }
-
-  if (Object.keys(errors).length > 0) {
-    setFormErrors(errors);
-    setNotificationMessage('Por favor completa todos los campos obligatorios');
-    setNotificationType('error');
-    setShowNotificationModal(true);
-    return;
-  }
-
-  if (formData.items.length === 0) {
-    setNotificationMessage('Agrega al menos un producto');
-    setNotificationType('error');
-    setShowNotificationModal(true);
-    return;
-  }
-
-  const cliente = clientes.find((c: any) => c.id.toString() === formData.clienteId);
-  if (!cliente) return;
-
-  const totales = calcularTotales(formData.items);
-
-  const pedidoData: Pedido = {
-    id: editingPedido?.id || Date.now(),
-    numeroPedido: editingPedido?.numeroPedido || generarNumeroPedido(),
-    tipo: formData.tipo,
-    clienteId: formData.clienteId,
-    clienteNombre: cliente.nombre,
-    fechaPedido: formData.fechaPedido,
-    // ✅ Mantener el estado si se edita (no forzar Pendiente)
-    estado: editingPedido?.estado || 'Pendiente',
-    items: formData.items,
-    subtotal: totales.subtotal,
-    iva: totales.iva,
-    total: totales.total,
-    metodoPago: formData.metodoPago,
-    observaciones: formData.observaciones,
-    createdAt: editingPedido?.createdAt || new Date().toISOString()
+    setShowModal(false);
   };
-
-  if (editingPedido) {
-    setPedidos(pedidos.map(p => p.id === editingPedido.id ? pedidoData : p));
-    setNotificationMessage(`Pedido ${pedidoData.numeroPedido} actualizado correctamente`);
-  } else {
-    setPedidos([...pedidos, pedidoData]);
-    setNotificationMessage(`Pedido ${pedidoData.numeroPedido} creado correctamente`);
-  }
-  setNotificationType('success');
-  setShowNotificationModal(true);
-  setShowModal(false);
-};
-
 
   const handleAnular = (pedido: Pedido) => {
     setConfirmMessage(`¿Seguro que deseas ANULAR este pedido ${pedido.numeroPedido}? Esta acción no se puede deshacer.`);
@@ -550,6 +561,42 @@ export default function PedidosManager() {
     setShowNotificationModal(true);
   };
 
+  // ✅ NUEVO: convierte pedido en venta y la persiste en localStorage (para que Ventas la muestre)
+  const crearVentaDesdePedido = (pedido: Pedido) => {
+    const ventasActuales = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+
+    // Evitar duplicados por pedido
+    const yaExiste = ventasActuales.some((v: any) => v.pedido_id === pedido.numeroPedido);
+    if (yaExiste) return;
+
+    const counter = parseInt(localStorage.getItem(VENTA_COUNTER_KEY) || '1', 10);
+    const numeroVenta = `VEN-${counter.toString().padStart(3, '0')}`;
+
+    const nuevaVenta = {
+      id: Date.now(),
+      numeroVenta,
+      clienteId: pedido.clienteId,
+      clienteNombre: pedido.clienteNombre,
+      fechaVenta: pedido.fechaPedido,
+      estado: 'Completada',
+      items: pedido.items,
+      subtotal: pedido.subtotal,
+      iva: pedido.iva,
+      total: pedido.total,
+      metodoPago: pedido.metodoPago || 'Efectivo',
+      observaciones: pedido.observaciones || '',
+      anulada: false,
+      createdAt: new Date().toISOString(),
+      pedido_id: pedido.numeroPedido
+    };
+
+    localStorage.setItem(VENTAS_KEY, JSON.stringify([...ventasActuales, nuevaVenta]));
+    localStorage.setItem(VENTA_COUNTER_KEY, String(counter + 1));
+
+    // Avisar a la UI de ventas (si está abierta)
+    window.dispatchEvent(new Event('salesUpdated'));
+  };
+
   const cambiarEstado = (pedido: Pedido, nuevoEstado: Pedido['estado']) => {
     setPedidos(pedidos.map(p =>
       p.id === pedido.id ? { ...p, estado: nuevoEstado } : p
@@ -557,6 +604,10 @@ export default function PedidosManager() {
 
     // Si el estado es "Venta", sincronizar con el módulo de ventas
     if (nuevoEstado === 'Venta') {
+      // ✅ Persistir venta para que Ventas la lea siempre
+      crearVentaDesdePedido({ ...pedido, estado: nuevoEstado });
+
+      // ✅ Mantener evento (por compatibilidad)
       const evento = new CustomEvent('pedidoConvertidoAVenta', {
         detail: {
           pedido: { ...pedido, estado: nuevoEstado }
@@ -601,6 +652,7 @@ export default function PedidosManager() {
 
     setClientes([...clientes, clienteData]);
     setFormData({ ...formData, clienteId: clienteData.id.toString() });
+    setSelectedClienteNombre(`${clienteData.nombre} - ${clienteData.numeroDoc}`);
 
     setClienteQuery(`${clienteData.nombre} - ${clienteData.numeroDoc}`);
     setShowClienteDropdown(false);
@@ -769,6 +821,11 @@ DAMABELLA - Moda Femenina
     }
   };
   const totales = calcularTotales(formData.items);
+  const clienteSeleccionado = clientes.find(
+    (c: any) => c.id?.toString() === formData.clienteId?.toString()
+  );
+
+  const saldoDisponible = Number(clienteSeleccionado?.saldoAFavor || 0);
 
   return (
     <div className="space-y-6">
@@ -864,11 +921,15 @@ DAMABELLA - Moda Femenina
                         </button>
 
                         <button
-                          onClick={() => { setPedidoParaCambiarEstado(pedido); setNuevoEstado(pedido.estado); setShowEstadoModal(true); }}
+                          onClick={() => {
+                            setPedidoParaCambiarEstado(pedido);
+                            setNuevoEstado(pedido.estado);
+                            setShowEstadoModal(true);
+                          }}
                           className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600"
                           title="Cambiar estado"
                         >
-                          <Edit2 size={18} />
+                          <Repeat size={18} />
                         </button>
 
                         {/* ✅ Editar (solo si NO está en Venta ni Anulado) */}
@@ -941,13 +1002,24 @@ DAMABELLA - Moda Femenina
                 value={clienteQuery}
                 onChange={(e) => {
                   const value = e.target.value;
+
                   setClienteQuery(value);
                   setShowClienteDropdown(true);
 
-                  if (value === '') {
+                  // ✅ Solo limpiar clienteId si el texto YA no es el del cliente seleccionado
+                  const sigueIgual = value.trim() === selectedClienteNombre.trim();
+                  if (!sigueIgual) {
                     handleFieldChange('clienteId', '');
+                    setSelectedClienteNombre('');
+                  }
+
+                  // si quedó vacío, sí o sí limpiar
+                  if (value.trim() === '') {
+                    handleFieldChange('clienteId', '');
+                    setSelectedClienteNombre('');
                   }
                 }}
+
                 onFocus={() => setShowClienteDropdown(true)}
                 placeholder="Buscar cliente por nombre, documento o teléfono..."
               />
@@ -964,9 +1036,15 @@ DAMABELLA - Moda Femenina
                         className="w-full text-left px-4 py-2 hover:bg-gray-50"
                         onClick={() => {
                           handleFieldChange('clienteId', cliente.id.toString());
-                          setClienteQuery(`${cliente.nombre} - ${cliente.numeroDoc}`);
+
+                          const label = `${cliente.nombre} - ${cliente.numeroDoc}`;
+                          setClienteQuery(label);
+
+                          setSelectedClienteNombre(label);
+
                           setShowClienteDropdown(false);
                         }}
+
                       >
                         <div className="text-sm text-gray-900">{cliente.nombre}</div>
                         <div className="text-xs text-gray-500">
@@ -996,6 +1074,17 @@ DAMABELLA - Moda Femenina
 
             <div>
               <label className="block text-gray-700 mb-2">Método de Pago *</label>
+              {saldoDisponible > 0 && formData.clienteId && (
+                <div className="mb-3 rounded-lg border border-green-300 bg-green-50 p-3">
+                  <div className="text-green-800 font-semibold">
+                    ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
+                  </div>
+                  <div className="text-sm text-green-900 mt-1">
+                    (Se aplicará cuando conviertas este pedido en venta, si decides usarlo allá)
+                  </div>
+                </div>
+              )}
+
               <select
                 value={formData.metodoPago}
                 onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
@@ -1365,7 +1454,6 @@ DAMABELLA - Moda Femenina
             )}
           </div>
 
-
           <div>
             <label className="block text-gray-700 mb-2">Correo Electrónico</label>
             <Input
@@ -1401,7 +1489,6 @@ DAMABELLA - Moda Femenina
 
         </div>
       </Modal>
-
 
       {/* Modal de Notificación */}
       <Modal
@@ -1518,5 +1605,4 @@ DAMABELLA - Moda Femenina
     </div>
   );
 }
-
 
