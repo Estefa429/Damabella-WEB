@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Search, RotateCcw, Eye, Download, FileText, AlertCircle, CheckCircle, Trash2, Plus } from 'lucide-react';
+import { Search, RotateCcw, Eye, Download, AlertCircle, CheckCircle, Trash2, Plus } from 'lucide-react';
 import { Input, Modal, Button } from '../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_devoluciones';
 const VENTAS_KEY = 'damabella_ventas';
 const PRODUCTOS_KEY = 'damabella_productos';
+const DEVOLUCION_COUNTER_KEY = 'damabella_devolucion_counter';
+
 
 interface ItemDevolucion {
   id: string;
@@ -17,6 +19,9 @@ interface ItemDevolucion {
 }
 
 interface Devolucion {
+  medioPagoExcedente?: 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
+  productoNuevoTalla?: string;
+  productoNuevoColor?: string;
   id: number;
   numeroDevolucion: string;
   ventaId: number;
@@ -143,6 +148,36 @@ export function DevolucionesManager() {
   const [formMotivo, setFormMotivo] = useState<'Defectuoso' | 'Talla incorrecta' | 'Color incorrecto' | 'Producto equivocado' | 'Otro'>('Defectuoso');
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [formFecha, setFormFecha] = useState(new Date().toISOString().split('T')[0]);
+  type MedioPago = 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
+
+  const [productoNuevoId, setProductoNuevoId] = useState('');
+  const [productoNuevoTalla, setProductoNuevoTalla] = useState('');
+  const [productoNuevoColor, setProductoNuevoColor] = useState('');
+  const [medioPagoExcedente, setMedioPagoExcedente] = useState<MedioPago>('Efectivo');
+
+  // ✅ Helpers (deben estar en el componente para poder usarlos en el JSX)
+  const getProductoNuevoSeleccionado = () =>
+    productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
+
+  const getTallasDisponiblesCambio = () => {
+    const producto = getProductoNuevoSeleccionado();
+    if (!producto) return [];
+    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
+    return producto.tallas || [];
+  };
+
+  const getColoresDisponiblesCambio = () => {
+    const producto = getProductoNuevoSeleccionado();
+    if (!producto) return [];
+    if (producto.variantes && productoNuevoTalla) {
+      const variante = producto.variantes.find((v: any) => v.talla === productoNuevoTalla);
+      if (!variante) return [];
+      return (variante.colores || []).map((c: any) => c.color);
+    }
+    return producto.colores || [];
+  };
+
+
 
   useEffect(() => {
     const handleStorageChange = () => {
@@ -215,6 +250,63 @@ DAMABELLA - Moda Femenina
     setNotificationType('success');
   };
 
+  const normalize = (s: any) =>
+    String(s ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+
+  const onlyDigits = (s: any) => String(s ?? '').replace(/[^\d]/g, '');
+
+  const filteredDevoluciones = devoluciones.filter((d) => {
+    const q = normalize(searchTerm);
+    const qDigits = onlyDigits(searchTerm); // para $100.000, 100000, etc.
+
+    const matchNumero = normalize(d.numeroDevolucion).includes(q);
+    const matchVenta = normalize(d.numeroVenta).includes(q);
+    const matchCliente = normalize(d.clienteNombre).includes(q);
+    const matchMotivo = normalize(d.motivo).includes(q);
+    const matchEstado = normalize(d.estadoGestion).includes(q);
+
+    const matchFecha = d.fechaDevolucion
+      ? new Date(d.fechaDevolucion).toLocaleDateString().includes(searchTerm)
+      : false;
+
+    // ✅ 1) Buscar por productos devueltos
+    const matchProductoDevuelto =
+      d.items?.some((item) => {
+        return (
+          normalize(item.productoNombre).includes(q) ||
+          normalize(item.talla).includes(q) ||
+          normalize(item.color).includes(q)
+        );
+      }) || false;
+
+    // ✅ 2) Buscar por "Cambio" (producto nuevo: vestido, set, etc)
+    const matchCambio =
+      (d.productoNuevo && normalize(d.productoNuevo.nombre).includes(q)) ||
+      normalize(d.productoNuevoTalla).includes(q) ||
+      normalize(d.productoNuevoColor).includes(q);
+
+    // ✅ 3) Buscar por Total (100000 o $100.000)
+    const totalDigits = onlyDigits(d.total);
+    const matchTotal = qDigits.length > 0 ? totalDigits.includes(qDigits) : false;
+
+    return (
+      matchNumero ||
+      matchVenta ||
+      matchCliente ||
+      matchMotivo ||
+      matchEstado ||
+      matchFecha ||
+      matchProductoDevuelto ||
+      matchCambio ||
+      matchTotal
+    );
+  });
+
+
   const descargarExcel = () => {
     if (filteredDevoluciones.length === 0) {
       setShowNotificationModal(true);
@@ -233,7 +325,9 @@ DAMABELLA - Moda Femenina
       'Saldo a Favor': d.saldoAFavor ? `$${d.saldoAFavor}` : '—',
       'Diferencia a Pagar': d.diferenciaPagar ? `$${d.diferenciaPagar}` : '—',
       'Fecha': new Date(d.fechaDevolucion).toLocaleDateString(),
-      'Total': `$${d.total.toLocaleString()}`
+      'Total': `$${d.total.toLocaleString()}`,
+      'Medio Pago Excedente': d.medioPagoExcedente || '—'
+
     }));
 
     const headers = Object.keys(datosExcel[0] || {});
@@ -260,39 +354,117 @@ DAMABELLA - Moda Femenina
     setNotificationType('success');
   };
 
+
+  const generarNumeroDevolucion = () => {
+    // 1) Si ya existe contador, úsalo
+    const storedCounter = parseInt(localStorage.getItem(DEVOLUCION_COUNTER_KEY) || '', 10);
+    if (!isNaN(storedCounter) && storedCounter > 0) {
+      const numero = `DEV-${String(storedCounter).padStart(3, '0')}`;
+      localStorage.setItem(DEVOLUCION_COUNTER_KEY, String(storedCounter + 1));
+      return numero;
+    }
+
+    // 2) Si NO hay contador, inicialízalo basado SOLO en DEV-XXX (3 dígitos)
+    const maxBonito = (devoluciones || []).reduce((max, d) => {
+      const num = d?.numeroDevolucion;
+      if (!num) return max;
+
+      // SOLO acepta DEV-001, DEV-002... (3 dígitos)
+      const match = num.match(/^DEV-(\d{3})$/);
+      if (!match) return max;
+
+      const n = parseInt(match[1], 10);
+      return isNaN(n) ? max : Math.max(max, n);
+    }, 0);
+
+    // 3) Si no hay “bonitos”, usa un arranque seguro (por cantidad)
+    const inicioSeguro = maxBonito > 0 ? maxBonito + 1 : (devoluciones?.length || 0) + 1;
+
+    localStorage.setItem(DEVOLUCION_COUNTER_KEY, String(inicioSeguro + 1));
+    return `DEV-${String(inicioSeguro).padStart(3, '0')}`;
+  };
+
+
   const crearDevolucion = () => {
     if (!selectedVenta || selectedItems.length === 0) {
       setShowNotificationModal(true);
       setNotificationMessage('Debes seleccionar una venta y al menos un producto');
       setNotificationType('error');
       return;
+    };
+
+    if (!productoNuevoId) {
+      setShowNotificationModal(true);
+      setNotificationMessage('Debes seleccionar la referencia (producto nuevo) por la que se hará el cambio');
+      setNotificationType('error');
+      return;
+    }
+
+    if (!productoNuevoTalla || !productoNuevoColor) {
+      setShowNotificationModal(true);
+      setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
+      setNotificationType('error');
+      return;
     }
 
     // Calcular número de devolución
-    const nuevoNumero = `DEV-${Date.now()}`;
+    const nuevoNumero = generarNumeroDevolucion();
+
     
     // Obtener items seleccionados de la venta
-    const itemsDevolucion = selectedVenta.items.filter((item: any) => 
-      selectedItems.includes(item.id)
-    ).map((item: any) => ({
-      id: item.id,
-      productoNombre: item.productoNombre,
-      talla: item.talla,
-      color: item.color,
-      cantidad: item.cantidad,
-      precioUnitario: item.precioUnitario,
-      subtotal: item.subtotal
-    }));
+    const itemsDevolucion = selectedVenta.items
+    .filter((item: any) => selectedItems.includes(String(item.id)))
+    .map((item: any) => {
+      const cantidad = Number(item.cantidad ?? 0);
+      const precioUnitario = Number(item.precioUnitario ?? 0);
+      const subtotal = Number(item.subtotal ?? (cantidad * precioUnitario));
+
+      return {
+        id: String(item.id),
+        productoNombre: item.productoNombre,
+        talla: item.talla,
+        color: item.color,
+        cantidad,
+        precioUnitario,
+        subtotal,
+      };
+    });
+
 
     // Calcular total
-    const totalDevolucion = itemsDevolucion.reduce((sum: number, item: any) => sum + item.subtotal, 0);
+    const totalDevolucion = itemsDevolucion.reduce(
+      (sum: number, item: any) => sum + Number(item.subtotal ?? 0),
+      0
+    );
+
+    const productoNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
+    if (!productoNuevo) {
+      setShowNotificationModal(true);
+      setNotificationMessage('Producto de cambio no encontrado');
+      setNotificationType('error');
+      return;
+    }
+
+    const precioProductoNuevo = Number(productoNuevo.precioVenta || 0);
+    const diferencia = precioProductoNuevo - totalDevolucion;
+
+    const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
+    const diferenciaPagar = diferencia > 0 ? diferencia : 0;
+
+    if (diferenciaPagar > 0 && !medioPagoExcedente) {
+      setShowNotificationModal(true);
+      setNotificationMessage('Debes seleccionar el medio de pago del excedente');
+      setNotificationType('error');
+      return;
+    }
+
 
     // Crear nueva devolución
     const nuevaDevolucion: Devolucion = {
       id: Date.now(),
       numeroDevolucion: nuevoNumero,
       ventaId: selectedVenta.id,
-      numeroVenta: selectedVenta.numero,
+      numeroVenta: selectedVenta.numeroVenta ?? selectedVenta.numero,
       clienteNombre: selectedVenta.clienteNombre,
       fechaDevolucion: formFecha,
       motivo: formMotivo,
@@ -300,9 +472,17 @@ DAMABELLA - Moda Femenina
       total: totalDevolucion,
       createdAt: new Date().toISOString(),
       estadoGestion: 'Pendiente',
-      productoNuevo: null,
-      saldoAFavor: 0,
-      diferenciaPagar: 0,
+      productoNuevo: {
+        id: productoNuevo.id,
+        nombre: productoNuevo.nombre,
+        precio: precioProductoNuevo,
+      },
+      productoNuevoTalla,
+      productoNuevoColor,
+      saldoAFavor,
+      diferenciaPagar,
+      medioPagoExcedente: diferenciaPagar > 0 ? medioPagoExcedente : undefined,
+
       fechaAnulacion: undefined
     };
 
@@ -317,25 +497,17 @@ DAMABELLA - Moda Femenina
     setSelectedItems([]);
     setFormMotivo('Defectuoso');
     setFormFecha(new Date().toISOString().split('T')[0]);
+    setProductoNuevoId('');
+    setProductoNuevoTalla('');
+    setProductoNuevoColor('');
+    setMedioPagoExcedente('Efectivo');
+
     
     setShowNotificationModal(true);
     setNotificationMessage(`Devolución ${nuevoNumero} creada correctamente`);
     setNotificationType('success');
   };
 
-  const filteredDevoluciones = devoluciones.filter(d => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchNumero = d.numeroDevolucion?.toLowerCase?.().includes(searchLower) || false;
-    const matchVenta = d.numeroVenta?.toLowerCase?.().includes(searchLower) || false;
-    const matchCliente = d.clienteNombre?.toLowerCase?.().includes(searchLower) || false;
-    const matchMotivo = d.motivo?.toLowerCase?.().includes(searchLower) || false;
-    const matchEstado = d.estadoGestion?.toLowerCase?.().includes(searchLower) || false;
-    const matchFecha = d.fechaDevolucion ? new Date(d.fechaDevolucion).toLocaleDateString().includes(searchTerm) : false;
-    const matchProducto = d.items?.some(item => item.productoNombre?.toLowerCase?.().includes(searchLower)) || false;
-    const matchProductoNuevo = d.productoNuevo ? d.productoNuevo.nombre?.toLowerCase?.().includes(searchLower) : false;
-    
-    return matchNumero || matchVenta || matchCliente || matchMotivo || matchEstado || matchFecha || matchProducto || matchProductoNuevo;
-  });
 
   return (
     <div className="space-y-6">
@@ -484,7 +656,10 @@ DAMABELLA - Moda Femenina
                         </button>
                         {devolucion.estadoGestion !== 'Anulado' && (
                           <button
-                            onClick={() => { setConfirmMessage(`¿Anular devolución ${devolucion.numeroDevolucion}?`); setConfirmAction(() => () => anularDevolucion(devolucion.id)); setShowConfirmModal(true); }}
+                            onClick={() => { 
+                              setConfirmMessage(`¿Anular devolución ${devolucion.numeroDevolucion}?`); 
+                              setConfirmAction(() => anularDevolucion(devolucion.id)); 
+                              setShowConfirmModal(true); }}
                             className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
                             title="Anular devolución"
                           >
@@ -582,23 +757,44 @@ DAMABELLA - Moda Femenina
               </div>
             )}
 
-            {(viewingDevolucion.saldoAFavor || viewingDevolucion.diferenciaPagar) && (
+            {(() => {
+            const saldoAFavorNum = Number(viewingDevolucion.saldoAFavor ?? 0);
+            const diferenciaPagarNum = Number(viewingDevolucion.diferenciaPagar ?? 0);
+
+            if (saldoAFavorNum <= 0 && diferenciaPagarNum <= 0) return null;
+
+            return (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
                 <div className="font-medium text-blue-900">Balance Financiero</div>
-                {viewingDevolucion.saldoAFavor && (
+
+                {saldoAFavorNum > 0 && (
                   <div className="flex justify-between text-sm text-blue-700">
                     <span>Saldo a Favor:</span>
-                    <span className="font-medium text-green-600">${viewingDevolucion.saldoAFavor.toLocaleString()}</span>
+                    <span className="font-medium text-green-600">
+                      ${saldoAFavorNum.toLocaleString()}
+                    </span>
                   </div>
                 )}
-                {viewingDevolucion.diferenciaPagar && (
+
+                {diferenciaPagarNum > 0 && (
                   <div className="flex justify-between text-sm text-blue-700">
                     <span>Diferencia a Pagar:</span>
-                    <span className="font-medium text-red-600">${viewingDevolucion.diferenciaPagar.toLocaleString()}</span>
+                    <span className="font-medium text-red-600">
+                      ${diferenciaPagarNum.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+
+                {diferenciaPagarNum > 0 && viewingDevolucion.medioPagoExcedente && (
+                  <div className="flex justify-between text-sm text-blue-700">
+                    <span>Medio pago excedente:</span>
+                    <span className="font-medium">{viewingDevolucion.medioPagoExcedente}</span>
                   </div>
                 )}
               </div>
-            )}
+            );
+          })()}
+
 
             <div className="border-t pt-4 bg-purple-50 rounded-lg p-4">
               <div className="flex justify-between text-purple-900 font-medium">
@@ -681,7 +877,7 @@ DAMABELLA - Moda Femenina
               <button
                 onClick={() => {
                   if (confirmAction) {
-                    confirmAction()();
+                    confirmAction();
                   }
                 }}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
@@ -701,6 +897,10 @@ DAMABELLA - Moda Femenina
             setShowCreateModal(false);
             setSelectedVenta(null);
             setSelectedItems([]);
+            setProductoNuevoId('');
+            setProductoNuevoTalla('');
+            setProductoNuevoColor('');
+            setMedioPagoExcedente('Efectivo');
           }}
           title="Crear Nueva Devolución"
         >
@@ -723,7 +923,7 @@ DAMABELLA - Moda Femenina
                 <option value="">-- Selecciona una venta --</option>
                 {ventas.map((venta: any) => (
                   <option key={venta.id} value={venta.id}>
-                    {venta.numero} - {venta.clienteNombre} - ${venta.total.toLocaleString()}
+                    {venta.numeroVenta ?? venta.numero} - {venta.clienteNombre} - ${venta.total.toLocaleString()}
                   </option>
                 ))}
               </select>
@@ -735,6 +935,8 @@ DAMABELLA - Moda Femenina
                 <label className="text-sm font-medium text-gray-700 mb-2 block">
                   Seleccionar Productos
                 </label>
+
+                {/* 1) Lista de productos (checkboxes) */}
                 <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
                   {selectedVenta.items && selectedVenta.items.length > 0 ? (
                     selectedVenta.items.map((item: any) => (
@@ -763,8 +965,153 @@ DAMABELLA - Moda Femenina
                     <p className="text-sm text-gray-500">No hay productos en esta venta</p>
                   )}
                 </div>
+
+                {/* 2) Producto por el que se cambia */}
+                {selectedItems.length > 0 && (
+                  <div className="border-t pt-4 mt-4">
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">
+                      ¿Por cuál referencia se hará el cambio? *
+                    </label>
+
+                    <select
+                      value={productoNuevoId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setProductoNuevoId(id);
+                        setProductoNuevoTalla('');
+                        setProductoNuevoColor('');
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option value="">-- Selecciona el producto nuevo --</option>
+                      {productos.filter((p: any) => p.activo).map((p: any) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre} - ${(p.precioVenta || 0).toLocaleString()}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* talla / color */}
+                    {productoNuevoId && (
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Talla *</label>
+                          <select
+                            value={productoNuevoTalla}
+                            onChange={(e) => {
+                              setProductoNuevoTalla(e.target.value);
+                              setProductoNuevoColor('');
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          >
+                            <option value="">Seleccionar...</option>
+                            {getTallasDisponiblesCambio().map((t: string) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-gray-600 mb-1 block">Color *</label>
+                          <select
+                            value={productoNuevoColor}
+                            onChange={(e) => setProductoNuevoColor(e.target.value)}
+                            disabled={!productoNuevoTalla}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          >
+                            <option value="">Seleccionar...</option>
+                            {getColoresDisponiblesCambio().map((c: string) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 3) Balance del cambio */}
+                {selectedItems.length > 0 && productoNuevoId && (() => {
+                  const itemsDevolucion = selectedVenta.items
+                    .filter((item: any) => selectedItems.includes(item.id));
+
+                  const totalDevuelto = itemsDevolucion.reduce(
+                    (sum: number, item: any) => sum + (item.subtotal || (item.cantidad * item.precioUnitario)),
+                    0
+                  );
+
+                  const prodNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
+                  const precioProductoNuevo = prodNuevo ? Number(prodNuevo.precioVenta || 0) : 0;
+
+                  const diferencia = precioProductoNuevo - totalDevuelto;
+                  const saldoAFavorCalc = diferencia < 0 ? Math.abs(diferencia) : 0;
+                  const excedenteCalc = diferencia > 0 ? diferencia : 0;
+
+                  return (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2 mt-3">
+                      <div className="font-semibold text-blue-900">Balance del cambio</div>
+
+                      <div className="flex justify-between text-sm text-blue-800">
+                        <span>Total devuelto:</span>
+                        <span className="font-medium">${totalDevuelto.toLocaleString()}</span>
+                      </div>
+
+                      <div className="flex justify-between text-sm text-blue-800">
+                        <span>Producto nuevo:</span>
+                        <span className="font-medium">${precioProductoNuevo.toLocaleString()}</span>
+                      </div>
+
+                      {saldoAFavorCalc > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-green-700">Saldo a favor:</span>
+                          <span className="font-semibold text-green-700">
+                            ${saldoAFavorCalc.toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+
+                      {excedenteCalc > 0 && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-red-700">Excedente por pagar:</span>
+                            <span className="font-semibold text-red-700">
+                              ${excedenteCalc.toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div>
+                            <label className="block text-gray-700 mb-2 text-sm">
+                              Medio de pago del excedente *
+                            </label>
+                            <select
+                              value={medioPagoExcedente}
+                              onChange={(e) => setMedioPagoExcedente(e.target.value as MedioPago)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            >
+                              <option value="Efectivo">Efectivo</option>
+                              <option value="Transferencia">Transferencia</option>
+                              <option value="Tarjeta">Tarjeta</option>
+                              <option value="Nequi">Nequi</option>
+                              <option value="Daviplata">Daviplata</option>
+                            </select>
+                          </div>
+                        </>
+                      )}
+
+                      {saldoAFavorCalc === 0 && excedenteCalc === 0 && (
+                        <div className="text-sm text-blue-700">
+                          El cambio queda en <span className="font-semibold">0</span> (sin saldo ni excedente).
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
+
+
+            
+
 
             {/* Motivo de Devolución */}
             <div>
@@ -822,3 +1169,7 @@ DAMABELLA - Moda Femenina
     </div>
   );
 }
+
+
+
+

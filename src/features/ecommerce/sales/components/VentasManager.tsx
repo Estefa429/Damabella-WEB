@@ -1,11 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, DollarSign, Eye, Ban, RotateCcw, X, UserPlus, Download, ShoppingBag, AlertCircle, CheckCircle } from 'lucide-react';
+import {
+  Plus,
+  Search,
+  Eye,
+  Ban,
+  RotateCcw,
+  X,
+  UserPlus,
+  Download,
+  ShoppingBag,
+  AlertCircle,
+  CheckCircle
+} from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_ventas';
 const CLIENTES_KEY = 'damabella_clientes';
 const PRODUCTOS_KEY = 'damabella_productos';
 const DEVOLUCIONES_KEY = 'damabella_devoluciones';
+
+type MedioPago = 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
+
+type DevolucionData = {
+  motivo: MotivoDevolucion;
+  itemsDevueltos: { itemId: string; cantidad: number }[];
+  productoNuevoId: string;
+  productoNuevoTalla: string;
+  productoNuevoColor: string;
+  medioPagoExcedente: MedioPago;
+};
+
+type MotivoDevolucion =
+  | 'Defectuoso'
+  | 'Talla incorrecta'
+  | 'Color incorrecto'
+  | 'Producto equivocado'
+  | 'Otro';
+
+const MOTIVOS_DEVOLUCION: MotivoDevolucion[] = [
+  'Defectuoso',
+  'Talla incorrecta',
+  'Color incorrecto',
+  'Producto equivocado',
+  'Otro',
+];
 
 interface ItemVenta {
   id: string;
@@ -24,7 +62,7 @@ interface Venta {
   clienteId: string;
   clienteNombre: string;
   fechaVenta: string;
-  estado: 'Completada' | 'Anulada';
+  estado: 'Completada' | 'Anulada' | 'Devolución';
   items: ItemVenta[];
   subtotal: number;
   iva: number;
@@ -53,7 +91,7 @@ export default function VentasManager() {
     if (stored) {
       return JSON.parse(stored);
     }
-    // Productos de ejemplo - Ropa femenina
+
     const productosEjemplo = [
       {
         id: '1',
@@ -126,6 +164,7 @@ export default function VentasManager() {
         colores: ['Negro', 'Blanco', 'Rosa Palo', 'Azul Cielo'],
       },
     ];
+
     localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosEjemplo));
     return productosEjemplo;
   });
@@ -136,16 +175,20 @@ export default function VentasManager() {
   const [showAnularModal, setShowAnularModal] = useState(false);
   const [showDevolucionModal, setShowDevolucionModal] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+
   const [notificationMessage, setNotificationMessage] = useState('');
   const [notificationType, setNotificationType] = useState<'success' | 'error' | 'info'>('info');
+
   const [viewingVenta, setViewingVenta] = useState<Venta | null>(null);
   const [ventaToAnular, setVentaToAnular] = useState<Venta | null>(null);
   const [ventaToDevolver, setVentaToDevolver] = useState<Venta | null>(null);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [clienteSearchTerm, setClienteSearchTerm] = useState('');
+  const [selectedClienteNombre, setSelectedClienteNombre] = useState('');
   const [showClienteDropdown, setShowClienteDropdown] = useState(false);
   const [motivoAnulacion, setMotivoAnulacion] = useState('');
-  
+
   const [formData, setFormData] = useState({
     clienteId: '',
     fechaVenta: new Date().toISOString().split('T')[0],
@@ -153,6 +196,10 @@ export default function VentasManager() {
     observaciones: '',
     items: [] as ItemVenta[]
   });
+
+  const [usarSaldoAFavor, setUsarSaldoAFavor] = useState(false);
+  const [metodoPagoRestante, setMetodoPagoRestante] = useState<MedioPago>('Efectivo');
+
 
   const [formErrors, setFormErrors] = useState<any>({});
 
@@ -175,15 +222,20 @@ export default function VentasManager() {
     precioUnitario: ''
   });
 
-  const [devolucionData, setDevolucionData] = useState({
-    motivo: '',
-    itemsDevueltos: [] as { itemId: string; cantidad: number }[]
-  });
+  const [devolucionData, setDevolucionData] = useState<DevolucionData>({
+  motivo: 'Defectuoso',
+  itemsDevueltos: [],
+  productoNuevoId: '',
+  productoNuevoTalla: '',
+  productoNuevoColor: '',
+  medioPagoExcedente: 'Efectivo',
+});
 
-  // Contador para el número de venta
+
+
   const [ventaCounter, setVentaCounter] = useState(() => {
     const counter = localStorage.getItem('damabella_venta_counter');
-    return counter ? parseInt(counter) : 1;
+    return counter ? parseInt(counter, 10) : 1;
   });
 
   useEffect(() => {
@@ -195,39 +247,40 @@ export default function VentasManager() {
   }, [ventaCounter]);
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      const storedProductos = localStorage.getItem(PRODUCTOS_KEY);
-      const storedClientes = localStorage.getItem(CLIENTES_KEY);
-      const storedVentas = localStorage.getItem(STORAGE_KEY);
-      if (storedProductos) setProductos(JSON.parse(storedProductos));
-      if (storedClientes) setClientes(JSON.parse(storedClientes));
-      if (storedVentas) setVentas(JSON.parse(storedVentas));
-    };
+  const handleStorageChange = () => {
+    const storedProductos = localStorage.getItem(PRODUCTOS_KEY);
+    const storedClientes = localStorage.getItem(CLIENTES_KEY);
+    const storedVentas = localStorage.getItem(STORAGE_KEY);
 
-    const handlePedidoConvertidoAVenta = (event: any) => {
-      const { pedido } = event.detail;
-      
-      // Verificar si ya existe una venta para este pedido
-      const ventaExistente = ventas.some(v => v.pedido_id === pedido.numeroPedido);
-      if (ventaExistente) return;
+    if (storedProductos) setProductos(JSON.parse(storedProductos));
+    if (storedClientes) setClientes(JSON.parse(storedClientes));
+    if (storedVentas) setVentas(JSON.parse(storedVentas));
+  };
 
-      // Crear venta automáticamente desde el pedido
-      const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId);
-      if (!cliente) return;
+  // ✅ nuevo: refrescar clientes cuando otro módulo actualice CLIENTES_KEY
+  const handleClientsUpdated = () => {
+    const storedClientes = localStorage.getItem(CLIENTES_KEY);
+    if (storedClientes) setClientes(JSON.parse(storedClientes));
+  };
 
-      const totales = { subtotal: pedido.subtotal, iva: pedido.iva, total: pedido.total };
-      
-      // Generar número de venta incremental
-      const nuevoNumero = (ventaCounter).toString().padStart(3, '0');
-      const numeroVenta = `VEN-${nuevoNumero}`;
+  const handlePedidoConvertidoAVenta = (event: any) => {
+    const { pedido } = event.detail;
+    if (!pedido?.numeroPedido) return;
 
-      const nuevaVenta: Venta = {
+    const clientesActuales = JSON.parse(localStorage.getItem(CLIENTES_KEY) || '[]');
+    const cliente = clientesActuales.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
+    if (!cliente) return;
+
+    setVentas((prevVentas) => {
+      const yaExiste = prevVentas.some(v => v.pedido_id === pedido.numeroPedido);
+      if (yaExiste) return prevVentas;
+
+      const nuevaVentaBase = {
         id: Date.now(),
-        numeroVenta,
         clienteId: pedido.clienteId,
         clienteNombre: pedido.clienteNombre,
         fechaVenta: pedido.fechaPedido,
-        estado: 'Completada',
+        estado: 'Completada' as const,
         items: pedido.items.map((item: any) => ({
           id: item.id,
           productoId: item.productoId,
@@ -238,9 +291,9 @@ export default function VentasManager() {
           precioUnitario: item.precioUnitario,
           subtotal: item.subtotal
         })),
-        subtotal: totales.subtotal,
-        iva: totales.iva,
-        total: totales.total,
+        subtotal: pedido.subtotal,
+        iva: pedido.iva,
+        total: pedido.total,
         metodoPago: pedido.metodoPago || 'Efectivo',
         observaciones: pedido.observaciones || '',
         anulada: false,
@@ -248,25 +301,42 @@ export default function VentasManager() {
         pedido_id: pedido.numeroPedido
       };
 
-      setVentas((prev) => [...prev, nuevaVenta]);
-      setVentaCounter(ventaCounter + 1);
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('salesUpdated', handleStorageChange);
-    window.addEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('salesUpdated', handleStorageChange);
-      window.removeEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
-    };
-  }, [ventas, clientes]);
+      const counter = parseInt(localStorage.getItem('damabella_venta_counter') || '1', 10);
+      const numeroVenta = `VEN-${String(counter).padStart(3, '0')}`;
 
-  const generarNumeroVenta = () => {
-    const numeroVenta = `VEN-${ventaCounter.toString().padStart(3, '0')}`;
-    return numeroVenta;
+      const nuevaVenta: Venta = {
+        ...nuevaVentaBase,
+        numeroVenta
+      };
+
+      localStorage.setItem('damabella_venta_counter', String(counter + 1));
+      const next = parseInt(localStorage.getItem('damabella_venta_counter') || '1', 10);
+      setVentaCounter(next);
+
+      return [...prevVentas, nuevaVenta];
+    });
+
+    window.dispatchEvent(new Event('salesUpdated'));
   };
+
+  // carga inicial
+  handleStorageChange();
+
+  window.addEventListener('storage', handleStorageChange);
+  window.addEventListener('salesUpdated', handleStorageChange);
+  window.addEventListener('clientsUpdated', handleClientsUpdated);
+  window.addEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
+
+  return () => {
+    window.removeEventListener('storage', handleStorageChange);
+    window.removeEventListener('salesUpdated', handleStorageChange);
+    window.removeEventListener('clientsUpdated', handleClientsUpdated);
+    window.removeEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
+  };
+}, []);
+
+
+  const generarNumeroVenta = () => `VEN-${ventaCounter.toString().padStart(3, '0')}`;
 
   const calcularTotales = (items: ItemVenta[]) => {
     const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
@@ -277,13 +347,9 @@ export default function VentasManager() {
 
   const validateField = (field: string, value: any) => {
     const errors: any = {};
-    
     if (field === 'clienteId') {
-      if (!value) {
-        errors.clienteId = 'Debes seleccionar un cliente';
-      }
+      if (!value) errors.clienteId = 'Debes seleccionar un cliente';
     }
-    
     return errors;
   };
 
@@ -295,7 +361,7 @@ export default function VentasManager() {
 
   const validateClienteField = (field: string, value: string) => {
     const errors: any = {};
-    
+
     if (field === 'nombre') {
       if (!value.trim()) {
         errors.nombre = 'Este campo es obligatorio';
@@ -303,7 +369,7 @@ export default function VentasManager() {
         errors.nombre = 'Solo se permiten letras y espacios';
       }
     }
-    
+
     if (field === 'numeroDoc') {
       if (!value.trim()) {
         errors.numeroDoc = 'Este campo es obligatorio';
@@ -311,7 +377,7 @@ export default function VentasManager() {
         errors.numeroDoc = 'Debe tener entre 6 y 12 dígitos';
       }
     }
-    
+
     if (field === 'telefono') {
       if (!value.trim()) {
         errors.telefono = 'Este campo es obligatorio';
@@ -319,22 +385,18 @@ export default function VentasManager() {
         errors.telefono = 'Debe tener exactamente 10 dígitos';
       }
     }
-    
+
     if (field === 'email') {
       if (value && !/^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value)) {
         errors.email = 'Email inválido (debe iniciar con letra)';
       }
     }
-    
+
     return errors;
   };
 
   const handleClienteFieldChange = (field: string, value: string) => {
-    // Solo permitir números en documento y teléfono
-    if (field === 'numeroDoc' || field === 'telefono') {
-      value = value.replace(/\D/g, '');
-    }
-    
+    if (field === 'numeroDoc' || field === 'telefono') value = value.replace(/\D/g, '');
     setNuevoCliente({ ...nuevoCliente, [field]: value });
     const fieldErrors = validateClienteField(field, value);
     setClienteErrors({ ...clienteErrors, [field]: fieldErrors[field] });
@@ -348,6 +410,9 @@ export default function VentasManager() {
       observaciones: '',
       items: []
     });
+    setUsarSaldoAFavor(false);
+    setMetodoPagoRestante('Efectivo');
+
     setNuevoItem({
       productoId: '',
       talla: '',
@@ -361,35 +426,35 @@ export default function VentasManager() {
   };
 
   const handleSelectCliente = (clienteId: string, clienteNombre: string) => {
-    setFormData({ ...formData, clienteId });
-    setClienteSearchTerm(clienteNombre);
-    setShowClienteDropdown(false);
-    setFormErrors({ ...formErrors, clienteId: undefined });
+  setFormData((prev) => ({ ...prev, clienteId }));
+  setClienteSearchTerm(clienteNombre);
+  setSelectedClienteNombre(clienteNombre); // ✅ clave
+  setShowClienteDropdown(false);
+  setFormErrors((prev) => ({ ...prev, clienteId: undefined }));
+
+  setUsarSaldoAFavor(false);
+  setMetodoPagoRestante('Efectivo');
   };
 
-  const filteredClientes = clientes.filter((c: any) => 
+
+
+  const filteredClientes = clientes.filter((c: any) =>
     (c.nombre?.toLowerCase() ?? '').includes(clienteSearchTerm.toLowerCase()) ||
     (c.numeroDoc ?? '').includes(clienteSearchTerm)
   );
 
-  const getProductoSeleccionado = () => {
-    return productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
-  };
+  const getProductoSeleccionado = () => productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
 
   const getTallasDisponibles = () => {
     const producto = getProductoSeleccionado();
     if (!producto) return [];
-    // Si tiene variantes, usarlas; si no, devolver el array de tallas
-    if (producto.variantes) {
-      return producto.variantes.map((v: any) => v.talla);
-    }
+    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
     return producto.tallas || [];
   };
 
   const getColoresDisponibles = () => {
     const producto = getProductoSeleccionado();
     if (!producto) return [];
-    // Si tiene variantes, buscar los colores; si no, devolver el array de colores
     if (producto.variantes && nuevoItem.talla) {
       const variante = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
       if (!variante) return [];
@@ -397,6 +462,28 @@ export default function VentasManager() {
     }
     return producto.colores || [];
   };
+
+  const getProductoNuevoSeleccionado = () =>
+    productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
+
+  const getTallasDisponiblesCambio = () => {
+    const producto = getProductoNuevoSeleccionado();
+    if (!producto) return [];
+    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
+    return producto.tallas || [];
+  };
+
+  const getColoresDisponiblesCambio = () => {
+    const producto = getProductoNuevoSeleccionado();
+    if (!producto) return [];
+    if (producto.variantes && devolucionData.productoNuevoTalla) {
+      const variante = producto.variantes.find((v: any) => v.talla === devolucionData.productoNuevoTalla);
+      if (!variante) return [];
+      return (variante.colores || []).map((c: any) => c.color);
+    }
+    return producto.colores || [];
+  };
+
 
   const agregarItem = () => {
     if (!nuevoItem.productoId || !nuevoItem.talla || !nuevoItem.color || !nuevoItem.cantidad) {
@@ -409,7 +496,7 @@ export default function VentasManager() {
     const producto = productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
     if (!producto) return;
 
-    const cantidad = parseInt(nuevoItem.cantidad);
+    const cantidad = parseInt(nuevoItem.cantidad, 10);
     const precioUnitario = producto.precioVenta;
     const subtotal = cantidad * precioUnitario;
 
@@ -424,10 +511,7 @@ export default function VentasManager() {
       subtotal
     };
 
-    setFormData({
-      ...formData,
-      items: [...formData.items, item]
-    });
+    setFormData({ ...formData, items: [...formData.items, item] });
 
     setNuevoItem({
       productoId: '',
@@ -439,19 +523,14 @@ export default function VentasManager() {
   };
 
   const eliminarItem = (itemId: string) => {
-    setFormData({
-      ...formData,
-      items: formData.items.filter(item => item.id !== itemId)
-    });
+    setFormData({ ...formData, items: formData.items.filter(item => item.id !== itemId) });
   };
 
   const handleSave = () => {
-    // Validar
+    const numeroVenta = generarNumeroVenta();
     const allErrors: any = {};
     const fieldErrors = validateField('clienteId', formData.clienteId);
-    if (fieldErrors.clienteId) {
-      allErrors.clienteId = fieldErrors.clienteId;
-    }
+    if (fieldErrors.clienteId) allErrors.clienteId = fieldErrors.clienteId;
 
     if (Object.keys(allErrors).length > 0) {
       setFormErrors(allErrors);
@@ -473,30 +552,57 @@ export default function VentasManager() {
       return;
     }
 
+    const clienteSel = cliente;
     const totales = calcularTotales(formData.items);
-    const numeroVenta = generarNumeroVenta();
+    const saldoDisp = Number(clienteSel?.saldoAFavor || 0);
+    const total = Number(totales.total || 0);
+    const saldoUsado = usarSaldoAFavor ? Math.min(saldoDisp, total) : 0;
+    const restante = Math.max(total - saldoUsado, 0);
+
+    if (usarSaldoAFavor && restante > 0 && !metodoPagoRestante) {
+      setNotificationMessage('Debes seleccionar el medio de pago del restante');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
 
     const ventaData: Venta = {
       id: Date.now(),
       numeroVenta,
       clienteId: formData.clienteId,
-      clienteNombre: cliente.nombre,
+      clienteNombre: clienteSel.nombre,
       fechaVenta: formData.fechaVenta,
       estado: 'Completada',
       items: formData.items,
       subtotal: totales.subtotal,
       iva: totales.iva,
       total: totales.total,
-      metodoPago: formData.metodoPago,
+      metodoPago: usarSaldoAFavor
+        ? (restante > 0 ? `Saldo a favor + ${metodoPagoRestante}` : 'Saldo a favor')
+        : formData.metodoPago,
+
       observaciones: formData.observaciones,
       anulada: false,
       createdAt: new Date().toISOString()
     };
 
-    setVentas([...ventas, ventaData]);
+    setVentas(prev => [...prev, ventaData]);
+    if (saldoUsado > 0) {
+      const clientesActualizados = clientes.map((c: any) => {
+        if (c.id.toString() === formData.clienteId.toString()) {
+          return { ...c, saldoAFavor: Number(c.saldoAFavor || 0) - saldoUsado };
+        }
+        return c;
+      });
+
+      localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
+      window.dispatchEvent(new Event('clientsUpdated'));
+      setClientes(clientesActualizados);
+    }
+
     setVentaCounter(ventaCounter + 1);
     setShowModal(false);
-    
+
     setNotificationMessage('Venta creada exitosamente');
     setNotificationType('success');
     setShowNotificationModal(true);
@@ -510,8 +616,8 @@ export default function VentasManager() {
       return;
     }
 
-    setVentas(ventas.map(v => 
-      v.id === ventaToAnular.id 
+    setVentas(ventas.map(v =>
+      v.id === ventaToAnular.id
         ? { ...v, estado: 'Anulada', anulada: true, motivoAnulacion }
         : v
     ));
@@ -519,7 +625,7 @@ export default function VentasManager() {
     setShowAnularModal(false);
     setVentaToAnular(null);
     setMotivoAnulacion('');
-    
+
     setNotificationMessage('Venta anulada exitosamente');
     setNotificationType('success');
     setShowNotificationModal(true);
@@ -536,16 +642,18 @@ export default function VentasManager() {
     const clienteData = {
       id: Date.now(),
       ...nuevoCliente,
+      saldoAFavor: 0,
       activo: true,
       createdAt: new Date().toISOString()
     };
 
     const clientesActuales = JSON.parse(localStorage.getItem(CLIENTES_KEY) || '[]');
     localStorage.setItem(CLIENTES_KEY, JSON.stringify([...clientesActuales, clienteData]));
-    
+
     setClientes([...clientes, clienteData]);
     setFormData({ ...formData, clienteId: clienteData.id.toString() });
     setClienteSearchTerm(clienteData.nombre);
+    setSelectedClienteNombre(clienteData.nombre);
     setShowClienteModal(false);
     setNuevoCliente({
       nombre: '',
@@ -555,19 +663,20 @@ export default function VentasManager() {
       email: '',
       direccion: ''
     });
-    
+
     setNotificationMessage('Cliente creado exitosamente');
     setNotificationType('success');
     setShowNotificationModal(true);
   };
 
   const handleCrearDevolucion = () => {
-    if (!ventaToDevolver || !devolucionData.motivo.trim()) {
-      setNotificationMessage('Debes ingresar un motivo de devolución');
+    if (!ventaToDevolver || !devolucionData.motivo) {
+      setNotificationMessage('Debes seleccionar un motivo de devolución');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
+
 
     if (devolucionData.itemsDevueltos.length === 0) {
       setNotificationMessage('Debes seleccionar al menos un producto para devolver');
@@ -576,10 +685,23 @@ export default function VentasManager() {
       return;
     }
 
+    if (!devolucionData.productoNuevoId) {
+      setNotificationMessage('Debes seleccionar el producto por el que se hará el cambio');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+    if (!devolucionData.productoNuevoTalla || !devolucionData.productoNuevoColor) {
+      setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+
     const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
     const numeroDevolucion = `DEV-${(devoluciones.length + 1).toString().padStart(3, '0')}`;
 
-    // Calcular items devueltos con sus detalles
     const itemsDevueltos = devolucionData.itemsDevueltos.map(itemDev => {
       const itemOriginal = ventaToDevolver.items.find(i => i.id === itemDev.itemId);
       if (!itemOriginal) return null;
@@ -595,7 +717,28 @@ export default function VentasManager() {
       };
     }).filter(Boolean);
 
-    const totalDevolucion = itemsDevueltos.reduce((sum: number, item: any) => sum + item.subtotal, 0);
+    const totalDevolucion = (itemsDevueltos as any[]).reduce((sum: number, item: any) => sum + item.subtotal, 0);
+    const productoNuevo = productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
+    if (!productoNuevo) {
+      setNotificationMessage('Producto de cambio no encontrado');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    const precioProductoNuevo = productoNuevo.precioVenta || 0;
+    const diferencia = precioProductoNuevo - totalDevolucion;
+
+    const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
+    const diferenciaPagar = diferencia > 0 ? diferencia : 0;
+
+    if (diferenciaPagar > 0 && !devolucionData.medioPagoExcedente) {
+      setNotificationMessage('Debes seleccionar el medio de pago del excedente');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
 
     const nuevaDevolucion = {
       id: Date.now(),
@@ -608,38 +751,86 @@ export default function VentasManager() {
       motivo: devolucionData.motivo,
       items: itemsDevueltos,
       total: totalDevolucion,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+
+      // NUEVO: estado y datos del cambio
+      estadoGestion: 'Cambiado',
+      productoNuevo: {
+        id: productoNuevo.id,
+        nombre: productoNuevo.nombre,
+        precio: precioProductoNuevo,
+      },
+      productoNuevoTalla: devolucionData.productoNuevoTalla,
+      productoNuevoColor: devolucionData.productoNuevoColor,
+
+      // NUEVO: balance
+      saldoAFavor,
+      diferenciaPagar,
+      medioPagoExcedente: diferenciaPagar > 0 ? devolucionData.medioPagoExcedente : undefined,
     };
+
 
     localStorage.setItem(DEVOLUCIONES_KEY, JSON.stringify([...devoluciones, nuevaDevolucion]));
 
     // Actualizar saldo a favor del cliente
     const clientesActualizados = clientes.map((c: any) => {
-      if (c.id.toString() === ventaToDevolver.clienteId) {
+      if (c.id.toString() === ventaToDevolver.clienteId.toString()) {
         return {
           ...c,
-          saldoAFavor: (c.saldoAFavor || 0) + totalDevolucion
+          saldoAFavor: Number(c.saldoAFavor || 0) + Number(saldoAFavor || 0),
         };
       }
       return c;
     });
+
+
     localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
     setClientes(clientesActualizados);
 
+    // ✅ CAMBIO CLAVE: Marcar la venta como "Devolución"
+    setVentas(prev =>
+      prev.map(v =>
+        v.id === ventaToDevolver.id
+          ? { ...v, estado: 'Devolución' }
+          : v
+      )
+    );
+
+    // (Opcional) Notificar para sincronizar otras pestañas/listeners
+    window.dispatchEvent(new Event('salesUpdated'));
+
     setShowDevolucionModal(false);
     setVentaToDevolver(null);
-    setDevolucionData({ motivo: '', itemsDevueltos: [] });
-    
-    setNotificationMessage(`Devolución ${numeroDevolucion} creada exitosamente. Saldo a favor generado: $${totalDevolucion.toLocaleString()}`);
+    setDevolucionData({
+      motivo: 'Defectuoso',
+      itemsDevueltos: [],
+      productoNuevoId: '',
+      productoNuevoTalla: '',
+      productoNuevoColor: '',
+      medioPagoExcedente: 'Efectivo'
+    });
+
+
+    let msg = `Devolución ${numeroDevolucion} creada exitosamente. `;
+
+    if (saldoAFavor > 0) {
+      msg += `Saldo a favor: $${saldoAFavor.toLocaleString()}.`;
+    } else if (diferenciaPagar > 0) {
+      msg += `Excedente pagado: $${diferenciaPagar.toLocaleString()} (${devolucionData.medioPagoExcedente}).`;
+    } else {
+      msg += `Cambio exacto (sin saldo ni excedente).`;
+    }
+
+    setNotificationMessage(msg);
+
     setNotificationType('success');
     setShowNotificationModal(true);
   };
 
   const handleToggleItemDevolucion = (itemId: string, cantidad: number) => {
     const existingIndex = devolucionData.itemsDevueltos.findIndex(i => i.itemId === itemId);
-    
+
     if (existingIndex >= 0) {
-      // Si ya existe, actualizar cantidad o remover si es 0
       if (cantidad === 0) {
         setDevolucionData({
           ...devolucionData,
@@ -648,13 +839,9 @@ export default function VentasManager() {
       } else {
         const newItems = [...devolucionData.itemsDevueltos];
         newItems[existingIndex] = { itemId, cantidad };
-        setDevolucionData({
-          ...devolucionData,
-          itemsDevueltos: newItems
-        });
+        setDevolucionData({ ...devolucionData, itemsDevueltos: newItems });
       }
     } else if (cantidad > 0) {
-      // Agregar nuevo
       setDevolucionData({
         ...devolucionData,
         itemsDevueltos: [...devolucionData.itemsDevueltos, { itemId, cantidad }]
@@ -709,62 +896,107 @@ Gracias por su compra
     a.click();
   };
 
+  
   const descargarTodasEnExcel = () => {
-    if (ventas.length === 0) {
-      setNotificationMessage('No hay ventas para descargar');
-      setNotificationType('info');
-      setShowNotificationModal(true);
-      return;
-    }
+  if (ventas.length === 0) {
+    setNotificationMessage('No hay ventas para descargar');
+    setNotificationType('info');
+    setShowNotificationModal(true);
+    return;
+  }
 
-    try {
-      const datosExcel = ventas.map(v => ({
-        'ID Venta': v.numeroVenta,
-        'ID Pedido': v.pedido_id || 'N/A',
-        'Cliente': v.clienteNombre,
-        'Fecha': new Date(v.fechaVenta).toLocaleDateString(),
-        'Productos': v.items.map(i => i.productoNombre).join(', '),
-        'Cantidades': v.items.map(i => i.cantidad).join(', '),
-        'Precios Unitarios': v.items.map(i => `$${i.precioUnitario.toLocaleString()}`).join(', '),
-        'Subtotal': `$${v.subtotal.toLocaleString()}`,
-        'IVA': `$${v.iva.toLocaleString()}`,
-        'Total': `$${v.total.toLocaleString()}`,
-        'Estado': v.estado,
-        'Método Pago': v.metodoPago,
-        'Observaciones': v.observaciones || 'N/A'
-      }));
+  try {
+    // 1) Armamos filas DETALLADAS: 1 fila por item (producto)
+    const filas: any[] = [];
 
-      const headers = Object.keys(datosExcel[0] || {});
-      const csvContent = [
-        headers.join(','),
-        ...datosExcel.map(row => 
-          headers.map(header => {
-            const value = (row as any)[header] || '';
-            return `"${value.toString().replace(/"/g, '""')}"`;
-          }).join(',')
-        )
-      ].join('\n');
+    ventas.forEach((v) => {
+      if (!v.items || v.items.length === 0) {
+        // Si una venta no tiene items, igual dejamos una fila (opcional)
+        filas.push({
+          'ID Venta': v.numeroVenta,
+          'ID Pedido': v.pedido_id || 'N/A',
+          'Cliente': v.clienteNombre,
+          'Fecha': new Date(v.fechaVenta).toLocaleDateString(),
+          'Estado': v.estado,
+          'Método Pago': v.metodoPago,
+          'Observaciones': v.observaciones || 'N/A',
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `Ventas_${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+          'Producto': 'N/A',
+          'Talla': 'N/A',
+          'Color': 'N/A',
+          'Cantidad': 0,
+          'Precio Unitario': 0,
+          'Subtotal Ítem': 0,
 
-      setNotificationMessage('Ventas descargadas exitosamente');
-      setNotificationType('success');
-      setShowNotificationModal(true);
-    } catch (error) {
-      setNotificationMessage('Error al descargar las ventas');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-    }
-  };
+          'Subtotal Venta': v.subtotal,
+          'IVA Venta': v.iva,
+          'Total Venta': v.total
+        });
+        return;
+      }
+
+      v.items.forEach((item) => {
+        filas.push({
+          'ID Venta': v.numeroVenta,
+          'ID Pedido': v.pedido_id || 'N/A',
+          'Cliente': v.clienteNombre,
+          'Fecha': new Date(v.fechaVenta).toLocaleDateString(),
+          'Estado': v.estado,
+          'Método Pago': v.metodoPago,
+          'Observaciones': v.observaciones || 'N/A',
+
+          'Producto': item.productoNombre,
+          'Talla': item.talla,
+          'Color': item.color,
+          'Cantidad': item.cantidad,
+          'Precio Unitario': item.precioUnitario,
+          'Subtotal Ítem': item.subtotal,
+
+          'Subtotal Venta': v.subtotal,
+          'IVA Venta': v.iva,
+          'Total Venta': v.total
+        });
+      });
+    });
+
+    // 2) Definimos headers
+    const headers = Object.keys(filas[0] || {});
+
+    // 3) CSV escape
+    const escapeCSV = (value: any) => {
+      if (value === null || value === undefined) return '';
+      const str = value.toString();
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+
+    // 4) Generar CSV (coma)
+    const csvContent = [
+      headers.join(','),
+      ...filas.map((row) => headers.map((h) => escapeCSV(row[h])).join(','))
+    ].join('\n');
+
+    // 5) Descargar con nombre distinto (para evitar abrir el viejo)
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Ventas_Detalladas_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setNotificationMessage('Ventas descargadas exitosamente');
+    setNotificationType('success');
+    setShowNotificationModal(true);
+  } catch (error) {
+    setNotificationMessage('Error al descargar las ventas');
+    setNotificationType('error');
+    setShowNotificationModal(true);
+  }
+};
+
 
   const filteredVentas = ventas.filter(v => {
     const searchLower = searchTerm.toLowerCase();
@@ -774,14 +1006,21 @@ Gracias por su compra
     const matchFecha = new Date(v.fechaVenta).toLocaleDateString().includes(searchTerm);
     const matchTotal = v.total.toString().includes(searchTerm);
     const matchPedidoId = v.pedido_id ? (v.pedido_id?.toLowerCase() ?? '').includes(searchLower) : false;
-    const matchProductos = v.items.some(item => 
-      (item.productoNombre?.toLowerCase() ?? '').includes(searchLower)
-    );
-    
+    const matchProductos = v.items.some(item => (item.productoNombre?.toLowerCase() ?? '').includes(searchLower));
     return matchNumero || matchCliente || matchEstado || matchFecha || matchTotal || matchPedidoId || matchProductos;
   });
 
   const totales = calcularTotales(formData.items);
+
+  const clienteSeleccionado = clientes.find(
+    (c: any) => c.id?.toString() === formData.clienteId?.toString()
+  );
+
+  const saldoDisponible = Number(clienteSeleccionado?.saldoAFavor || 0);
+  const totalVenta = Number(totales.total || 0);
+
+  const saldoAplicado = usarSaldoAFavor ? Math.min(saldoDisponible, totalVenta) : 0;
+  const restantePorPagar = Math.max(totalVenta - saldoAplicado, 0);
 
   return (
     <div className="space-y-6">
@@ -847,7 +1086,9 @@ Gracias por su compra
                     </td>
                     <td className="py-4 px-6 text-gray-600">
                       {venta.pedido_id ? (
-                        <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-sm font-medium">{venta.pedido_id}</span>
+                        <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-sm font-medium">
+                          {venta.pedido_id}
+                        </span>
                       ) : (
                         <span className="text-gray-400">N/A</span>
                       )}
@@ -861,8 +1102,13 @@ Gracias por su compra
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
+                        {/* ✅ CAMBIO: color para "Devolución" */}
                         <span className={`inline-flex px-3 py-1 rounded-full text-sm ${
-                          venta.estado === 'Completada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          venta.estado === 'Completada'
+                            ? 'bg-green-100 text-green-700'
+                            : venta.estado === 'Devolución'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-red-100 text-red-700'
                         }`}>
                           {venta.estado}
                         </span>
@@ -884,13 +1130,21 @@ Gracias por su compra
                         >
                           <Download size={18} />
                         </button>
+
                         {!venta.anulada && (
                           <>
                             <button
-                              onClick={() => { 
-                                setVentaToDevolver(venta); 
-                                setDevolucionData({ motivo: '', itemsDevueltos: [] });
-                                setShowDevolucionModal(true); 
+                              onClick={() => {
+                                setVentaToDevolver(venta);
+                                setDevolucionData({
+                                  motivo: 'Defectuoso',
+                                  itemsDevueltos: [],
+                                  productoNuevoId: '',
+                                  productoNuevoTalla: '',
+                                  productoNuevoColor: '',
+                                  medioPagoExcedente: 'Efectivo',
+                                });
+                                setShowDevolucionModal(true);
                               }}
                               className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600"
                               title="Generar devolución"
@@ -936,20 +1190,35 @@ Gracias por su compra
                 Nuevo Cliente
               </button>
             </div>
+
             <div className="relative">
               <Input
                 value={clienteSearchTerm}
                 onChange={(e) => {
-                  setClienteSearchTerm(e.target.value);
+                  const val = e.target.value;
+
+                  setClienteSearchTerm(val);
                   setShowClienteDropdown(true);
-                  if (!e.target.value) {
-                    setFormData({ ...formData, clienteId: '' });
+
+                  // ✅ SOLO borra clienteId si el texto ya NO coincide con el cliente seleccionado
+                  setFormData((prev) => {
+                    const textoSigueIgual = val.trim() === selectedClienteNombre.trim();
+                    return textoSigueIgual ? prev : { ...prev, clienteId: '' };
+                  });
+
+                  // si el usuario cambió el texto, también limpiamos el nombre seleccionado
+                  if (val.trim() !== selectedClienteNombre.trim()) {
+                    setSelectedClienteNombre('');
+                    setUsarSaldoAFavor(false);
+                    setMetodoPagoRestante('Efectivo');
                   }
                 }}
+
                 onFocus={() => setShowClienteDropdown(true)}
                 placeholder="Buscar cliente..."
                 className={formErrors.clienteId ? 'border-red-500' : ''}
               />
+
               {showClienteDropdown && filteredClientes.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                   {filteredClientes.map((c: any) => (
@@ -966,6 +1235,7 @@ Gracias por su compra
                 </div>
               )}
             </div>
+
             {formErrors.clienteId && (
               <p className="text-red-600 text-xs mt-1">{formErrors.clienteId}</p>
             )}
@@ -984,25 +1254,79 @@ Gracias por su compra
 
             <div>
               <label className="block text-gray-700 mb-2">Método de Pago *</label>
-              <select
-                value={formData.metodoPago}
-                onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                required
-              >
-                <option value="Efectivo">Efectivo</option>
-                <option value="Transferencia">Transferencia</option>
-                <option value="Tarjeta">Tarjeta</option>
-                <option value="Nequi">Nequi</option>
-                <option value="Daviplata">Daviplata</option>
-              </select>
+              {/* ✅ Banner saldo a favor */}
+              {saldoDisponible > 0 && formData.clienteId && (
+                <div className="mb-3 rounded-lg border border-green-300 bg-green-50 p-3">
+                  <div className="text-green-800 font-semibold">
+                    ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
+                  </div>
+
+                  <label className="mt-2 flex items-center gap-2 text-sm text-green-900">
+                    <input
+                      type="checkbox"
+                      checked={usarSaldoAFavor}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setUsarSaldoAFavor(checked);
+                        if (checked) setMetodoPagoRestante('Efectivo');
+                      }}
+
+                    />
+                    Usar saldo a favor en esta venta
+                  </label>
+
+                  {usarSaldoAFavor && (
+                    <div className="mt-2 text-sm text-green-900 space-y-1">
+                      <div>Saldo aplicado: <b>${saldoAplicado.toLocaleString()}</b></div>
+                      <div>Restante por pagar: <b>${restantePorPagar.toLocaleString()}</b></div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ✅ Método pago principal (si NO usas saldo o si aún no hay items) */}
+              {(!usarSaldoAFavor || saldoAplicado <= 0) && (
+                <select
+                  value={formData.metodoPago}
+                  onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  required
+                >
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Tarjeta">Tarjeta</option>
+                  <option value="Nequi">Nequi</option>
+                  <option value="Daviplata">Daviplata</option>
+                </select>
+              )}
+
+              {/* ✅ Si usas saldo y queda restante, eliges medio de pago del restante */}
+              {usarSaldoAFavor && restantePorPagar > 0 && (
+                <div className="mt-3">
+                  <div className="text-sm text-gray-700 mb-2">
+                    Medio de pago del restante *
+                  </div>
+                  <select
+                    value={metodoPagoRestante}
+                    onChange={(e) => setMetodoPagoRestante(e.target.value as MedioPago)}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    required
+                  >
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Tarjeta">Tarjeta</option>
+                    <option value="Nequi">Nequi</option>
+                    <option value="Daviplata">Daviplata</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Productos */}
           <div className="border-t pt-4">
             <h4 className="text-gray-900 mb-3">Agregar Productos</h4>
-            
+
             <div className="bg-gray-50 rounded-lg p-4 mb-4 space-y-3">
               <div>
                 <label className="block text-gray-700 mb-2 text-sm">Producto</label>
@@ -1031,7 +1355,7 @@ Gracias por su compra
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                       >
                         <option value="">Seleccionar...</option>
-                        {getTallasDisponibles().map(talla => (
+                        {getTallasDisponibles().map((talla: string) => (
                           <option key={talla} value={talla}>{talla}</option>
                         ))}
                       </select>
@@ -1046,7 +1370,7 @@ Gracias por su compra
                         disabled={!nuevoItem.talla}
                       >
                         <option value="">Seleccionar...</option>
-                        {getColoresDisponibles().map(color => (
+                        {getColoresDisponibles().map((color: string) => (
                           <option key={color} value={color}>{color}</option>
                         ))}
                       </select>
@@ -1154,10 +1478,34 @@ Gracias por su compra
                 <div className="text-gray-600 mb-1">Cliente</div>
                 <div className="text-gray-900 font-medium">{viewingVenta.clienteNombre}</div>
               </div>
+
+              {(() => {
+                const cliente = clientes.find(
+                  (c: any) => c.id.toString() === viewingVenta.clienteId.toString()
+                );
+                const saldo = Number(cliente?.saldoAFavor || 0);
+
+                if (saldo <= 0) return null;
+
+                return (
+                  <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="text-green-700 font-semibold">Saldo a favor</div>
+                    <div className="text-green-800 text-lg font-bold">
+                      ${saldo.toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div>
                 <div className="text-gray-600 mb-1">Estado</div>
+                {/* ✅ CAMBIO: color para "Devolución" */}
                 <span className={`inline-block px-3 py-1 rounded-full text-sm ${
-                  viewingVenta.estado === 'Completada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  viewingVenta.estado === 'Completada'
+                    ? 'bg-green-100 text-green-700'
+                    : viewingVenta.estado === 'Devolución'
+                      ? 'bg-orange-100 text-orange-700'
+                      : 'bg-red-100 text-red-700'
                 }`}>
                   {viewingVenta.estado}
                 </span>
@@ -1259,103 +1607,290 @@ Gracias por su compra
         </div>
       </Modal>
 
-      {/* Modal Generar Devolución */}
+            {/* Modal Generar Devolución */}
       <Modal
         isOpen={showDevolucionModal}
         onClose={() => setShowDevolucionModal(false)}
         title={`Generar Devolución - ${ventaToDevolver?.numeroVenta}`}
         size="lg"
       >
-        {ventaToDevolver && (
-          <div className="space-y-4">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-sm text-gray-600 mb-2">Cliente: <span className="text-gray-900 font-medium">{ventaToDevolver.clienteNombre}</span></div>
-              <div className="text-sm text-gray-600">Fecha Venta: <span className="text-gray-900 font-medium">{new Date(ventaToDevolver.fechaVenta).toLocaleDateString()}</span></div>
-            </div>
+        {ventaToDevolver &&
+          (() => {
+            const totalDevuelto = devolucionData.itemsDevueltos.reduce((sum, itemDev) => {
+              const itemOriginal = ventaToDevolver.items.find((i) => i.id === itemDev.itemId);
+              return sum + (itemOriginal ? itemDev.cantidad * itemOriginal.precioUnitario : 0);
+            }, 0);
 
-            <div>
-              <label className="block text-gray-700 mb-2">Motivo de Devolución *</label>
-              <textarea
-                value={devolucionData.motivo}
-                onChange={(e) => setDevolucionData({ ...devolucionData, motivo: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                rows={2}
-                placeholder="Describe el motivo de la devolución..."
-                required
-              />
-            </div>
+            const productoNuevo = productos.find(
+              (p: any) => p.id.toString() === devolucionData.productoNuevoId
+            );
+            const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) : 0;
 
-            <div className="border-t pt-4">
-              <h4 className="text-gray-900 font-semibold mb-3">Seleccionar Productos a Devolver</h4>
-              <div className="space-y-2">
-                {ventaToDevolver.items.map((item) => {
-                  const itemDevuelto = devolucionData.itemsDevueltos.find(i => i.itemId === item.id);
-                  const cantidadDevuelta = itemDevuelto?.cantidad || 0;
+            // diferencia > 0 => cliente debe pagar excedente
+            // diferencia < 0 => cliente queda con saldo a favor
+            const diferencia = precioProductoNuevo - totalDevuelto;
 
-                  return (
-                    <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-white">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1">
-                          <div className="text-gray-900 font-medium">{item.productoNombre}</div>
-                          <div className="text-sm text-gray-600">
-                            Talla: {item.talla} | Color: {item.color}
+            const saldoAFavorCalc = diferencia < 0 ? Math.abs(diferencia) : 0;
+            const excedenteCalc = diferencia > 0 ? diferencia : 0;
+
+            return (
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="text-sm text-gray-600 mb-2">
+                    Cliente:{' '}
+                    <span className="text-gray-900 font-medium">
+                      {ventaToDevolver.clienteNombre}
+                    </span>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Fecha Venta:{' '}
+                    <span className="text-gray-900 font-medium">
+                      {new Date(ventaToDevolver.fechaVenta).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 mb-2">Motivo de Devolución *</label>
+                  <select
+                    value={devolucionData.motivo}
+                    onChange={(e) =>
+                      setDevolucionData({
+                        ...devolucionData,
+                        motivo: e.target.value as MotivoDevolucion
+                      })
+                    }
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    required
+                  >
+                    {MOTIVOS_DEVOLUCION.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+
+                </div>
+
+                <div className="border-t pt-4">
+                  <h4 className="text-gray-900 font-semibold mb-3">
+                    Seleccionar Productos a Devolver
+                  </h4>
+                  <div className="space-y-2">
+                    {ventaToDevolver.items.map((item) => {
+                      const itemDevuelto = devolucionData.itemsDevueltos.find(
+                        (i) => i.itemId === item.id
+                      );
+                      const cantidadDevuelta = itemDevuelto?.cantidad || 0;
+
+                      return (
+                        <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-white">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex-1">
+                              <div className="text-gray-900 font-medium">{item.productoNombre}</div>
+                              <div className="text-sm text-gray-600">
+                                Talla: {item.talla} | Color: {item.color}
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                Precio: ${item.precioUnitario.toLocaleString()}
+                              </div>
+                            </div>
+                            <div className="text-gray-900 font-semibold">
+                              ${item.subtotal.toLocaleString()}
+                            </div>
                           </div>
-                          <div className="text-sm text-gray-600">
-                            Precio: ${item.precioUnitario.toLocaleString()}
+
+                          <div className="flex items-center gap-3 mt-2">
+                            <label className="text-sm text-gray-700">Cantidad a devolver:</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max={item.cantidad}
+                              value={cantidadDevuelta}
+                              onChange={(e) =>
+                                handleToggleItemDevolucion(
+                                  item.id,
+                                  parseInt(e.target.value, 10) || 0
+                                )
+                              }
+                              className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                            />
+                            <span className="text-sm text-gray-600">de {item.cantidad}</span>
+                            {cantidadDevuelta > 0 && (
+                              <span className="ml-auto text-sm text-green-600 font-medium">
+                                Devolución: $
+                                {(cantidadDevuelta * item.precioUnitario).toLocaleString()}
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <div className="text-gray-900 font-semibold">${item.subtotal.toLocaleString()}</div>
-                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                      <div className="flex items-center gap-3 mt-2">
-                        <label className="text-sm text-gray-700">Cantidad a devolver:</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={item.cantidad}
-                          value={cantidadDevuelta}
-                          onChange={(e) => handleToggleItemDevolucion(item.id, parseInt(e.target.value) || 0)}
-                          className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                        />
-                        <span className="text-sm text-gray-600">de {item.cantidad}</span>
-                        {cantidadDevuelta > 0 && (
-                          <span className="ml-auto text-sm text-green-600 font-medium">
-                            Devolución: ${(cantidadDevuelta * item.precioUnitario).toLocaleString()}
-                          </span>
-                        )}
-                      </div>
+                <div className="border-t pt-4">
+                  <h4 className="text-gray-900 font-semibold mb-3">
+                    Producto por el que se cambia *
+                  </h4>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-gray-700 mb-2 text-sm">Producto nuevo</label>
+                      <select
+                        value={devolucionData.productoNuevoId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setDevolucionData({
+                            ...devolucionData,
+                            productoNuevoId: id,
+                            productoNuevoTalla: '',
+                            productoNuevoColor: '',
+                          });
+                        }}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                      >
+                        <option value="">Seleccionar producto...</option>
+                        {productos
+                          .filter((p: any) => p.activo)
+                          .map((p: any) => (
+                            <option key={p.id} value={p.id}>
+                              {p.nombre} - ${(p.precioVenta || 0).toLocaleString()}
+                            </option>
+                          ))}
+                      </select>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
 
-            {devolucionData.itemsDevueltos.length > 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="text-green-700 font-semibold mb-1">Saldo a Favor para el Cliente</div>
-                <div className="text-2xl text-green-600 font-bold">
-                  ${devolucionData.itemsDevueltos.reduce((sum, itemDev) => {
-                    const itemOriginal = ventaToDevolver.items.find(i => i.id === itemDev.itemId);
-                    return sum + (itemOriginal ? itemDev.cantidad * itemOriginal.precioUnitario : 0);
-                  }, 0).toLocaleString()}
+                    {productoNuevo && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-gray-700 mb-2 text-sm">Talla</label>
+                          <select
+                            value={devolucionData.productoNuevoTalla}
+                            onChange={(e) =>
+                              setDevolucionData({
+                                ...devolucionData,
+                                productoNuevoTalla: e.target.value,
+                                productoNuevoColor: '',
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                          >
+                            <option value="">Seleccionar...</option>
+                            {getTallasDisponiblesCambio().map((t: string) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-gray-700 mb-2 text-sm">Color</label>
+                          <select
+                            value={devolucionData.productoNuevoColor}
+                            onChange={(e) =>
+                              setDevolucionData({
+                                ...devolucionData,
+                                productoNuevoColor: e.target.value,
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                            disabled={!devolucionData.productoNuevoTalla}
+                          >
+                            <option value="">Seleccionar...</option>
+                            {getColoresDisponiblesCambio().map((c: string) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-sm text-green-600 mt-1">
-                  Este monto se agregará como saldo a favor del cliente
+
+                {totalDevuelto > 0 && devolucionData.productoNuevoId && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+                    <div className="font-semibold text-blue-900">Balance del cambio</div>
+
+                    <div className="flex justify-between text-sm text-blue-800">
+                      <span>Total devuelto:</span>
+                      <span className="font-medium">${totalDevuelto.toLocaleString()}</span>
+                    </div>
+
+                    <div className="flex justify-between text-sm text-blue-800">
+                      <span>Producto nuevo:</span>
+                      <span className="font-medium">${precioProductoNuevo.toLocaleString()}</span>
+                    </div>
+
+                    {saldoAFavorCalc > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-green-700">Saldo a favor:</span>
+                        <span className="font-semibold text-green-700">
+                          ${saldoAFavorCalc.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+
+                    {excedenteCalc > 0 && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-red-700">Excedente por pagar:</span>
+                          <span className="font-semibold text-red-700">
+                            ${excedenteCalc.toLocaleString()}
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="block text-gray-700 mb-2 text-sm">
+                            Medio de pago del excedente *
+                          </label>
+                          <select
+                            value={devolucionData.medioPagoExcedente}
+                            onChange={(e) =>
+                              setDevolucionData({
+                                ...devolucionData,
+                                medioPagoExcedente: e.target.value as any,
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                          >
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Transferencia">Transferencia</option>
+                            <option value="Tarjeta">Tarjeta</option>
+                            <option value="Nequi">Nequi</option>
+                            <option value="Daviplata">Daviplata</option>
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    {saldoAFavorCalc === 0 && excedenteCalc === 0 && (
+                      <div className="text-sm text-blue-700">
+                        El cambio queda en <span className="font-semibold">0</span> (sin saldo ni
+                        excedente).
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-3 justify-end pt-4 border-t">
+                  <Button onClick={() => setShowDevolucionModal(false)} variant="secondary">
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={handleCrearDevolucion}
+                    variant="primary"
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    Generar Devolución
+                  </Button>
                 </div>
               </div>
-            )}
-
-            <div className="flex gap-3 justify-end pt-4 border-t">
-              <Button onClick={() => setShowDevolucionModal(false)} variant="secondary">
-                Cancelar
-              </Button>
-              <Button onClick={handleCrearDevolucion} variant="primary" className="bg-purple-600 hover:bg-purple-700">
-                Generar Devolución
-              </Button>
-            </div>
-          </div>
-        )}
+            );
+          })()}
       </Modal>
+
 
       {/* Modal Nuevo Cliente */}
       <Modal
