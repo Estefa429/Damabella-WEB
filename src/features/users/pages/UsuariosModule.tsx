@@ -84,7 +84,7 @@ export default function UsuariosModule() {
       try {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          console.log(`✅ Roles cargados desde localStorage: ${parsed.map((r: any) => r.nombre).join(', ')}`);
+          console.log(`✅ Roles cargados desde localStorage:`, parsed.map((r: any) => r.name || r.nombre).join(', '));
           return parsed;
         }
       } catch (e) {
@@ -94,9 +94,57 @@ export default function UsuariosModule() {
     // Roles por defecto si no existen en localStorage
     console.log('ℹ️ Usando roles por defecto');
     const defaultRoles = [
-      { id: '1', nombre: 'Administrador', descripcion: 'Acceso completo al sistema', usuariosAsociados: 1, permisos: [] },
-      { id: '2', nombre: 'Empleado', descripcion: 'Gestión de ventas y productos', usuariosAsociados: 1, permisos: [] },
-      { id: '3', nombre: 'Cliente', descripcion: 'Acceso limitado para compras', usuariosAsociados: 3, permisos: [] }
+      { 
+        id: '1', 
+        name: 'Administrador', 
+        nombre: 'Administrador',
+        description: 'Acceso completo al sistema', 
+        descripcion: 'Acceso completo al sistema',
+        userCount: 1, 
+        usuariosAsociados: 1, 
+        permissions: [
+          { module: 'Usuarios', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Roles', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Categorias', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Productos', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Clientes', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Proveedores', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Tallas', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Colores', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Pedidos', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Ventas', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Compras', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Devoluciones', canView: true, canCreate: true, canEdit: true, canDelete: true },
+        ],
+        permisos: [] 
+      },
+      { 
+        id: '2', 
+        name: 'Empleado', 
+        nombre: 'Empleado',
+        description: 'Gestión de ventas y productos', 
+        descripcion: 'Gestión de ventas y productos',
+        userCount: 1, 
+        usuariosAsociados: 1, 
+        permissions: [
+          { module: 'Usuarios', canView: true, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Roles', canView: false, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Categorias', canView: true, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Productos', canView: true, canCreate: false, canEdit: false, canDelete: false },
+        ],
+        permisos: [] 
+      },
+      { 
+        id: '3', 
+        name: 'Cliente', 
+        nombre: 'Cliente',
+        description: 'Acceso limitado para compras', 
+        descripcion: 'Acceso limitado para compras',
+        userCount: 3, 
+        usuariosAsociados: 3, 
+        permissions: [],
+        permisos: [] 
+      }
     ];
     // Guardar los roles por defecto en localStorage para que persistan
     console.log(`   💾 Guardando roles por defecto en localStorage`);
@@ -258,7 +306,7 @@ export default function UsuariosModule() {
 
   // Escuchar cambios en roles desde otros módulos (Gestión de Roles)
   useEffect(() => {
-    console.log(`🔔 [UsuariosModule] useEffect iniciado - Roles actuales:`, roles.map((r: any) => r.nombre));
+    console.log(`🔔 [UsuariosModule] useEffect iniciado - Roles actuales:`, roles.map((r: any) => r.name || r.nombre));
     let lastStoredRoles: string | null = null;
 
     const checkForChanges = () => {
@@ -272,7 +320,7 @@ export default function UsuariosModule() {
           try {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
-              console.log(`🔄 [UsuariosModule] Roles actualizados:`, parsed.map((r: any) => r.nombre));
+              console.log(`🔄 [UsuariosModule] Roles actualizados:`, parsed.map((r: any) => r.name || r.nombre));
               setRoles(parsed);
             }
           } catch (e) {
@@ -302,6 +350,44 @@ export default function UsuariosModule() {
     };
   }, []);
 
+  // 🔄 ACTUALIZAR CONTADORES DE USUARIOS EN ROLES
+  useEffect(() => {
+    const updateUserCountsInRoles = () => {
+      try {
+        const rolesStored = localStorage.getItem('damabella_roles');
+        if (rolesStored) {
+          const rolesData = JSON.parse(rolesStored);
+          
+          // Contar usuarios por rol
+          const userCountByRole: Record<string, number> = {};
+          usuarios.forEach(usuario => {
+            const roleName = usuario.rol;
+            userCountByRole[roleName] = (userCountByRole[roleName] || 0) + 1;
+          });
+          
+          // Actualizar contadores en roles
+          const updatedRoles = rolesData.map((role: any) => ({
+            ...role,
+            userCount: userCountByRole[role.name || role.nombre] || 0,
+          }));
+          
+          localStorage.setItem('damabella_roles', JSON.stringify(updatedRoles));
+          console.log('📊 [UsuariosModule] Contadores de usuarios actualizados en roles:', userCountByRole);
+          
+          // Actualizar estado local también
+          setRoles(updatedRoles);
+        }
+      } catch (error) {
+        console.error('❌ [UsuariosModule] Error actualizando contadores:', error);
+      }
+    };
+
+    // Actualizar después de cualquier cambio en usuarios
+    if (usuarios && usuarios.length >= 0) {
+      updateUserCountsInRoles();
+    }
+  }, [usuarios]);
+
   // Estadísticas
   const totalUsuarios = usuarios.length;
   const usuariosActivos = usuarios.filter(u => u.estado === 'Activo').length;
@@ -329,7 +415,7 @@ export default function UsuariosModule() {
 
   const handleAdd = () => {
     setSelectedUser(null);
-    setFormData({ nombre: '', tipoDoc: 'CC', email: '', documento: '', celular: '', direccion: '', rol: 'Cliente', estado: 'Activo', password: '', confirmPassword: '' });
+    setFormData({ nombre: '', tipoDoc: 'CC', email: '', documento: '', celular: '', direccion: '', rol: '', estado: 'Activo', password: '', confirmPassword: '' });
     setFormErrors({});
     setShowPassword(false);
     setShowConfirmPassword(false);
@@ -664,8 +750,8 @@ export default function UsuariosModule() {
         <Select value={filterRol} onChange={(e) => setFilterRol(e.target.value)}>
           <option value="todos">Todos</option>
           {roles.map((rol: any) => (
-            <option key={rol.id} value={rol.nombre}>
-              {rol.nombre}
+            <option key={rol.id} value={rol.name || rol.nombre}>
+              {rol.name || rol.nombre}
             </option>
           ))}
         </Select>
@@ -927,8 +1013,8 @@ export default function UsuariosModule() {
               >
                 <option value="">Seleccione un rol</option>
                 {roles.map((rol: any) => (
-                  <option key={rol.id} value={rol.nombre}>
-                    {rol.nombre}
+                  <option key={rol.id} value={rol.name || rol.nombre}>
+                    {rol.name || rol.nombre}
                   </option>
                 ))}
               </Select>

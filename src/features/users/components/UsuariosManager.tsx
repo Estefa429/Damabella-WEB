@@ -667,10 +667,10 @@ export default function UsuariosManager() {
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="text-gray-600 mb-2">Por Rol</div>
             {roles.map((rol: any) => {
-              const count = usuarios.filter(u => u.role === rol.nombre).length;
+              const count = usuarios.filter(u => u.role === (rol.name || rol.nombre)).length;
               return (
                 <div key={rol.id} className="flex justify-between items-center py-1">
-                  <span className="text-gray-700">{rol.nombre}</span>
+                  <span className="text-gray-700">{rol.name || rol.nombre}</span>
                   <span className="text-gray-900">{count}</span>
                 </div>
               );

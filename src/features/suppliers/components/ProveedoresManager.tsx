@@ -15,7 +15,6 @@ interface Proveedor {
   email: string;
   direccion: string;
   activo: boolean;
-  publicado: boolean;
   createdAt: string;
 }
 
@@ -49,8 +48,7 @@ export function ProveedoresManager() {
     contacto: '',
     telefono: '',
     email: '',
-    direccion: '',
-    publicado: false
+    direccion: ''
   });
 
   const [formErrors, setFormErrors] = useState<any>({});
@@ -308,14 +306,13 @@ export function ProveedoresManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Teléfono</th>
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
-                <th className="text-center py-4 px-6 text-gray-600">Publicado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {paginatedProveedores.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                  <td colSpan={6} className="py-12 text-center text-gray-500">
                     <Store className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron proveedores</p>
                   </td>
@@ -355,20 +352,6 @@ export function ProveedoresManager() {
                         >
                           <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
                             proveedor.activo ? 'translate-x-6' : 'translate-x-0'
-                          }`} />
-                        </button>
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => handleEdit(proveedor)}
-                          className={`relative w-12 h-6 rounded-full transition-colors ${
-                            proveedor.publicado ? 'bg-blue-500' : 'bg-gray-300'
-                          }`}
-                        >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                            proveedor.publicado ? 'translate-x-6' : 'translate-x-0'
                           }`} />
                         </button>
                       </div>
@@ -547,19 +530,6 @@ export function ProveedoresManager() {
             />
           </div>
 
-          <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-lg border border-blue-200">
-            <input
-              type="checkbox"
-              checked={formData.publicado}
-              onChange={(e) => setFormData({ ...formData, publicado: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-              id="publicado"
-            />
-            <label htmlFor="publicado" className="text-gray-700 cursor-pointer flex-1">
-              Publicar en catálogo
-            </label>
-          </div>
-
           <div className="flex gap-3 justify-end pt-4 border-t">
             <Button onClick={() => setShowModal(false)} variant="secondary">
               Cancelar
@@ -686,15 +656,6 @@ export function ProveedoresManager() {
                     <div className={`w-3 h-3 rounded-full ${viewingProveedor.activo ? 'bg-green-500' : 'bg-gray-400'}`} />
                     <span className="text-gray-900 font-semibold">
                       {viewingProveedor.activo ? 'Activo' : 'Inactivo'}
-                    </span>
-                  </div>
-                </div>
-                <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-                  <div className="text-gray-600 text-sm mb-1">Publicado en Catálogo</div>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${viewingProveedor.publicado ? 'bg-blue-500' : 'bg-gray-400'}`} />
-                    <span className="text-gray-900 font-semibold">
-                      {viewingProveedor.publicado ? 'Sí' : 'No'}
                     </span>
                   </div>
                 </div>
