@@ -46,7 +46,7 @@ export default function CategoriasManager() {
   const [showModal, setShowModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [formData, setFormData] = useState({ name: '', description: '' });
-  const [formErrors, setFormErrors] = useState({ name: '' });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showInactiveConfirmModal, setShowInactiveConfirmModal] = useState(false);

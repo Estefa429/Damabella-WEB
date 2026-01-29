@@ -59,17 +59,7 @@ export default function UsuariosManager() {
     roleId: ''
   });
 
-  const [formErrors, setFormErrors] = useState<{
-    nombre?: string;
-    tipoDoc?: string;
-    numeroDoc?: string;
-    celular?: string;
-    email?: string;
-    direccion?: string;
-    password?: string;
-    confirmPassword?: string;
-    roleId?: string;
-  }>({});
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
