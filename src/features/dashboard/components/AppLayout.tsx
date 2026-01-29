@@ -59,24 +59,35 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   // Obtener permisos del rol del usuario
   const getUserPermissions = () => {
     const roles = JSON.parse(localStorage.getItem('damabella_roles') || '[]');
-    const userRole = roles.find((r: any) => r.id === user.roleId || r.nombre === user.role);
+    const userRole = roles.find((r: any) => 
+      r.id === user.roleId || 
+      r.nombre === user.role || 
+      r.name === user.role
+    );
     
     // Si encontramos el rol y tiene permisos definidos, usarlos
-    if (userRole && userRole.permisos && Array.isArray(userRole.permisos)) {
+    if (userRole && (userRole.permissions || userRole.permisos) && Array.isArray(userRole.permissions || userRole.permisos)) {
+      const permArray = userRole.permissions || userRole.permisos;
       const permisosMap: any = {};
-      userRole.permisos.forEach((p: any) => {
-        permisosMap[p.modulo.toLowerCase()] = {
-          ver: p.ver,
-          crear: p.crear,
-          editar: p.editar,
-          eliminar: p.eliminar
+      
+      permArray.forEach((p: any) => {
+        const moduleName = (p.module || p.modulo || '').toLowerCase();
+        permisosMap[moduleName] = {
+          ver: p.canView ?? p.ver ?? false,
+          crear: p.canCreate ?? p.crear ?? false,
+          editar: p.canEdit ?? p.editar ?? false,
+          eliminar: p.canDelete ?? p.eliminar ?? false
         };
       });
+      
+      console.log(`✅ [getUserPermissions] Permisos dinámicos encontrados para ${user.role}:`, permisosMap);
       return permisosMap;
     }
     
     // Fallback a permisos por rol si no están definidos dinámicamente
-    if (!userRole || !userRole.permisos) {
+    if (!userRole || (!userRole.permissions && !userRole.permisos)) {
+      console.log(`⚠️ [getUserPermissions] No se encontraron permisos dinámicos para ${user.role}, usando fallback`);
+      
       // Si es Administrador y no tiene permisos definidos, dar acceso total
       if (user.role === 'Administrador') {
         return {
@@ -95,7 +106,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
         };
       }
       
-      // Empleado: acceso a ventas y compras, no puede eliminar
+      // Empleado: acceso limitado (sin permisos dinámicos)
       if (user.role === 'Empleado') {
         return {
           dashboard: { ver: true },
@@ -115,10 +126,28 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
 
   const permisos = getUserPermissions();
 
+  // Normalizar nombre de módulo (remover acentos y convertir a minúsculas)
+  const normalizeModuleName = (name: string): string => {
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''); // Remover acentos
+  };
+
   const hasPermission = (modulo: string, accion: string = 'ver') => {
-    const moduloKey = modulo.toLowerCase();
-    if (!permisos[moduloKey]) return false;
-    return permisos[moduloKey][accion] === true;
+    const moduloKey = normalizeModuleName(modulo);
+    
+    // Buscar en permisos normalizados
+    let hasAccess = false;
+    for (const [key, value] of Object.entries(permisos)) {
+      if (normalizeModuleName(key) === moduloKey) {
+        hasAccess = (value as any)?.[accion] === true;
+        break;
+      }
+    }
+    
+    console.log(`🔍 [hasPermission] Módulo: "${modulo}" (${moduloKey}), Acción: ${accion}, Acceso: ${hasAccess}`);
+    return hasAccess;
   };
 
   const toggleMenu = (menuId: string) => {

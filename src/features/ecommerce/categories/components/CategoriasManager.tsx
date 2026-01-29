@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Package, Search, FolderTree, AlertTriangle, Eye, Grid3x3, List } from 'lucide-react';
 import { Button, Input, Modal, useToast } from '../../../../shared/components/native';
+import { usePermissions } from '../../../../shared/hooks/usePermissions';
 
 const STORAGE_KEY = 'damabella_categorias';
 const PRODUCTOS_KEY = 'damabella_productos';
@@ -40,6 +41,8 @@ export default function CategoriasManager() {
   });
   
   const { showToast } = useToast();
+  const { hasPermission, getModulePermissions } = usePermissions();
+  
   const [showModal, setShowModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [formData, setFormData] = useState({ name: '', description: '' });
@@ -56,6 +59,33 @@ export default function CategoriasManager() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   
   const itemsPerPage = 10;
+  // 🔐 PERMISOS - Usar el hook usePermissions
+  const permisos = getModulePermissions('Categorias');
+  const canViewCategorias = permisos.canView;
+  const canCreateCategorias = permisos.canCreate;
+  const canEditCategorias = permisos.canEdit;
+  const canDeleteCategorias = permisos.canDelete;
+
+  // 🔄 ESCUCHAR CAMBIOS EN ROLES DESDE OTROS MÓDULOS/TABS
+  useEffect(() => {
+    console.log(`📋 [CategoriasManager] Permisos del usuario:`, {
+      canViewCategorias,
+      canCreateCategorias,
+      canEditCategorias,
+      canDeleteCategorias,
+    });
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'damabella_roles') {
+        console.log('🔄 [CategoriasManager] Roles actualizados en otro tab/módulo, recalculando permisos');
+        // Force re-render para recalcular permisos
+        window.location.reload();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [canViewCategorias, canCreateCategorias, canEditCategorias, canDeleteCategorias]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(categories));
@@ -298,7 +328,12 @@ const handleViewProducts = (category: any) => {
           <h2 className="text-gray-900 mb-2">Categorías de Productos</h2>
           <p className="text-gray-600">Gestiona las categorías: Vestidos Largos, Vestidos Cortos, Sets y Enterizos</p>
         </div>
-        <Button onClick={handleCreate} variant="primary">
+        <Button 
+          onClick={handleCreate} 
+          variant="primary"
+          disabled={!canCreateCategorias}
+          title={!canCreateCategorias ? 'No tienes permiso para crear categorías' : ''}
+        >
           <Plus size={20} />
           Nueva Categoría
         </Button>
@@ -389,79 +424,89 @@ const handleViewProducts = (category: any) => {
           {viewMode === 'grid' ? (
             // VISTA GRID
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {paginatedCategories.map((category: any) => (
-              <div 
-                key={category.id} 
-                className="bg-gray-50 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200"
-              >
-                {/* Header sin gradiente */}
-                <div className="bg-white p-6 border-b border-gray-200">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center">
-                      <FolderTree size={28} className="text-gray-600" />
+              {paginatedCategories.map((category: any) => (
+                <div 
+                  key={category.id} 
+                  className="bg-gray-50 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200"
+                >
+                  {/* Header sin gradiente */}
+                  <div className="bg-white p-6 border-b border-gray-200">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center">
+                        <FolderTree size={28} className="text-gray-600" />
+                      </div>
+                      {/* Switch ON/OFF */}
+                      <button
+                        onClick={() => toggleActive(category.id)}
+                        className={`relative w-14 h-7 rounded-full transition-colors ${
+                          category.active ? 'bg-green-500' : 'bg-gray-400'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
+                          category.active ? 'translate-x-7' : 'translate-x-0'
+                        }`} />
+                      </button>
                     </div>
-                    {/* Switch ON/OFF */}
-                    <button
-                      onClick={() => toggleActive(category.id)}
-                      className={`relative w-14 h-7 rounded-full transition-colors ${
-                        category.active ? 'bg-green-500' : 'bg-gray-400'
-                      }`}
-                    >
-                      <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
-                        category.active ? 'translate-x-7' : 'translate-x-0'
-                      }`} />
-                    </button>
-                  </div>
-                  <h3 className="text-gray-900 text-xl">{category.name}</h3>
-                </div>
-
-                {/* Body */}
-                <div className="p-6">
-                  <p className="text-gray-600 mb-4 min-h-[3rem]">{category.description}</p>
-                  
-                  <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
-                    <span className="text-gray-500 text-sm">Productos</span>
-                    <button
-                      onClick={() => handleViewProducts(category)}
-                      className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
-                      title="Ver productos"
-                    >
-                      <Package size={16} />
-                      <span className="font-semibold">{getProductosPorCategoria(category.name)}</span>
-                    </button>
+                    <h3 className="text-gray-900 text-xl">{category.name}</h3>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <span className={`text-sm font-medium ${category.active ? 'text-green-600' : 'text-gray-400'}`}>
-                      {category.active ? 'Activa' : 'Inactiva'}
-                    </span>
-                    <div className="flex gap-2">
+                  {/* Body */}
+                  <div className="p-6">
+                    <p className="text-gray-600 mb-4 min-h-[3rem]">{category.description}</p>
+                    
+                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
+                      <span className="text-gray-500 text-sm">Productos</span>
                       <button
                         onClick={() => handleViewProducts(category)}
-                        className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                        className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
                         title="Ver productos"
                       >
-                        <Eye size={18} />
+                        <Package size={16} />
+                        <span className="font-semibold">{getProductosPorCategoria(category.name)}</span>
                       </button>
-                      <button
-                        onClick={() => handleEdit(category)}
-                        className="p-2 hover:bg-white rounded-lg transition-colors text-gray-600"
-                        title="Editar"
-                      >
-                        <Edit2 size={18} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(category.id)}
-                        className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                        title="Eliminar"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-medium ${category.active ? 'text-green-600' : 'text-gray-400'}`}>
+                        {category.active ? 'Activa' : 'Inactiva'}
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleViewProducts(category)}
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                          title="Ver productos"
+                        >
+                          <Eye size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(category)}
+                          disabled={!canEditCategorias}
+                          className={`p-2 rounded-lg transition-colors ${
+                            canEditCategorias
+                              ? 'hover:bg-white text-gray-600'
+                              : 'opacity-50 cursor-not-allowed text-gray-400'
+                          }`}
+                          title={!canEditCategorias ? 'No tienes permiso para editar' : 'Editar'}
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(category.id)}
+                          disabled={!canDeleteCategorias}
+                          className={`p-2 rounded-lg transition-colors ${
+                            canDeleteCategorias
+                              ? 'hover:bg-red-50 text-red-600'
+                              : 'opacity-50 cursor-not-allowed text-red-300'
+                          }`}
+                          title={!canDeleteCategorias ? 'No tienes permiso para eliminar' : 'Eliminar'}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
             </div>
           ) : (
             // VISTA LIST
@@ -512,15 +557,25 @@ const handleViewProducts = (category: any) => {
                             </button>
                             <button
                               onClick={() => handleEdit(category)}
-                              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                              title="Editar"
+                              disabled={!canEditCategorias}
+                              className={`p-2 rounded-lg transition-colors ${
+                                canEditCategorias
+                                  ? 'hover:bg-gray-100 text-gray-600'
+                                  : 'opacity-50 cursor-not-allowed text-gray-400'
+                              }`}
+                              title={!canEditCategorias ? 'No tienes permiso para editar' : 'Editar'}
                             >
                               <Edit2 size={18} />
                             </button>
                             <button
                               onClick={() => handleDelete(category.id)}
-                              className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                              title="Eliminar"
+                              disabled={!canDeleteCategorias}
+                              className={`p-2 rounded-lg transition-colors ${
+                                canDeleteCategorias
+                                  ? 'hover:bg-red-50 text-red-600'
+                                  : 'opacity-50 cursor-not-allowed text-red-300'
+                              }`}
+                              title={!canDeleteCategorias ? 'No tienes permiso para eliminar' : 'Eliminar'}
                             >
                               <Trash2 size={18} />
                             </button>

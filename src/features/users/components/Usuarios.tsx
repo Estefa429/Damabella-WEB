@@ -30,6 +30,8 @@ export const Usuarios: React.FC = () => {
     email: u.email,
     telefono: u.phone,
     documento: u.document,
+    direccion: u.address || 'No especificada',
+    password: 'TempPass123!',
     rol: u.role as 'Administrador' | 'Empleado' | 'Cliente',
     estado: u.status as 'Activo' | 'Inactivo',
     fechaCreacion: u.createdAt.split('T')[0]
@@ -42,18 +44,60 @@ export const Usuarios: React.FC = () => {
       try {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log('✅ [Usuarios] Roles cargados desde localStorage:', parsed.map((r: any) => r.name || r.nombre));
           return parsed;
         }
       } catch (e) {
-        console.error('Error loading roles:', e);
+        console.error('❌ [Usuarios] Error loading roles:', e);
       }
     }
+    console.log('ℹ️ [Usuarios] Creando roles por defecto...');
+    // Crear roles por defecto si no existen
     const defaultRoles = [
-      { id: '1', nombre: 'Administrador', descripcion: 'Acceso completo al sistema', usuariosAsociados: 1, permisos: [] },
-      { id: '2', nombre: 'Empleado', descripcion: 'Gestión de ventas y productos', usuariosAsociados: 1, permisos: [] },
-      { id: '3', nombre: 'Cliente', descripcion: 'Acceso limitado para compras', usuariosAsociados: 3, permisos: [] }
+      {
+        id: '1',
+        name: 'Administrador',
+        description: 'Acceso completo al sistema',
+        userCount: 1,
+        permissions: [
+          { module: 'Usuarios', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Roles', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Categorias', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Productos', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Clientes', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Proveedores', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Tallas', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Colores', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Pedidos', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Ventas', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Compras', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Devoluciones', canView: true, canCreate: true, canEdit: true, canDelete: true },
+        ],
+      },
+      {
+        id: '2',
+        name: 'Empleado',
+        description: 'Usuario con permisos limitados',
+        userCount: 0,
+        permissions: [
+          { module: 'Usuarios', canView: true, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Roles', canView: false, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Categorias', canView: true, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Productos', canView: true, canCreate: false, canEdit: false, canDelete: false },
+        ],
+      },
+      {
+        id: '3',
+        name: 'Cliente',
+        description: 'Acceso limitado para clientes',
+        userCount: 0,
+        permissions: [
+          { module: 'Usuarios', canView: false, canCreate: false, canEdit: false, canDelete: false },
+        ],
+      },
     ];
     localStorage.setItem('damabella_roles', JSON.stringify(defaultRoles));
+    console.log('✅ [Usuarios] Roles por defecto creados');
     return defaultRoles;
   });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -68,35 +112,80 @@ export const Usuarios: React.FC = () => {
 
   // Escuchar cambios en roles desde otros módulos
   useEffect(() => {
-    let lastStoredRoles: string | null = null;
-
-    const checkForChanges = () => {
+    const loadRoles = () => {
       const stored = localStorage.getItem('damabella_roles');
-      if (stored !== lastStoredRoles) {
-        lastStoredRoles = stored;
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored);
-            if (Array.isArray(parsed)) {
-              console.log(`🔄 [Usuarios] Roles actualizados`);
-              setRoles(parsed);
-            }
-          } catch (e) {
-            console.error('Error updating roles:', e);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            console.log(`✅ [Usuarios] Roles sincronizados:`, parsed.map((r: any) => r.name || r.nombre));
+            setRoles(parsed);
           }
+        } catch (e) {
+          console.error('Error loading roles:', e);
         }
       }
     };
 
-    checkForChanges();
-    window.addEventListener('storage', checkForChanges);
-    const interval = setInterval(checkForChanges, 300);
+    // Cargar inmediatamente
+    loadRoles();
+
+    // Escuchar cambios en otros tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'damabella_roles') {
+        console.log('📡 [Usuarios] Roles actualizados desde otro tab');
+        loadRoles();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Verificar periódicamente en el mismo tab
+    const interval = setInterval(loadRoles, 500);
 
     return () => {
-      window.removeEventListener('storage', checkForChanges);
+      window.removeEventListener('storage', handleStorageChange);
       clearInterval(interval);
     };
   }, []);
+
+  // 🔄 ACTUALIZAR CONTADORES DE USUARIOS EN ROLES
+  useEffect(() => {
+    const updateUserCountsInRoles = () => {
+      try {
+        const rolesStored = localStorage.getItem('damabella_roles');
+        if (rolesStored) {
+          const rolesData = JSON.parse(rolesStored);
+          
+          // Contar usuarios por rol
+          const userCountByRole: Record<string, number> = {};
+          usuarios.forEach(usuario => {
+            const roleName = usuario.rol;
+            userCountByRole[roleName] = (userCountByRole[roleName] || 0) + 1;
+          });
+          
+          // Actualizar contadores en roles
+          const updatedRoles = rolesData.map((role: any) => ({
+            ...role,
+            userCount: userCountByRole[role.name || role.nombre] || 0,
+          }));
+          
+          localStorage.setItem('damabella_roles', JSON.stringify(updatedRoles));
+          console.log('📊 [Usuarios] Contadores de usuarios actualizados en roles:', userCountByRole);
+          
+          // Actualizar estado local también
+          setRoles(updatedRoles);
+        }
+      } catch (error) {
+        console.error('❌ [Usuarios] Error actualizando contadores:', error);
+      }
+    };
+
+    // Actualizar después de cualquier cambio en usuarios
+    if (usuarios && usuarios.length >= 0) {
+      updateUserCountsInRoles();
+    }
+  }, [usuarios]);
 
   const validatePassword = (password: string) => {
     const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
@@ -183,8 +272,22 @@ export const Usuarios: React.FC = () => {
   ];
 
   const handleAdd = () => {
+    // Recargar roles antes de abrir el modal
+    const stored = localStorage.getItem('damabella_roles');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRoles(parsed);
+          console.log('🔄 [Usuarios] Roles recargados para nuevo usuario');
+        }
+      } catch (e) {
+        console.error('Error reloading roles:', e);
+      }
+    }
+
     setSelectedUsuario(null);
-    setFormData({ rol: 'Cliente', estado: 'Activo' });
+    setFormData({ ...formData, rol: '' as any, estado: 'Activo' });
     setFormErrors({});
     setShowPassword(false);
     setShowConfirmPassword(false);
@@ -192,6 +295,20 @@ export const Usuarios: React.FC = () => {
   };
 
   const handleEdit = (usuario: Usuario) => {
+    // Recargar roles antes de abrir el modal
+    const stored = localStorage.getItem('damabella_roles');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRoles(parsed);
+          console.log('🔄 [Usuarios] Roles recargados para editar usuario');
+        }
+      } catch (e) {
+        console.error('Error reloading roles:', e);
+      }
+    }
+
     setSelectedUsuario(usuario);
     setFormData({ 
       ...usuario,
@@ -377,8 +494,8 @@ export const Usuarios: React.FC = () => {
               >
                 <option value="">Seleccione un rol</option>
                 {roles.map((rol: any) => (
-                  <option key={rol.id} value={rol.nombre}>
-                    {rol.nombre}
+                  <option key={rol.id} value={rol.name || rol.nombre}>
+                    {rol.name || rol.nombre}
                   </option>
                 ))}
               </Select>

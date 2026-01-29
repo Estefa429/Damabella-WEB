@@ -6,6 +6,17 @@ const STORAGE_KEY = 'damabella_compras';
 const PROVEEDORES_KEY = 'damabella_proveedores';
 const PRODUCTOS_KEY = 'damabella_productos';
 
+const COLOR_MAP = {
+  'Negro': '#000000',
+  'Blanco': '#FFFFFF',
+  'Rojo': '#DC2626',
+  'Azul': '#2563EB',
+  'Verde': '#16A34A',
+  'Rosa': '#EC4899',
+  'Gris': '#6B7280',
+  'Beige': '#D4A574',
+};
+
 interface ItemCompra {
   id: string;
   productoId: string;
@@ -148,6 +159,7 @@ export function ComprasManager() {
   
   const [formData, setFormData] = useState({
     proveedorId: '',
+    proveedorNombre: '',
     fechaCompra: new Date().toISOString().split('T')[0],
     iva: '19',
     observaciones: '',
@@ -177,8 +189,187 @@ export function ComprasManager() {
   }, [compras]);
 
   useEffect(() => {
+    // Limpiar compras ficticias al cargar
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const comprasData = JSON.parse(stored);
+        // Filtrar solo compras que tengan proveedorNombre válido (no ficticios como "Proveedor A", "Proveedor C", etc)
+        const comprasReales = comprasData.filter((c: any) => {
+          const nombre = String(c.proveedorNombre || '').toLowerCase().trim();
+          // Excluir proveedores ficticios
+          return !(/^proveedor\s+[a-z]$/i.test(nombre)) && 
+                 nombre !== '' &&
+                 c.numeroCompra && 
+                 c.items && 
+                 Array.isArray(c.items);
+        });
+        
+        // Si hay cambios, actualizar localStorage
+        if (comprasReales.length !== comprasData.length) {
+          console.log(`🧹 [ComprasManager] Limpiando ${comprasData.length - comprasReales.length} compras ficticias`);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(comprasReales));
+          setCompras(comprasReales);
+        }
+      } catch (e) {
+        console.error('❌ [ComprasManager] Error limpiando datos ficticios:', e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem('damabella_compra_counter', compraCounter.toString());
   }, [compraCounter]);
+
+  // Sincronizar proveedores desde localStorage
+  useEffect(() => {
+    const cargarProveedores = () => {
+      const stored = localStorage.getItem(PROVEEDORES_KEY);
+      if (stored) {
+        try {
+          const proveedoresActualizados = JSON.parse(stored);
+          setProveedores(proveedoresActualizados);
+          console.log('✅ [ComprasManager] Proveedores sincronizados:', proveedoresActualizados.map((p: any) => p.nombre));
+        } catch (e) {
+          console.error('❌ [ComprasManager] Error cargando proveedores:', e);
+        }
+      }
+    };
+
+    // Cargar inmediatamente
+    cargarProveedores();
+
+    // Escuchar cambios en otros tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === PROVEEDORES_KEY && e.newValue) {
+        console.log('📡 [ComprasManager] Proveedores actualizados desde otro tab');
+        cargarProveedores();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Verificar periódicamente en el mismo tab
+    const interval = setInterval(cargarProveedores, 500);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Sincronizar productos desde localStorage
+  useEffect(() => {
+    const cargarProductos = () => {
+      const stored = localStorage.getItem(PRODUCTOS_KEY);
+      if (stored) {
+        try {
+          const productosActualizados = JSON.parse(stored);
+          setProductos(productosActualizados);
+          console.log('✅ [ComprasManager] Productos sincronizados:', productosActualizados.map((p: any) => p.nombre));
+        } catch (e) {
+          console.error('❌ [ComprasManager] Error cargando productos:', e);
+        }
+      }
+    };
+
+    // Cargar inmediatamente
+    cargarProductos();
+
+    // Escuchar cambios en otros tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === PRODUCTOS_KEY && e.newValue) {
+        console.log('📡 [ComprasManager] Productos actualizados desde otro tab');
+        cargarProductos();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Verificar periódicamente en el mismo tab
+    const interval = setInterval(cargarProductos, 500);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Sincronizar tallas desde localStorage
+  useEffect(() => {
+    const cargarTallas = () => {
+      const stored = localStorage.getItem('damabella_tallas');
+      if (stored) {
+        try {
+          const tallasActualizadas = JSON.parse(stored);
+          const tallasFormato = tallasActualizadas.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
+          setTallas(tallasFormato);
+          console.log('✅ [ComprasManager] Tallas sincronizadas:', tallasFormato);
+        } catch (e) {
+          console.error('❌ [ComprasManager] Error cargando tallas:', e);
+        }
+      }
+    };
+
+    // Cargar inmediatamente
+    cargarTallas();
+
+    // Escuchar cambios en otros tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'damabella_tallas' && e.newValue) {
+        console.log('📡 [ComprasManager] Tallas actualizadas desde otro tab');
+        cargarTallas();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Verificar periódicamente en el mismo tab
+    const interval = setInterval(cargarTallas, 500);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Sincronizar colores desde localStorage
+  useEffect(() => {
+    const cargarColores = () => {
+      const stored = localStorage.getItem('damabella_colores');
+      if (stored) {
+        try {
+          const coloresActualizados = JSON.parse(stored);
+          const coloresFormato = coloresActualizados.map((c: any) => c.name || c.nombre || '').filter(Boolean);
+          setColoresDisponibles(coloresFormato);
+          console.log('✅ [ComprasManager] Colores sincronizados:', coloresFormato);
+        } catch (e) {
+          console.error('❌ [ComprasManager] Error cargando colores:', e);
+        }
+      }
+    };
+
+    // Cargar inmediatamente
+    cargarColores();
+
+    // Escuchar cambios en otros tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'damabella_colores' && e.newValue) {
+        console.log('📡 [ComprasManager] Colores actualizados desde otro tab');
+        cargarColores();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Verificar periódicamente en el mismo tab
+    const interval = setInterval(cargarColores, 500);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   const validateField = (field: string, value: any) => {
     const errors: any = {};
@@ -213,6 +404,7 @@ export function ComprasManager() {
   const handleCreate = () => {
     setFormData({
       proveedorId: '',
+      proveedorNombre: '',
       fechaCompra: new Date().toISOString().split('T')[0],
       iva: '19',
       observaciones: '',
@@ -239,16 +431,31 @@ export function ComprasManager() {
   };
 
   const handleSelectProveedor = (proveedorId: string, proveedorNombre: string) => {
-    setFormData({ ...formData, proveedorId });
+    setFormData({ ...formData, proveedorId, proveedorNombre });
     setProveedorSearchTerm(proveedorNombre);
     setShowProveedorDropdown(false);
     setFormErrors({ ...formErrors, proveedorId: undefined });
   };
 
   const handleSelectProducto = (productoId: string, productoNombre: string) => {
-    setNuevoItem({ ...nuevoItem, productoId });
+    // Buscar el producto para obtener tallas y colores
+    const producto = productos.find((p: any) => String(p.id) === String(productoId));
+    
+    setNuevoItem({ 
+      ...nuevoItem, 
+      productoId,
+      talla: '', // Limpiar talla al cambiar producto
+      color: ''  // Limpiar color al cambiar producto
+    });
     setProductoSearchTerm(productoNombre);
     setShowProductoDropdown(false);
+    
+    // Log para debugging
+    if (producto) {
+      console.log(`✅ Producto seleccionado: ${producto.nombre}`);
+      console.log(`📏 Tallas disponibles: ${producto.tallas?.join(', ') || 'No especificadas'}`);
+      console.log(`🎨 Colores disponibles: ${producto.colores?.join(', ') || 'No especificados'}`);
+    }
   };
 
   const filteredProveedores = proveedores.filter((p: any) => 
@@ -260,8 +467,8 @@ export function ComprasManager() {
   );
 
   const agregarItem = () => {
-    if (!nuevoItem.productoId || !nuevoItem.cantidad || !nuevoItem.precioCompra || !nuevoItem.precioVenta) {
-      setNotificationMessage('Por favor completa todos los campos del item');
+    if (!nuevoItem.productoId || !nuevoItem.color || !nuevoItem.cantidad || !nuevoItem.precioCompra || !nuevoItem.precioVenta) {
+      setNotificationMessage('Por favor completa todos los campos del item (incluyendo color)');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
@@ -357,14 +564,12 @@ export function ComprasManager() {
 
     setItemsError('');
 
-    // Mapeo temporal de proveedores
-    const proveedoresTemporales: any = {
-      'prov1': 'Proveedor A',
-      'prov2': 'Proveedor B',
-      'prov3': 'Proveedor C'
-    };
-
-    const proveedorNombre = proveedoresTemporales[formData.proveedorId] || formData.proveedorId;
+    // Usar el nombre del proveedor guardado o buscar si no existe
+    let proveedorNombre = formData.proveedorNombre;
+    if (!proveedorNombre) {
+      const proveedor = proveedores.find((p: any) => String(p.id) === String(formData.proveedorId));
+      proveedorNombre = proveedor?.nombre || formData.proveedorId;
+    }
 
     const subtotal = calcularSubtotal();
     const iva = calcularIVA();
@@ -386,6 +591,37 @@ export function ComprasManager() {
       observaciones: formData.observaciones,
       createdAt: new Date().toISOString()
     };
+
+    // 📊 ACTUALIZAR STOCK EN PRODUCTOS
+    const productosActualizados = productos.map((prod: any) => {
+      // Buscar si este producto tiene items en la compra
+      const itemsDelProducto = formData.items.filter((item: any) => 
+        String(item.productoId) === String(prod.id)
+      );
+      
+      if (itemsDelProducto.length > 0) {
+        // Sumar la cantidad total comprada
+        const cantidadComprada = itemsDelProducto.reduce((sum: number, item: any) => 
+          sum + (Number(item.cantidad) || 0), 0
+        );
+        
+        // Aumentar stock
+        const nuevoStock = (prod.stock || 0) + cantidadComprada;
+        
+        console.log(`📦 [Producto] ${prod.nombre}: Stock ${prod.stock || 0} + ${cantidadComprada} = ${nuevoStock}`);
+        
+        return {
+          ...prod,
+          stock: nuevoStock
+        };
+      }
+      return prod;
+    });
+    
+    // Guardar productos actualizados con stock
+    localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosActualizados));
+    setProductos(productosActualizados);
+    console.log('✅ [ComprasManager] Stock de productos actualizado');
 
     setCompras([...compras, compraData]);
     setCompraCounter(compraCounter + 1);
@@ -461,17 +697,15 @@ export function ComprasManager() {
                 <th className="text-left py-4 px-6 text-gray-600">N° Compra</th>
                 <th className="text-left py-4 px-6 text-gray-600">Proveedor</th>
                 <th className="text-left py-4 px-6 text-gray-600">Fecha Compra</th>
-                <th className="text-left py-4 px-6 text-gray-600">Fecha Registro</th>
                 <th className="text-center py-4 px-6 text-gray-600">Items</th>
                 <th className="text-right py-4 px-6 text-gray-600">Total</th>
-                <th className="text-center py-4 px-6 text-gray-600">Estado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredCompras.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-500">
+                  <td colSpan={6} className="py-12 text-center text-gray-500">
                     <Truck className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron compras</p>
                   </td>
@@ -487,7 +721,6 @@ export function ComprasManager() {
                     </td>
                     <td className="py-4 px-6 text-gray-700">{compra.proveedorNombre}</td>
                     <td className="py-4 px-6 text-gray-600">{compra.fechaCompra}</td>
-                    <td className="py-4 px-6 text-gray-600">{compra.fechaRegistro}</td>
                     <td className="py-4 px-6 text-center">
                       <button
                         onClick={() => handleView(compra)}
@@ -497,27 +730,6 @@ export function ComprasManager() {
                       </button>
                     </td>
                     <td className="py-4 px-6 text-right text-gray-900 font-semibold">${compra.total.toLocaleString()}</td>
-                    <td className="py-4 px-6">
-                      <div className="flex justify-center">
-                        {compra.estado === 'Anulada' ? (
-                          <span className="px-3 py-1 rounded-full text-xs bg-red-100 text-red-700">
-                            Anulada
-                          </span>
-                        ) : (
-                          <select
-                            value={compra.estado}
-                            onChange={(e) => cambiarEstado(compra.id, e.target.value as any)}
-                            className={`px-3 py-1 rounded-full text-xs border-0 cursor-pointer ${
-                              compra.estado === 'Recibida' ? 'bg-green-100 text-green-700' :
-                              'bg-yellow-100 text-yellow-700'
-                            }`}
-                          >
-                            <option value="Pendiente">Pendiente</option>
-                            <option value="Recibida">Recibida</option>
-                          </select>
-                        )}
-                      </div>
-                    </td>
                     <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
                         <button
@@ -562,17 +774,22 @@ export function ComprasManager() {
                 value={formData.proveedorId}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setFormData({ ...formData, proveedorId: val });
-                  setFormErrors({ ...formErrors, proveedorId: undefined });
                   const sel = proveedores.find((p: any) => String(p.id) === String(val));
-                  setProveedorSearchTerm(sel ? sel.nombre : '');
+                  const nombre = sel ? sel.nombre : '';
+                  if (nombre) {
+                    setFormData({ ...formData, proveedorId: val, proveedorNombre: nombre });
+                    setProveedorSearchTerm(nombre);
+                  }
+                  setFormErrors({ ...formErrors, proveedorId: undefined });
                 }}
                 className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
               >
                 <option value="">Seleccionar proveedor...</option>
-                <option value="prov1">Proveedor A</option>
-                <option value="prov2">Proveedor B</option>
-                <option value="prov3">Proveedor C</option>
+                {proveedores
+                  .filter((p: any) => p.activo && p.nombre)
+                  .map((p: any) => (
+                    <option key={p.id} value={String(p.id)}>{p.nombre}</option>
+                  ))}
               </select>
               {formErrors.proveedorId && (
                 <p className="text-red-600 text-xs mt-1">{formErrors.proveedorId}</p>
@@ -634,50 +851,152 @@ export function ComprasManager() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                 >
                   <option value="">Seleccionar producto...</option>
-                  <option value="prod1">Camisa</option>
-                  <option value="prod2">Pantalón</option>
-                  <option value="prod3">Blusa</option>
-                  <option value="prod4">Chaqueta</option>
                   {productos.filter((p:any)=>p.activo).map((p:any) => (
-                    <option key={p.id} value={String(p.id)}>{p.nombre} {p.categoria ? ` - ${p.categoria}` : ''}</option>
+                    <option key={p.id} value={String(p.id)}>{p.nombre} {p.referencia ? `(${p.referencia})` : ''}</option>
                   ))}
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Talla (Opcional)</label>
-                  <select
-                    value={nuevoItem.talla}
-                    onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    <option value="">Seleccionar talla...</option>
-                    <option value="S">S</option>
-                    <option value="M">M</option>
-                    <option value="L">L</option>
-                    <option value="XL">XL</option>
-                    {tallas.map(talla => (
-                      <option key={talla} value={talla}>{talla}</option>
-                    ))}
-                  </select>
+                  <label className="block text-gray-700 mb-2 text-sm">Talla</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={nuevoItem.talla}
+                      onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value })}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    >
+                      <option value="">Seleccionar talla...</option>
+                      {(() => {
+                        // Obtener tallas del producto seleccionado
+                        const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
+                        const tallasProducto = producto?.tallas || [];
+                        
+                        // Combinar con tallas globales
+                        const todasLasTallas = [...new Set([...tallasProducto, ...tallas])];
+                        
+                        return todasLasTallas.map(talla => (
+                          <option key={talla} value={talla}>{talla}</option>
+                        ));
+                      })()}
+                    </select>
+                    <Input
+                      type="text"
+                      placeholder="O crear nueva"
+                      className="flex-1 px-3 py-2 text-sm"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.currentTarget.value) {
+                          const newTalla = e.currentTarget.value.trim().toUpperCase();
+                          if (!tallas.includes(newTalla)) {
+                            const updated = [...tallas, newTalla];
+                            setTallas(updated);
+                            localStorage.setItem('damabella_tallas', JSON.stringify(updated));
+                            setNuevoItem({ ...nuevoItem, talla: newTalla });
+                          }
+                          e.currentTarget.value = '';
+                        }
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {(() => {
+                      const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
+                      return producto?.tallas?.length ? `Tallas disponibles: ${producto.tallas.join(', ')}` : 'Selecciona un producto para ver tallas';
+                    })()}
+                  </p>
                 </div>
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Color (Opcional)</label>
-                  <select
-                    value={nuevoItem.color}
-                    onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    <option value="">Seleccionar color...</option>
-                    <option value="Rojo">Rojo</option>
-                    <option value="Negro">Negro</option>
-                    <option value="Blanco">Blanco</option>
-                    <option value="Azul">Azul</option>
-                    {coloresDisponibles.map(color => (
-                      <option key={color} value={color}>{color}</option>
-                    ))}
-                  </select>
+                  <label className="block text-gray-700 mb-2 text-sm">Color</label>
+                  <div className="space-y-2">
+                    {/* Color Picker Visual + Input */}
+                    <div className="flex gap-2 items-end">
+                      <div className="flex flex-col gap-2">
+                        <span className="text-xs text-gray-600">Selector:</span>
+                        <input
+                          type="color"
+                          value={
+                            // Si es un HEX válido (#XXXXXX), usarlo directamente
+                            nuevoItem.color && /^#[0-9A-F]{6}$/i.test(nuevoItem.color)
+                              ? nuevoItem.color
+                              // Si es un nombre de color, buscarlo en COLOR_MAP
+                              : (COLOR_MAP as any)[nuevoItem.color] || '#FFFFFF'
+                          }
+                          onChange={(e) => {
+                            const hex = e.target.value;
+                            // Buscar el nombre del color en el mapa
+                            const colorName = Object.entries(COLOR_MAP).find(([_, h]) => h.toUpperCase() === hex.toUpperCase())?.[0];
+                            // Si encontramos el nombre, usarlo; si no, guardar el HEX
+                            setNuevoItem({ ...nuevoItem, color: colorName || hex });
+                          }}
+                          className="w-12 h-10 p-1 cursor-pointer rounded-lg border border-gray-300"
+                        />
+                      </div>
+                      <div className="flex-1 relative">
+                        <Input
+                          type="text"
+                          placeholder="Color (nombre o HEX)"
+                          value={nuevoItem.color}
+                          onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              agregarItem();
+                            }
+                          }}
+                          className="w-full px-3 py-2 text-sm pr-10"
+                        />
+                        {nuevoItem.color && (
+                          <div
+                            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md border border-gray-300 shadow-sm"
+                            style={{
+                              backgroundColor:
+                                // Si es HEX válido, usarlo
+                                /^#[0-9A-F]{6}$/i.test(nuevoItem.color)
+                                  ? nuevoItem.color
+                                  // Si es nombre, buscarlo en COLOR_MAP
+                                  : (COLOR_MAP as any)[nuevoItem.color] || '#FFFFFF'
+                            }}
+                            title={nuevoItem.color}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Paleta de Colores - Mejorada */}
+                    <div>
+                      <span className="text-xs text-gray-600 mb-3 block font-medium">O selecciona un color:</span>
+                      <div className="grid grid-cols-4 gap-2">
+                        {Object.entries(COLOR_MAP).map(([name, hex]) => {
+                          const isSelected = nuevoItem.color && String(nuevoItem.color).toLowerCase() === String(name).toLowerCase();
+                          return (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => {
+                                setNuevoItem({ ...nuevoItem, color: name });
+                              }}
+                              className={`flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all hover:shadow-md ${
+                                isSelected ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-300' : 'border-gray-200 hover:border-gray-300 bg-white'
+                              }`}
+                              title={name}
+                            >
+                              <div
+                                className="w-10 h-10 rounded-lg border border-gray-300 shadow-sm"
+                                style={{ backgroundColor: hex }}
+                              />
+                              <span className="text-xs font-semibold text-gray-700">{name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        {(() => {
+                          const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
+                          return producto?.colores?.length ? `Colores del producto: ${producto.colores.join(', ')}` : 'Selecciona un producto para ver colores';
+                        })()}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -736,11 +1055,24 @@ export function ComprasManager() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {formData.items.map((item) => (
+                    {formData.items.map((item) => {
+                      const colorHex = (COLOR_MAP as any)[item.color] || item.color;
+                      return (
                       <tr key={item.id}>
                         <td className="py-2 px-3 text-gray-900">{item.productoNombre}</td>
                         <td className="py-2 px-3 text-gray-700">{item.talla || '-'}</td>
-                        <td className="py-2 px-3 text-gray-700">{item.color || '-'}</td>
+                        <td className="py-2 px-3 text-gray-700">
+                          <div className="flex items-center gap-2">
+                            {item.color && (
+                              <div
+                                className="w-6 h-6 rounded-md border border-gray-300 shadow-sm"
+                                style={{ backgroundColor: colorHex }}
+                                title={item.color}
+                              />
+                            )}
+                            <span>{item.color || '-'}</span>
+                          </div>
+                        </td>
                         <td className="py-2 px-3 text-right text-gray-700">{item.cantidad}</td>
                         <td className="py-2 px-3 text-right text-gray-700">${(item.precioCompra || 0).toLocaleString()}</td>
                         <td className="py-2 px-3 text-right text-gray-700">${(item.precioVenta || 0).toLocaleString()}</td>
@@ -754,7 +1086,8 @@ export function ComprasManager() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>

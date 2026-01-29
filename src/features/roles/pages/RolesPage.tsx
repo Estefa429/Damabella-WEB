@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Button, Input, Label, Textarea, Modal, DataTable, Badge, useToast } from '../../../shared/components/native';
 import { Plus, Edit, Trash2, Shield, Check, X, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
@@ -19,12 +19,14 @@ interface Role {
   userCount: number;
 }
 
+const STORAGE_KEY = 'damabella_roles';
+
 const availableModules = [
   'Usuarios',
   'Roles',
   'Clientes',
   'Proveedores',
-  'Categorías',
+  'Categorias',
   'Productos',
   'Tallas',
   'Colores',
@@ -34,7 +36,8 @@ const availableModules = [
   'Devoluciones',
 ];
 
-const mockRoles: Role[] = [
+// Roles por defecto si no existen en localStorage
+const DEFAULT_ROLES: Role[] = [
   {
     id: '1',
     name: 'Administrador',
@@ -74,7 +77,35 @@ const mockRoles: Role[] = [
 ];
 
 export function RolesPage() {
-  const [roles, setRoles] = useState<Role[]>(mockRoles);
+  // 🔧 CARGAR DESDE LOCALSTORAGE
+  const [roles, setRoles] = useState<Role[]>(() => {
+    console.log('🔍 [RolesPage] Inicializando roles...');
+    const stored = localStorage.getItem(STORAGE_KEY);
+    
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`✅ [RolesPage] Roles cargados desde localStorage:`, parsed.map(r => r.name || r.nombre));
+          // Convertir formato si es necesario (por compatibilidad)
+          return parsed.map(r => ({
+            id: r.id,
+            name: r.name || r.nombre,
+            description: r.description || r.descripcion,
+            permissions: r.permissions || [],
+            userCount: r.userCount || 0,
+          }));
+        }
+      } catch (e) {
+        console.error('❌ [RolesPage] Error parsing roles:', e);
+      }
+    }
+    
+    console.log('ℹ️ [RolesPage] Usando roles por defecto');
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_ROLES));
+    return DEFAULT_ROLES;
+  });
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
@@ -95,6 +126,63 @@ export function RolesPage() {
   const { user } = useAuth();
 
   const canDelete = user?.role === 'Administrador';
+
+  // 🔄 SINCRONIZAR CAMBIOS EN OTROS TABS/VENTANAS
+  useEffect(() => {
+    console.log('📡 [RolesPage] Configurando listeners de sincronización...');
+    let lastStoredData: string | null = null;
+
+    const checkForChanges = () => {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored !== lastStoredData) {
+        lastStoredData = stored;
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              console.log('🔄 [RolesPage] Roles actualizados en otro tab/ventana');
+              setRoles(parsed.map(r => ({
+                id: r.id,
+                name: r.name || r.nombre,
+                description: r.description || r.descripcion,
+                permissions: r.permissions || [],
+                userCount: r.userCount || 0,
+              })));
+            }
+          } catch (e) {
+            console.error('Error updating roles:', e);
+          }
+        }
+      }
+    };
+
+    // Verificar inmediatamente
+    checkForChanges();
+
+    // Escuchar cambios en otros tabs
+    window.addEventListener('storage', checkForChanges);
+    
+    // Verificar periódicamente para cambios en el mismo tab
+    const interval = setInterval(checkForChanges, 500);
+
+    return () => {
+      window.removeEventListener('storage', checkForChanges);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // 💾 GUARDAR EN LOCALSTORAGE CUANDO CAMBIEN LOS ROLES
+  useEffect(() => {
+    if (roles && roles.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(roles));
+        console.log(`✅ [RolesPage] ${roles.length} roles guardados en localStorage`);
+      } catch (error) {
+        console.error('Error guardando roles:', error);
+        showToast('Error al guardar roles', 'error');
+      }
+    }
+  }, [roles, showToast]);
 
   const validateField = (field: string, value: string) => {
     const errors: any = {};
@@ -199,9 +287,16 @@ export function RolesPage() {
     }
 
     if (editingRole) {
-      setRoles(roles.map(r => r.id === editingRole.id ? { ...r, ...formData } : r));
+      // ✏️ EDITAR ROL
+      const updatedRoles = roles.map(r => 
+        r.id === editingRole.id 
+          ? { ...r, ...formData } 
+          : r
+      );
+      setRoles(updatedRoles);
       showToast('Rol actualizado correctamente', 'success');
     } else {
+      // ✨ CREAR NUEVO ROL
       const newRole: Role = {
         id: Date.now().toString(),
         ...formData,
@@ -209,6 +304,7 @@ export function RolesPage() {
       };
       setRoles([...roles, newRole]);
       showToast('Rol creado correctamente', 'success');
+      console.log('✅ [RolesPage] Nuevo rol creado:', newRole);
     }
 
     setIsModalOpen(false);
@@ -227,7 +323,8 @@ export function RolesPage() {
 
   const confirmDelete = () => {
     if (roleToDelete) {
-      setRoles(roles.filter(r => r.id !== roleToDelete.id));
+      const updatedRoles = roles.filter(r => r.id !== roleToDelete.id);
+      setRoles(updatedRoles);
       showToast(`Rol "${roleToDelete.name}" eliminado correctamente`, 'success');
       setIsDeleteModalOpen(false);
       setRoleToDelete(null);
