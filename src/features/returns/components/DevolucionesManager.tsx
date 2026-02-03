@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Search, RotateCcw, Eye, Download, AlertCircle, CheckCircle, Trash2, Plus } from 'lucide-react';
 import { Input, Modal, Button } from '../../../shared/components/native';
+import { procesarDevolucionConSaldo, procesarCambioConSaldo } from '../../../services/returnService';
 
 const STORAGE_KEY = 'damabella_devoluciones';
 const VENTAS_KEY = 'damabella_ventas';
 const PRODUCTOS_KEY = 'damabella_productos';
+const CLIENTES_KEY = 'damabella_clientes';
 const DEVOLUCION_COUNTER_KEY = 'damabella_devolucion_counter';
 
 
@@ -32,7 +34,7 @@ interface Devolucion {
   items: ItemDevolucion[];
   total: number;
   createdAt: string;
-  estadoGestion: 'Pendiente' | 'Enviado a reparación' | 'Reparado' | 'Cambiado' | 'Anulado';
+  estadoGestion: 'Aplicada' | 'Pendiente' | 'Enviado a reparación' | 'Reparado' | 'Cambiado' | 'Anulado';
   productoNuevo?: { id: string; nombre: string; precio: number } | null;
   saldoAFavor?: number;
   diferenciaPagar?: number;
@@ -141,42 +143,6 @@ export function DevolucionesManager() {
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const [viewingDevolucion, setViewingDevolucion] = useState<Devolucion | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Estados para crear nueva devolución
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedVenta, setSelectedVenta] = useState<any>(null);
-  const [formMotivo, setFormMotivo] = useState<'Defectuoso' | 'Talla incorrecta' | 'Color incorrecto' | 'Producto equivocado' | 'Otro'>('Defectuoso');
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  const [formFecha, setFormFecha] = useState(new Date().toISOString().split('T')[0]);
-  type MedioPago = 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
-
-  const [productoNuevoId, setProductoNuevoId] = useState('');
-  const [productoNuevoTalla, setProductoNuevoTalla] = useState('');
-  const [productoNuevoColor, setProductoNuevoColor] = useState('');
-  const [medioPagoExcedente, setMedioPagoExcedente] = useState<MedioPago>('Efectivo');
-
-  // ✅ Helpers (deben estar en el componente para poder usarlos en el JSX)
-  const getProductoNuevoSeleccionado = () =>
-    productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
-
-  const getTallasDisponiblesCambio = () => {
-    const producto = getProductoNuevoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
-    return producto.tallas || [];
-  };
-
-  const getColoresDisponiblesCambio = () => {
-    const producto = getProductoNuevoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes && productoNuevoTalla) {
-      const variante = producto.variantes.find((v: any) => v.talla === productoNuevoTalla);
-      if (!variante) return [];
-      return (variante.colores || []).map((c: any) => c.color);
-    }
-    return producto.colores || [];
-  };
-
 
 
   useEffect(() => {
@@ -187,12 +153,28 @@ export function DevolucionesManager() {
       if (storedDevoluciones) setDevoluciones(JSON.parse(storedDevoluciones));
       if (storedVentas) setVentas(JSON.parse(storedVentas));
       if (storedProductos) setProductos(JSON.parse(storedProductos));
+      // ❌ NO cargar cambios aquí - Módulo de devoluciones SOLO debe mostrar devoluciones
     };
     
     handleStorageChange(); // Load initial data
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  // 🔒 NUEVA FUNCIÓN: Sincronizar productos desde localStorage (fuente de verdad)
+  const sincronizarProductos = () => {
+    const productosActualizados = localStorage.getItem(PRODUCTOS_KEY);
+    if (productosActualizados) {
+      try {
+        const datos = JSON.parse(productosActualizados);
+        setProductos(datos);
+        return datos;
+      } catch (error) {
+        console.error('Error al sincronizar productos:', error);
+      }
+    }
+    return null;
+  };
 
   const descargarComprobante = (devolucion: Devolucion) => {
     const contenido = `
@@ -250,6 +232,36 @@ DAMABELLA - Moda Femenina
     setNotificationType('success');
   };
 
+  // 🔒 NUEVA FUNCIÓN: Crear historial unificado de devoluciones y cambios
+  const getHistorialUnificado = () => {
+    // 🔒 CRÍTICO: SOLO mostrar devoluciones, NO cambios
+    // Los cambios deben estar SOLO en el módulo de Cambios
+    const historial: any[] = [];
+
+    // ✅ Agregar SOLO devoluciones reales
+    devoluciones.forEach((dev) => {
+      historial.push({
+        id: dev.id,
+        tipo: 'DEVOLUCIÓN',  // Marcador de tipo
+        numero: dev.numeroDevolucion,
+        numeroVenta: dev.numeroVenta,
+        clienteNombre: dev.clienteNombre,
+        fecha: dev.fechaDevolucion || dev.createdAt,
+        estado: dev.estadoGestion,
+        total: dev.total,
+        motivo: dev.motivo,
+        items: dev.items,
+        datos: dev,  // Guardar datos completos
+      });
+    });
+
+    // ❌ NO agregar cambios aquí - Los cambios deben estar en su propio módulo
+    // cambios.forEach(...) - ELIMINADO INTENCIONALMENTE
+
+    // Ordenar por fecha descendente
+    return historial.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+  };
+
   const normalize = (s: any) =>
     String(s ?? '')
       .toLowerCase()
@@ -259,75 +271,63 @@ DAMABELLA - Moda Femenina
 
   const onlyDigits = (s: any) => String(s ?? '').replace(/[^\d]/g, '');
 
-  const filteredDevoluciones = devoluciones.filter((d) => {
+  // 🔒 NUEVO: Filtro para historial unificado
+  const historialCompleto = getHistorialUnificado();
+  const filteredHistorial = historialCompleto.filter((h) => {
     const q = normalize(searchTerm);
-    const qDigits = onlyDigits(searchTerm); // para $100.000, 100000, etc.
+    const qDigits = onlyDigits(searchTerm);
 
-    const matchNumero = normalize(d.numeroDevolucion).includes(q);
-    const matchVenta = normalize(d.numeroVenta).includes(q);
-    const matchCliente = normalize(d.clienteNombre).includes(q);
-    const matchMotivo = normalize(d.motivo).includes(q);
-    const matchEstado = normalize(d.estadoGestion).includes(q);
+    const matchNumero = normalize(h.numero).includes(q);
+    const matchVenta = normalize(h.numeroVenta).includes(q);
+    const matchCliente = normalize(h.clienteNombre).includes(q);
+    const matchEstado = normalize(h.estado).includes(q);
+    const matchTipo = normalize(h.tipo).includes(q);  // Buscar por tipo (DEVOLUCIÓN o CAMBIO)
+    const matchMotivo = h.motivo ? normalize(h.motivo).includes(q) : false;
 
-    const matchFecha = d.fechaDevolucion
-      ? new Date(d.fechaDevolucion).toLocaleDateString().includes(searchTerm)
+    const matchFecha = h.fecha
+      ? new Date(h.fecha).toLocaleDateString().includes(searchTerm)
       : false;
 
-    // ✅ 1) Buscar por productos devueltos
-    const matchProductoDevuelto =
-      d.items?.some((item) => {
-        return (
-          normalize(item.productoNombre).includes(q) ||
-          normalize(item.talla).includes(q) ||
-          normalize(item.color).includes(q)
-        );
-      }) || false;
+    // Buscar por productos si es devolución
+    const matchProducto = h.items?.some((item: any) =>
+      normalize(item.productoNombre).includes(q) ||
+      normalize(item.talla).includes(q) ||
+      normalize(item.color).includes(q)
+    ) || false;
 
-    // ✅ 2) Buscar por "Cambio" (producto nuevo: vestido, set, etc)
-    const matchCambio =
-      (d.productoNuevo && normalize(d.productoNuevo.nombre).includes(q)) ||
-      normalize(d.productoNuevoTalla).includes(q) ||
-      normalize(d.productoNuevoColor).includes(q);
-
-    // ✅ 3) Buscar por Total (100000 o $100.000)
-    const totalDigits = onlyDigits(d.total);
+    const totalDigits = onlyDigits(h.total);
     const matchTotal = qDigits.length > 0 ? totalDigits.includes(qDigits) : false;
 
     return (
       matchNumero ||
       matchVenta ||
       matchCliente ||
-      matchMotivo ||
       matchEstado ||
+      matchTipo ||
+      matchMotivo ||
       matchFecha ||
-      matchProductoDevuelto ||
-      matchCambio ||
+      matchProducto ||
       matchTotal
     );
   });
 
-
   const descargarExcel = () => {
-    if (filteredDevoluciones.length === 0) {
+    if (filteredHistorial.length === 0) {
       setShowNotificationModal(true);
-      setNotificationMessage('No hay devoluciones para descargar');
+      setNotificationMessage('No hay registros para descargar');
       setNotificationType('info');
       return;
     }
 
-    const datosExcel = filteredDevoluciones.map(d => ({
-      'Número Devolución': d.numeroDevolucion,
-      'Venta Original': d.numeroVenta,
-      'Cliente': d.clienteNombre,
-      'Motivo': d.motivo,
-      'Estado': d.estadoGestion,
-      'Producto Cambio': d.productoNuevo ? d.productoNuevo.nombre : '—',
-      'Saldo a Favor': d.saldoAFavor ? `$${d.saldoAFavor}` : '—',
-      'Diferencia a Pagar': d.diferenciaPagar ? `$${d.diferenciaPagar}` : '—',
-      'Fecha': new Date(d.fechaDevolucion).toLocaleDateString(),
-      'Total': `$${d.total.toLocaleString()}`,
-      'Medio Pago Excedente': d.medioPagoExcedente || '—'
-
+    const datosExcel = filteredHistorial.map(h => ({
+      'Tipo': h.tipo,
+      'Número': h.numero,
+      'Venta Original': h.numeroVenta,
+      'Cliente': h.clienteNombre,
+      'Descripción': h.motivo || 'Cambio de producto',
+      'Estado': h.estado,
+      'Monto': `$${h.total?.toLocaleString() || '0'}`,
+      'Fecha': new Date(h.fecha).toLocaleDateString(),
     }));
 
     const headers = Object.keys(datosExcel[0] || {});
@@ -385,146 +385,15 @@ DAMABELLA - Moda Femenina
   };
 
 
-  const crearDevolucion = () => {
-    if (!selectedVenta || selectedItems.length === 0) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar una venta y al menos un producto');
-      setNotificationType('error');
-      return;
-    };
-
-    if (!productoNuevoId) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar la referencia (producto nuevo) por la que se hará el cambio');
-      setNotificationType('error');
-      return;
-    }
-
-    if (!productoNuevoTalla || !productoNuevoColor) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
-      setNotificationType('error');
-      return;
-    }
-
-    // Calcular número de devolución
-    const nuevoNumero = generarNumeroDevolucion();
-
-    
-    // Obtener items seleccionados de la venta
-    const itemsDevolucion = selectedVenta.items
-    .filter((item: any) => selectedItems.includes(String(item.id)))
-    .map((item: any) => {
-      const cantidad = Number(item.cantidad ?? 0);
-      const precioUnitario = Number(item.precioUnitario ?? 0);
-      const subtotal = Number(item.subtotal ?? (cantidad * precioUnitario));
-
-      return {
-        id: String(item.id),
-        productoNombre: item.productoNombre,
-        talla: item.talla,
-        color: item.color,
-        cantidad,
-        precioUnitario,
-        subtotal,
-      };
-    });
-
-
-    // Calcular total
-    const totalDevolucion = itemsDevolucion.reduce(
-      (sum: number, item: any) => sum + Number(item.subtotal ?? 0),
-      0
-    );
-
-    const productoNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
-    if (!productoNuevo) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Producto de cambio no encontrado');
-      setNotificationType('error');
-      return;
-    }
-
-    const precioProductoNuevo = Number(productoNuevo.precioVenta || 0);
-    const diferencia = precioProductoNuevo - totalDevolucion;
-
-    const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
-    const diferenciaPagar = diferencia > 0 ? diferencia : 0;
-
-    if (diferenciaPagar > 0 && !medioPagoExcedente) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar el medio de pago del excedente');
-      setNotificationType('error');
-      return;
-    }
-
-
-    // Crear nueva devolución
-    const nuevaDevolucion: Devolucion = {
-      id: Date.now(),
-      numeroDevolucion: nuevoNumero,
-      ventaId: selectedVenta.id,
-      numeroVenta: selectedVenta.numeroVenta ?? selectedVenta.numero,
-      clienteNombre: selectedVenta.clienteNombre,
-      fechaDevolucion: formFecha,
-      motivo: formMotivo,
-      items: itemsDevolucion,
-      total: totalDevolucion,
-      createdAt: new Date().toISOString(),
-      estadoGestion: 'Pendiente',
-      productoNuevo: {
-        id: productoNuevo.id,
-        nombre: productoNuevo.nombre,
-        precio: precioProductoNuevo,
-      },
-      productoNuevoTalla,
-      productoNuevoColor,
-      saldoAFavor,
-      diferenciaPagar,
-      medioPagoExcedente: diferenciaPagar > 0 ? medioPagoExcedente : undefined,
-
-      fechaAnulacion: undefined
-    };
-
-    // Guardar en localStorage
-    const updated = [...devoluciones, nuevaDevolucion];
-    setDevoluciones(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-    // Cerrar modal y mostrar notificación
-    setShowCreateModal(false);
-    setSelectedVenta(null);
-    setSelectedItems([]);
-    setFormMotivo('Defectuoso');
-    setFormFecha(new Date().toISOString().split('T')[0]);
-    setProductoNuevoId('');
-    setProductoNuevoTalla('');
-    setProductoNuevoColor('');
-    setMedioPagoExcedente('Efectivo');
-
-    
-    setShowNotificationModal(true);
-    setNotificationMessage(`Devolución ${nuevoNumero} creada correctamente`);
-    setNotificationType('success');
-  };
-
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-gray-900 mb-2">Gestión de Devoluciones</h2>
-          <p className="text-gray-600">Crea y gestiona todas tus devoluciones</p>
+          <h2 className="text-gray-900 mb-2">Historial de Devoluciones y Cambios</h2>
+          <p className="text-gray-600">Visualiza todas tus devoluciones y cambios (creados desde Ventas)</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-          >
-            <Plus size={16} />
-            Nueva Devolución
-          </button>
           {devoluciones.length > 0 && (
             <button
               onClick={descargarExcel}
@@ -572,101 +441,78 @@ DAMABELLA - Moda Femenina
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left py-4 px-6 text-gray-600">Número</th>
-                <th className="text-left py-4 px-6 text-gray-600">Venta Original</th>
-                <th className="text-left py-4 px-6 text-gray-600">Cliente</th>
-                <th className="text-left py-4 px-6 text-gray-600">Motivo</th>
-                <th className="text-center py-4 px-6 text-gray-600">Estado</th>
-                <th className="text-center py-4 px-6 text-gray-600">Cambio</th>
-                <th className="text-right py-4 px-6 text-gray-600">Total</th>
-                <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
+                <th className="text-left py-3 px-4 text-gray-600 text-sm">Tipo</th>
+                <th className="text-left py-3 px-4 text-gray-600 text-sm">Número</th>
+                <th className="text-left py-3 px-4 text-gray-600 text-sm">Venta Original</th>
+                <th className="text-left py-3 px-4 text-gray-600 text-sm">Cliente</th>
+                <th className="text-center py-3 px-4 text-gray-600 text-sm">Estado</th>
+                <th className="text-right py-3 px-4 text-gray-600 text-sm">Monto</th>
+                <th className="text-center py-3 px-4 text-gray-600 text-sm">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredDevoluciones.length === 0 ? (
+              {filteredHistorial.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-gray-500">
                     <RotateCcw className="mx-auto mb-4 text-gray-300" size={48} />
-                    <p>No se encontraron devoluciones</p>
-                    <p className="text-sm mt-2">Crea devoluciones desde el módulo de Ventas</p>
+                    <p>No se encontraron devoluciones ni cambios</p>
+                    <p className="text-sm mt-2">Crea devoluciones y cambios desde el módulo de Ventas</p>
                   </td>
                 </tr>
               ) : (
-                filteredDevoluciones.map((devolucion) => (
-                  <tr key={devolucion.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6">
+                filteredHistorial.map((h) => (
+                  <tr key={`${h.tipo}-${h.id}`} className="hover:bg-gray-50 transition-colors">
+                    <td className="py-3 px-4">
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        h.tipo === 'DEVOLUCIÓN' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {h.tipo}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center justify-center w-8 h-8 bg-purple-100 text-purple-700 rounded-full">
-                          <RotateCcw size={16} />
+                        <span className="inline-flex items-center justify-center w-6 h-6 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+                          {h.tipo === 'DEVOLUCIÓN' ? '📦' : '♻️'}
                         </span>
-                        <div className="text-gray-900">{devolucion.numeroDevolucion}</div>
+                        <div className="text-gray-900 font-medium text-sm">{h.numero}</div>
                       </div>
                     </td>
-                    <td className="py-4 px-6">
-                      <span className="text-gray-600">{devolucion.numeroVenta}</span>
+                    <td className="py-3 px-4">
+                      <span className="text-gray-600 text-sm">{h.numeroVenta}</span>
                     </td>
-                    <td className="py-4 px-6 text-gray-600">{devolucion.clienteNombre}</td>
-                    <td className="py-4 px-6">
-                      <div className="text-gray-600 max-w-xs truncate" title={devolucion.motivo}>
-                        {devolucion.motivo}
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-4 text-gray-600 text-sm">{h.clienteNombre}</td>
+                    <td className="py-3 px-4">
                       <div className="flex justify-center">
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          devolucion.estadoGestion === 'Anulado' ? 'bg-red-100 text-red-700' :
-                          devolucion.estadoGestion === 'Reparado' ? 'bg-blue-100 text-blue-700' :
-                          devolucion.estadoGestion === 'Cambiado' ? 'bg-green-100 text-green-700' :
-                          devolucion.estadoGestion === 'Enviado a reparación' ? 'bg-yellow-100 text-yellow-700' :
+                          h.estado === 'Anulado' ? 'bg-red-100 text-red-700' :
+                          h.estado === 'Reparado' ? 'bg-blue-100 text-blue-700' :
+                          h.estado === 'Cambiado' ? 'bg-green-100 text-green-700' :
+                          h.estado === 'Enviado a reparación' ? 'bg-yellow-100 text-yellow-700' :
+                          h.estado === 'Aplicada' || h.estado === 'Aplicado' ? 'bg-emerald-100 text-emerald-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
-                          {devolucion.estadoGestion}
+                          {h.estado}
                         </span>
                       </div>
                     </td>
-                    <td className="py-4 px-6">
-                      <div className="flex justify-center">
-                        {devolucion.productoNuevo ? (
-                          <span className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-200">
-                            ✓ {devolucion.productoNuevo.nombre}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">—</span>
-                        )}
-                      </div>
+                    <td className="text-right py-3 px-4 text-gray-900 font-medium text-sm">
+                      ${h.total?.toLocaleString() || '0'}
                     </td>
-                    <td className="py-4 px-6 text-right text-gray-900">
-                      ${devolucion.total.toLocaleString()}
-                    </td>
-                    <td className="py-4 px-6">
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => { setViewingDevolucion(devolucion); setShowDetailModal(true); }}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                          title="Ver detalle"
-                        >
-                          <Eye size={18} />
-                        </button>
-                        <button
-                          onClick={() => descargarComprobante(devolucion)}
-                          className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600"
-                          title="Descargar comprobante"
-                        >
-                          <Download size={18} />
-                        </button>
-                        {devolucion.estadoGestion !== 'Anulado' && (
-                          <button
-                            onClick={() => { 
-                              setConfirmMessage(`¿Anular devolución ${devolucion.numeroDevolucion}?`); 
-                              setConfirmAction(() => anularDevolucion(devolucion.id)); 
-                              setShowConfirmModal(true); }}
-                            className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                            title="Anular devolución"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
-                      </div>
+                    <td className="py-3 px-4 text-center">
+                      <button
+                        onClick={() => {
+                          if (h.tipo === 'DEVOLUCIÓN') {
+                            setViewingDevolucion(h.datos);
+                          } else {
+                            setViewingDevolucion(h.datos);  // También mostrar cambios en modal
+                          }
+                          setShowDetailModal(true);
+                        }}
+                        className="text-blue-600 hover:text-blue-700 transition-colors"
+                        title="Ver detalles completos"
+                      >
+                        <Eye size={18} />
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -710,6 +556,7 @@ DAMABELLA - Moda Femenina
                   viewingDevolucion.estadoGestion === 'Reparado' ? 'bg-blue-100 text-blue-700' :
                   viewingDevolucion.estadoGestion === 'Cambiado' ? 'bg-green-100 text-green-700' :
                   viewingDevolucion.estadoGestion === 'Enviado a reparación' ? 'bg-yellow-100 text-yellow-700' :
+                  viewingDevolucion.estadoGestion === 'Aplicada' ? 'bg-emerald-100 text-emerald-700' :
                   'bg-gray-100 text-gray-700'
                 }`}>
                   {viewingDevolucion.estadoGestion}
@@ -889,286 +736,10 @@ DAMABELLA - Moda Femenina
         </Modal>
       )}
 
-      {/* Modal Crear Devolución */}
-      {showCreateModal && (
-        <Modal
-          isOpen={showCreateModal}
-          onClose={() => {
-            setShowCreateModal(false);
-            setSelectedVenta(null);
-            setSelectedItems([]);
-            setProductoNuevoId('');
-            setProductoNuevoTalla('');
-            setProductoNuevoColor('');
-            setMedioPagoExcedente('Efectivo');
-          }}
-          title="Crear Nueva Devolución"
-        >
-          <div className="space-y-4">
-            {/* Seleccionar Venta */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Seleccionar Venta
-              </label>
-              <select
-                value={selectedVenta?.id || ''}
-                onChange={(e) => {
-                  const ventaId = e.target.value;
-                  const venta = ventas.find((v: any) => v.id === parseInt(ventaId));
-                  setSelectedVenta(venta || null);
-                  setSelectedItems([]);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
-                <option value="">-- Selecciona una venta --</option>
-                {ventas.map((venta: any) => (
-                  <option key={venta.id} value={venta.id}>
-                    {venta.numeroVenta ?? venta.numero} - {venta.clienteNombre} - ${venta.total.toLocaleString()}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Productos de la Venta Seleccionada */}
-            {selectedVenta && (
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
-                  Seleccionar Productos
-                </label>
-
-                {/* 1) Lista de productos (checkboxes) */}
-                <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
-                  {selectedVenta.items && selectedVenta.items.length > 0 ? (
-                    selectedVenta.items.map((item: any) => (
-                      <label key={item.id} className="flex items-start gap-2 p-2 hover:bg-gray-50 rounded">
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(item.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, item.id]);
-                            } else {
-                              setSelectedItems(selectedItems.filter(id => id !== item.id));
-                            }
-                          }}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-gray-900">{item.productoNombre}</div>
-                          <div className="text-xs text-gray-600">
-                            Talla: {item.talla} | Color: {item.color} | Cantidad: {item.cantidad} x ${item.precioUnitario.toLocaleString()}
-                          </div>
-                        </div>
-                      </label>
-                    ))
-                  ) : (
-                    <p className="text-sm text-gray-500">No hay productos en esta venta</p>
-                  )}
-                </div>
-
-                {/* 2) Producto por el que se cambia */}
-                {selectedItems.length > 0 && (
-                  <div className="border-t pt-4 mt-4">
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">
-                      ¿Por cuál referencia se hará el cambio? *
-                    </label>
-
-                    <select
-                      value={productoNuevoId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setProductoNuevoId(id);
-                        setProductoNuevoTalla('');
-                        setProductoNuevoColor('');
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    >
-                      <option value="">-- Selecciona el producto nuevo --</option>
-                      {productos.filter((p: any) => p.activo).map((p: any) => (
-                        <option key={p.id} value={p.id}>
-                          {p.nombre} - ${(p.precioVenta || 0).toLocaleString()}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* talla / color */}
-                    {productoNuevoId && (
-                      <div className="grid grid-cols-2 gap-3 mt-3">
-                        <div>
-                          <label className="text-xs text-gray-600 mb-1 block">Talla *</label>
-                          <select
-                            value={productoNuevoTalla}
-                            onChange={(e) => {
-                              setProductoNuevoTalla(e.target.value);
-                              setProductoNuevoColor('');
-                            }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          >
-                            <option value="">Seleccionar...</option>
-                            {getTallasDisponiblesCambio().map((t: string) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="text-xs text-gray-600 mb-1 block">Color *</label>
-                          <select
-                            value={productoNuevoColor}
-                            onChange={(e) => setProductoNuevoColor(e.target.value)}
-                            disabled={!productoNuevoTalla}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          >
-                            <option value="">Seleccionar...</option>
-                            {getColoresDisponiblesCambio().map((c: string) => (
-                              <option key={c} value={c}>{c}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 3) Balance del cambio */}
-                {selectedItems.length > 0 && productoNuevoId && (() => {
-                  const itemsDevolucion = selectedVenta.items
-                    .filter((item: any) => selectedItems.includes(item.id));
-
-                  const totalDevuelto = itemsDevolucion.reduce(
-                    (sum: number, item: any) => sum + (item.subtotal || (item.cantidad * item.precioUnitario)),
-                    0
-                  );
-
-                  const prodNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
-                  const precioProductoNuevo = prodNuevo ? Number(prodNuevo.precioVenta || 0) : 0;
-
-                  const diferencia = precioProductoNuevo - totalDevuelto;
-                  const saldoAFavorCalc = diferencia < 0 ? Math.abs(diferencia) : 0;
-                  const excedenteCalc = diferencia > 0 ? diferencia : 0;
-
-                  return (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2 mt-3">
-                      <div className="font-semibold text-blue-900">Balance del cambio</div>
-
-                      <div className="flex justify-between text-sm text-blue-800">
-                        <span>Total devuelto:</span>
-                        <span className="font-medium">${totalDevuelto.toLocaleString()}</span>
-                      </div>
-
-                      <div className="flex justify-between text-sm text-blue-800">
-                        <span>Producto nuevo:</span>
-                        <span className="font-medium">${precioProductoNuevo.toLocaleString()}</span>
-                      </div>
-
-                      {saldoAFavorCalc > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-green-700">Saldo a favor:</span>
-                          <span className="font-semibold text-green-700">
-                            ${saldoAFavorCalc.toLocaleString()}
-                          </span>
-                        </div>
-                      )}
-
-                      {excedenteCalc > 0 && (
-                        <>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-red-700">Excedente por pagar:</span>
-                            <span className="font-semibold text-red-700">
-                              ${excedenteCalc.toLocaleString()}
-                            </span>
-                          </div>
-
-                          <div>
-                            <label className="block text-gray-700 mb-2 text-sm">
-                              Medio de pago del excedente *
-                            </label>
-                            <select
-                              value={medioPagoExcedente}
-                              onChange={(e) => setMedioPagoExcedente(e.target.value as MedioPago)}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            >
-                              <option value="Efectivo">Efectivo</option>
-                              <option value="Transferencia">Transferencia</option>
-                              <option value="Tarjeta">Tarjeta</option>
-                              <option value="Nequi">Nequi</option>
-                              <option value="Daviplata">Daviplata</option>
-                            </select>
-                          </div>
-                        </>
-                      )}
-
-                      {saldoAFavorCalc === 0 && excedenteCalc === 0 && (
-                        <div className="text-sm text-blue-700">
-                          El cambio queda en <span className="font-semibold">0</span> (sin saldo ni excedente).
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-
-            
-
-
-            {/* Motivo de Devolución */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Motivo de Devolución
-              </label>
-              <select
-                value={formMotivo}
-                onChange={(e) => setFormMotivo(e.target.value as any)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
-                <option value="Defectuoso">Defectuoso</option>
-                <option value="Talla incorrecta">Talla incorrecta</option>
-                <option value="Color incorrecto">Color incorrecto</option>
-                <option value="Producto equivocado">Producto equivocado</option>
-                <option value="Otro">Otro</option>
-              </select>
-            </div>
-
-            {/* Fecha de Devolución */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Fecha de Devolución
-              </label>
-              <input
-                type="date"
-                value={formFecha}
-                onChange={(e) => setFormFecha(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-            </div>
-
-            {/* Botones */}
-            <div className="flex gap-3 justify-end pt-4 border-t">
-              <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setSelectedVenta(null);
-                  setSelectedItems([]);
-                }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={crearDevolucion}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Crear Devolución
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
+
 
 
 

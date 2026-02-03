@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Package, Search, FolderTree, AlertTriangle, Eye, Grid3x3, List } from 'lucide-react';
+import { Plus, Edit2, Package, Search, FolderTree, AlertTriangle, Eye, Grid3x3, List } from 'lucide-react';
 import { Button, Input, Modal, useToast } from '../../../../shared/components/native';
 import { usePermissions } from '../../../../shared/hooks/usePermissions';
 
@@ -52,8 +52,6 @@ export default function CategoriasManager() {
   const [showInactiveConfirmModal, setShowInactiveConfirmModal] = useState(false);
   const [showActiveConfirmModal, setShowActiveConfirmModal] = useState(false);
   const [categoryToToggle, setCategoryToToggle] = useState<any>(null);
-  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
-  const [categoryToDelete, setCategoryToDelete] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
   const [showProductsModal, setShowProductsModal] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -64,7 +62,6 @@ export default function CategoriasManager() {
   const canViewCategorias = permisos.canView;
   const canCreateCategorias = permisos.canCreate;
   const canEditCategorias = permisos.canEdit;
-  const canDeleteCategorias = permisos.canDelete;
 
   // 🔄 ESCUCHAR CAMBIOS EN ROLES DESDE OTROS MÓDULOS/TABS
   useEffect(() => {
@@ -72,7 +69,6 @@ export default function CategoriasManager() {
       canViewCategorias,
       canCreateCategorias,
       canEditCategorias,
-      canDeleteCategorias,
     });
 
     const handleStorageChange = (e: StorageEvent) => {
@@ -85,7 +81,7 @@ export default function CategoriasManager() {
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [canViewCategorias, canCreateCategorias, canEditCategorias, canDeleteCategorias]);
+  }, [canViewCategorias, canCreateCategorias, canEditCategorias]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(categories));
@@ -184,36 +180,6 @@ const handleViewProducts = (category: any) => {
       showToast(`✅ Categoría "${formData.name}" creada correctamente`, 'success');
     }
     setShowModal(false);
-  };
-
-  const handleDelete = (id: number) => {
-    const category = categories.find((c: any) => c.id === id);
-    setCategoryToDelete(category);
-    setShowDeleteConfirmModal(true);
-  };
-
-  const confirmDelete = () => {
-    if (categoryToDelete) {
-      const categoryName = categoryToDelete.name;
-      
-      // Eliminar la categoría
-      setCategories(categories.filter((c: any) => c.id !== categoryToDelete.id));
-      
-      // Eliminar productos relacionados
-      const productosActualizados = productos.filter((p: any) => p.categoria !== categoryName);
-      setProductos(productosActualizados);
-      localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosActualizados));
-      
-      // Limpiar el historial de esta categoría
-      const newDisabledProducts = { ...disabledProductsByCategory };
-      delete newDisabledProducts[categoryName];
-      setDisabledProductsByCategory(newDisabledProducts);
-      localStorage.setItem(DISABLED_PRODUCTS_KEY, JSON.stringify(newDisabledProducts));
-      
-      console.log(`🗑️ Categoría "${categoryName}" eliminada junto con ${productos.filter((p: any) => p.categoria === categoryName).length} producto(s)`);
-    }
-    setShowDeleteConfirmModal(false);
-    setCategoryToDelete(null);
   };
 
   const toggleActive = (id: number) => {
@@ -490,18 +456,6 @@ const handleViewProducts = (category: any) => {
                         >
                           <Edit2 size={18} />
                         </button>
-                        <button
-                          onClick={() => handleDelete(category.id)}
-                          disabled={!canDeleteCategorias}
-                          className={`p-2 rounded-lg transition-colors ${
-                            canDeleteCategorias
-                              ? 'hover:bg-red-50 text-red-600'
-                              : 'opacity-50 cursor-not-allowed text-red-300'
-                          }`}
-                          title={!canDeleteCategorias ? 'No tienes permiso para eliminar' : 'Eliminar'}
-                        >
-                          <Trash2 size={18} />
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -566,18 +520,6 @@ const handleViewProducts = (category: any) => {
                               title={!canEditCategorias ? 'No tienes permiso para editar' : 'Editar'}
                             >
                               <Edit2 size={18} />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(category.id)}
-                              disabled={!canDeleteCategorias}
-                              className={`p-2 rounded-lg transition-colors ${
-                                canDeleteCategorias
-                                  ? 'hover:bg-red-50 text-red-600'
-                                  : 'opacity-50 cursor-not-allowed text-red-300'
-                              }`}
-                              title={!canDeleteCategorias ? 'No tienes permiso para eliminar' : 'Eliminar'}
-                            >
-                              <Trash2 size={18} />
                             </button>
                           </div>
                         </td>
@@ -800,55 +742,6 @@ const handleViewProducts = (category: any) => {
             </Button>
             <Button onClick={confirmToggleActive} variant="primary" className="bg-green-600 hover:bg-green-700">
               Activar Categoría y Productos
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Modal Confirmation - Delete Category */}
-      <Modal
-        isOpen={showDeleteConfirmModal}
-        onClose={() => {
-          setShowDeleteConfirmModal(false);
-          setCategoryToDelete(null);
-        }}
-        title="Eliminar Categoría"
-      >
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 bg-red-50 p-4 rounded-lg border border-red-200">
-            <AlertTriangle className="text-red-600 flex-shrink-0" size={24} />
-            <div>
-              <p className="text-red-800 font-semibold">⚠️ Acción irreversible</p>
-              <p className="text-red-700 text-sm">Esta acción NO se puede deshacer</p>
-            </div>
-          </div>
-          <div>
-            <p className="text-gray-700 mb-2">
-              ¿Está seguro de que desea eliminar la categoría <strong className="text-red-600">{categoryToDelete?.name}</strong>?
-            </p>
-            <p className="text-red-700 font-semibold text-sm mb-2">
-              🗑️ Se eliminarán {getProductosPorCategoria(categoryToDelete?.name || '')} producto(s) permanentemente
-            </p>
-            <p className="text-gray-600 text-sm">
-              Esta es una eliminación permanente. Todos los productos asociados a esta categoría serán eliminados de la base de datos.
-            </p>
-          </div>
-          <div className="flex gap-3 justify-end pt-4">
-            <Button 
-              onClick={() => {
-                setShowDeleteConfirmModal(false);
-                setCategoryToDelete(null);
-              }} 
-              variant="secondary"
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={confirmDelete} 
-              variant="primary"
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Eliminar Categoría y Productos
             </Button>
           </div>
         </div>

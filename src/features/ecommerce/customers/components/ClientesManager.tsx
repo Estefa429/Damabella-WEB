@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Users, Search, Phone, Mail, AlertTriangle } from 'lucide-react';
+import { Plus, Edit2, Eye, Search, Phone, Mail, AlertTriangle, TrendingUp, DollarSign, BarChart3, Users } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import validateField from '../../../../shared/utils/validation';
 
 const STORAGE_KEY = 'damabella_clientes';
+const VENTAS_KEY = 'damabella_ventas';
+const DEVOLUCIONES_KEY = 'damabella_devoluciones';
+const CAMBIOS_KEY = 'damabella_cambios';
 
 interface Cliente {
   id: number;
@@ -34,10 +37,6 @@ export default function ClientesManager() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [detailingCliente, setDetailingCliente] = useState<Cliente | null>(null);
-  const [showStatusChangeModal, setShowStatusChangeModal] = useState(false);
-  const [statusChangeCliente, setStatusChangeCliente] = useState<Cliente | null>(null);
   
   const [formData, setFormData] = useState({
     nombre: '',
@@ -49,9 +48,52 @@ export default function ClientesManager() {
     ciudad: ''
   });
 
+  // 🔒 LÓGICA DE ESTADO AUTOMÁTICO DEL CLIENTE
+  // Determina si un cliente debe estar ACTIVO basado en sus ventas
+  const debeEstarActivo = (clienteId: number): boolean => {
+    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    return ventas.some((v: any) => 
+      v.clienteId === clienteId && 
+      (v.estado === 'Aplicada' || v.estado === 'APLICADA' || v.estado === 'Completada' || v.estado === 'COMPLETADA')
+    );
+  };
+
+  // 🔒 AUTO-ACTIVAR clientes si tienen ventas aplicadas
+  const sincronizarEstadoClientes = (clientesActuales: Cliente[]): Cliente[] => {
+    return clientesActuales.map(cliente => {
+      const debeActivo = debeEstarActivo(cliente.id);
+      if (debeActivo && !cliente.activo) {
+        console.log(`✅ [ClientesManager] Cliente "${cliente.nombre}" activado automáticamente (tiene venta APLICADA)`);
+        return { ...cliente, activo: true };
+      }
+      return cliente;
+    });
+  };
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(clientes));
+    // Auto-sincronizar estado antes de guardar
+    const clientesSincronizados = sincronizarEstadoClientes(clientes);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clientesSincronizados));
+    if (JSON.stringify(clientesSincronizados) !== JSON.stringify(clientes)) {
+      setClientes(clientesSincronizados);
+    }
   }, [clientes]);
+
+  // 🔗 ACTIVAR/DESACTIVAR CLIENTE
+  const handleToggleCliente = (cliente: Cliente) => {
+    const clienteActualizado = { ...cliente, activo: !cliente.activo };
+    const clientesActualizados = clientes.map(c => 
+      c.id === cliente.id ? clienteActualizado : c
+    );
+    setClientes(clientesActualizados);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clientesActualizados));
+    
+    const accion = clienteActualizado.activo ? 'activado' : 'desactivado';
+    console.log(`✅ Cliente "${cliente.nombre}" ${accion}`);
+    setNotificationMessage(`Cliente "${cliente.nombre}" ha sido ${accion}`);
+    setNotificationType('success');
+    setShowNotificationModal(true);
+  };
 
   const handleFieldChange = (field: string, value: string) => {
     // Validación de entrada: solo permitir números en campos numéricos
@@ -222,8 +264,8 @@ export default function ClientesManager() {
 
     const clienteData = {
       ...formData,
-      activo: true,
-      createdAt: new Date().toISOString()
+      activo: editingCliente ? editingCliente.activo : false,  // 🔒 Nuevos clientes inician INACTIVOS
+      createdAt: editingCliente?.createdAt || new Date().toISOString()
     };
 
     if (editingCliente) {
@@ -235,24 +277,6 @@ export default function ClientesManager() {
     }
     
     setShowModal(false);
-  };
-
-  const handleChangeStatus = (cliente: Cliente) => {
-    setStatusChangeCliente(cliente);
-    setShowStatusChangeModal(true);
-  };
-
-  const confirmChangeStatus = () => {
-    if (statusChangeCliente) {
-      setClientes(clientes.map(c => 
-        c.id === statusChangeCliente.id ? { ...c, activo: !c.activo } : c
-      ));
-      const newStatus = !statusChangeCliente.activo;
-      setShowStatusChangeModal(false);
-      setNotificationMessage(`Cliente marcado como ${newStatus ? 'activo' : 'inactivo'}`);
-      setNotificationType('success');
-      setShowNotificationModal(true);
-    }
   };
 
   const filteredClientes = clientes.filter(c => {
@@ -267,6 +291,107 @@ export default function ClientesManager() {
       (c.direccion?.toLowerCase() ?? '').includes(searchLower)
     );
   });
+
+  // 📊 FUNCIONES DE CÁLCULO COMERCIAL (Read-only)
+  const calcularDatosComerciales = (clienteId: number) => {
+    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+
+    // 🔒 Normalizar clienteId para comparación (string o número)
+    const clienteIdStr = clienteId.toString();
+
+    // Total de ventas del cliente
+    const ventasCliente = ventas.filter((v: any) => 
+      v.clienteId === clienteId || 
+      v.clienteId?.toString() === clienteIdStr ||
+      v.clienteId === clienteIdStr
+    );
+    const totalVentas = ventasCliente.reduce((sum: number, v: any) => sum + (v.total || 0), 0);
+
+    // Total de devoluciones del cliente
+    const devolucionesCliente = devoluciones.filter((d: any) => 
+      d.clienteId === clienteId || 
+      d.clienteId?.toString() === clienteIdStr ||
+      d.clienteId === clienteIdStr
+    );
+    const totalDevoluciones = devolucionesCliente.reduce((sum: number, d: any) => sum + (d.total || 0), 0);
+
+    // Total de cambios del cliente (diferencia financiera - SOLO INFORMATIVO)
+    const cambiosCliente = cambios.filter((c: any) => 
+      c.clienteId === clienteId || 
+      c.clienteId?.toString() === clienteIdStr ||
+      c.clienteId === clienteIdStr
+    );
+    const totalCambios = cambiosCliente.reduce((sum: number, c: any) => sum + (c.diferencia || 0), 0);
+
+    // 🔒 Saldo a favor del cliente - SOLO afectado por devoluciones, NO por cambios
+    // Representa el saldo disponible por devoluciones no aplicadas
+    const saldoAFavor = totalDevoluciones;
+
+    return {
+      totalVentas,
+      totalDevoluciones,
+      totalCambios,
+      saldoAFavor,
+      ventasCliente,
+      devolucionesCliente,
+      cambiosCliente,
+    };
+  };
+
+  const obtenerHistorialCliente = (clienteId: number) => {
+    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+
+    const historial: any[] = [];
+
+    // Agregar ventas del cliente
+    ventas
+      .filter((v: any) => v.clienteId === clienteId)
+      .forEach((v: any) => {
+        historial.push({
+          tipo: 'Venta',
+          numero: v.numeroVenta || v.id,
+          fecha: v.createdAt || v.fechaVenta,
+          valor: v.total,
+          estado: v.estado || 'Completada',
+          icon: '🛍️',
+        });
+      });
+
+    // Agregar devoluciones del cliente
+    devoluciones
+      .filter((d: any) => d.clienteId === clienteId)
+      .forEach((d: any) => {
+        historial.push({
+          tipo: 'Devolución',
+          numero: d.numeroDevolucion,
+          fecha: d.fechaDevolucion || d.createdAt,
+          valor: d.total,
+          estado: d.estadoGestion,
+          icon: '📦',
+        });
+      });
+
+    // Agregar cambios del cliente
+    cambios
+      .filter((c: any) => c.clienteId === clienteId)
+      .forEach((c: any) => {
+        historial.push({
+          tipo: 'Cambio',
+          numero: c.numeroCambio,
+          fecha: c.fechaCambio || c.createdAt,
+          valor: c.diferencia,
+          estado: c.stockDevuelto && c.stockEntregado ? 'Aplicado' : 'Pendiente',
+          icon: '♻️',
+        });
+      });
+
+    // Ordenar por fecha descendente
+    return historial.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+  };
 
   return (
     <div className="space-y-6">
@@ -305,6 +430,7 @@ export default function ClientesManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Contacto</th>
                 <th className="text-left py-4 px-6 text-gray-600">Ciudad</th>
+                <th className="text-left py-4 px-6 text-gray-600">Resumen Comercial</th>
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
@@ -312,13 +438,15 @@ export default function ClientesManager() {
             <tbody className="divide-y divide-gray-100">
               {filteredClientes.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-500">
+                  <td colSpan={7} className="py-12 text-center text-gray-500">
                     <Users className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron clientes</p>
                   </td>
                 </tr>
               ) : (
-                filteredClientes.map((cliente) => (
+                filteredClientes.map((cliente) => {
+                  const datos = calcularDatosComerciales(cliente.id);
+                  return (
                   <tr key={cliente.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
@@ -351,31 +479,66 @@ export default function ClientesManager() {
                       </div>
                     </td>
                     <td className="py-4 px-6 text-gray-600">{cliente.ciudad || 'N/A'}</td>
+                    
+                    {/* 🔒 RESUMEN COMERCIAL: Mini card vertical */}
+                    <td className="py-4 px-6">
+                      <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200 shadow-sm">
+                        <div className="flex flex-col gap-3">
+                          {/* Total Ventas */}
+                          <div className="flex justify-between items-baseline border-b border-blue-200 pb-2">
+                            <span className="text-xs font-medium text-gray-600">Total Ventas</span>
+                            <span className="text-sm font-bold text-gray-900">${datos.totalVentas.toLocaleString()}</span>
+                          </div>
+                          
+                          {/* Devoluciones */}
+                          <div className="flex justify-between items-baseline border-b border-blue-200 pb-2">
+                            <span className="text-xs font-medium text-gray-600">Devoluciones</span>
+                            <span className={`text-sm font-bold ${datos.totalDevoluciones > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                              ${datos.totalDevoluciones.toLocaleString()}
+                            </span>
+                          </div>
+                          
+                          {/* Saldo a Favor - Destacado */}
+                          <div className="flex justify-between items-baseline pt-1">
+                            <span className="text-xs font-bold text-green-700">Saldo a Favor</span>
+                            <span className={`text-base font-bold ${datos.saldoAFavor > 0 ? 'text-green-600' : 'text-gray-900'}`}>
+                              ${datos.saldoAFavor.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
-                        <button
-                          onClick={() => handleChangeStatus(cliente)}
-                          className={`relative w-12 h-6 rounded-full transition-colors ${
-                            cliente.activo ? 'bg-green-500' : 'bg-gray-300'
-                          }`}
-                        >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                            cliente.activo ? 'translate-x-6' : 'translate-x-0'
-                          }`} />
-                        </button>
+                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          cliente.activo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {cliente.activo ? 'Activo' : 'Inactivo'}
+                        </div>
                       </div>
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => {
-                            setDetailingCliente(cliente);
-                            setShowDetailModal(true);
+                            // ✅ Validación defensiva: asegurar que el cliente tiene ID válido
+                            if (!cliente || !cliente.id) {
+                              console.error('❌ [ClientesManager] Error: Cliente sin ID', cliente);
+                              setNotificationMessage('Error: No se puede abrir el detalle del cliente');
+                              setNotificationType('error');
+                              setShowNotificationModal(true);
+                              return;
+                            }
+                            // 🔗 Guardar cliente temporal para navegación
+                            sessionStorage.setItem('cliente_detalle_actual', JSON.stringify(cliente));
+                            // Navegar a detalle
+                            window.dispatchEvent(new CustomEvent('navigate-cliente-detalle', { detail: cliente }));
                           }}
                           className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
                           title="Ver detalle"
                         >
-                          <Users size={18} />
+                          <Eye size={18} />
                         </button>
                         <button
                           onClick={() => handleEdit(cliente)}
@@ -384,10 +547,24 @@ export default function ClientesManager() {
                         >
                           <Edit2 size={18} />
                         </button>
+                        <button
+                          onClick={() => handleToggleCliente(cliente)}
+                          className={`p-2 rounded-lg transition-colors ${
+                            cliente.activo
+                              ? 'hover:bg-red-50 text-red-600'
+                              : 'hover:bg-green-50 text-green-600'
+                          }`}
+                          title={cliente.activo ? 'Desactivar cliente' : 'Activar cliente'}
+                        >
+                          <div className="flex items-center justify-center w-5 h-5 text-xs font-bold">
+                            {cliente.activo ? '✕' : '✓'}
+                          </div>
+                        </button>
                       </div>
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>
@@ -563,110 +740,6 @@ export default function ClientesManager() {
             </Button>
           </div>
         </div>
-      </Modal>
-
-      {/* Modal Detalle del Cliente */}
-      <Modal
-        isOpen={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
-        title={`Detalle del Cliente - ${detailingCliente?.nombre}`}
-      >
-        {detailingCliente && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-600 text-sm">Cédula</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.numeroDoc}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Tipo de Documento</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.tipoDoc}</p>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-gray-600 text-sm">Nombres</p>
-              <p className="text-gray-900 font-semibold">{detailingCliente.nombre}</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-600 text-sm">Teléfono</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.telefono || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Ciudad</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.ciudad || 'N/A'}</p>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-gray-600 text-sm">Correo Electrónico</p>
-              <p className="text-gray-900 font-semibold">{detailingCliente.email || 'N/A'}</p>
-            </div>
-
-            <div>
-              <p className="text-gray-600 text-sm">Dirección</p>
-              <p className="text-gray-900 font-semibold">{detailingCliente.direccion || 'N/A'}</p>
-            </div>
-
-              <div className="pt-4 border-t">
-              <div className="flex gap-3">
-                <Button onClick={() => setShowDetailModal(false)} variant="secondary" className="flex-1">
-                  Cerrar
-                </Button>
-                <Button 
-                  onClick={() => {
-                    handleChangeStatus(detailingCliente!);
-                    setShowDetailModal(false);
-                  }} 
-                  variant="primary" 
-                  className="flex-1"
-                >
-                  Cambiar Estado
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Modal Cambiar Estado */}
-      <Modal
-        isOpen={showStatusChangeModal}
-        onClose={() => setShowStatusChangeModal(false)}
-        title="Cambiar Estado del Cliente"
-      >
-        {statusChangeCliente && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
-              <AlertTriangle className="text-yellow-600 flex-shrink-0" size={24} />
-              <div>
-                <p className="text-yellow-800 font-semibold">¿Cambiar estado?</p>
-                <p className="text-yellow-700 text-sm mt-1">
-                  Cliente: <strong>{statusChangeCliente.nombre}</strong>
-                </p>
-                <p className="text-yellow-700 text-sm">
-                  Nuevo estado: <strong>{statusChangeCliente.activo ? 'Inactivo' : 'Activo'}</strong>
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end pt-4">
-              <Button 
-                onClick={() => setShowStatusChangeModal(false)} 
-                variant="secondary"
-              >
-                Cancelar
-              </Button>
-              <Button 
-                onClick={confirmChangeStatus} 
-                variant="primary"
-              >
-                Confirmar
-              </Button>
-            </div>
-          </div>
-        )}
       </Modal>
     </div>
   );

@@ -2,24 +2,12 @@ import React, { useState } from 'react';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { Button, Input, Label, useToast } from '../../../../shared/components/native';
 import { validateCredentials } from '../../../../shared/utils/initializeStorage';
+import { registrarClienteDesdeEcommerce, isEmailUnique, isDocumentoUnique } from '../../../../services/clienteRegistroService';
 
 interface LoginModalProps {
   onClose: () => void;
   onLogin: (user: any) => void;
 }
-
-const USERS_STORAGE_KEY = 'damabella_users';
-
-const getStoredUsers = () => {
-  const stored = localStorage.getItem(USERS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : [];
-};
-
-const saveUser = (user: any) => {
-  const users = getStoredUsers();
-  users.push(user);
-  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-};
 
 const validatePassword = (password: string) => {
   const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
@@ -69,14 +57,17 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
     tipoDoc: 'CC',
     numeroDoc: '',
     celular: '',
+    ciudad: '',
     direccion: '',
     email: '',
     password: '',
     confirmPassword: '',
   });
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
   const [registerErrors, setRegisterErrors] = useState<any>({});
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Recovery
   const [recoveryStep, setRecoveryStep] = useState(1);
@@ -135,89 +126,193 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
     }
   };
 
-  const validateRegisterForm = () => {
-    const errors: any = {};
+  // Validar un campo individual
+  const validateField = (fieldName: string, value: string): string | null => {
+    switch (fieldName) {
+      case 'nombre':
+        if (!value.trim()) return 'El nombre es obligatorio';
+        if (!validateNombre(value)) return 'Solo letras, espacios, tildes y ñ';
+        return null;
 
-    if (!registerData.nombre || !validateNombre(registerData.nombre)) {
-      errors.nombre = 'Solo letras, espacios, tildes y ñ';
+      case 'tipoDoc':
+        if (!value) return 'Selecciona un tipo de documento';
+        return null;
+
+      case 'numeroDoc':
+        if (!value.trim()) return 'El número de documento es obligatorio';
+        if (!validateDocumento(registerData.tipoDoc, value)) {
+          return 'Documento inválido para el tipo seleccionado';
+        }
+        if (!isDocumentoUnique(value, registerData.tipoDoc)) {
+          return 'Este documento ya está registrado';
+        }
+        return null;
+
+      case 'celular':
+        if (!value.trim()) return 'El celular es obligatorio';
+        if (!validateCelular(value)) return 'Debe tener 10 dígitos';
+        return null;
+
+      case 'ciudad':
+        if (!value.trim()) return 'La ciudad es obligatoria';
+        if (value.trim().length < 2) return 'La ciudad debe tener al menos 2 caracteres';
+        return null;
+
+      case 'direccion':
+        if (!value.trim()) return 'La dirección es obligatoria';
+        if (value.trim().length < 10) return 'Ingresa una dirección completa';
+        return null;
+
+      case 'email':
+        if (!value.trim()) return 'El email es obligatorio';
+        if (!validateEmail(value)) return 'Email inválido (debe comenzar con letra)';
+        if (!isEmailUnique(value)) return 'Este correo ya está registrado';
+        return null;
+
+      case 'password':
+        if (!value) return 'La contraseña es obligatoria';
+        if (value.length < 6) return 'Mínimo 6 caracteres';
+        if (!validatePassword(value)) {
+          return '8+ caracteres, mayúscula, minúscula, número y especial';
+        }
+        return null;
+
+      case 'confirmPassword':
+        if (!value) return 'Confirma tu contraseña';
+        if (value !== registerData.password) return 'Las contraseñas no coinciden';
+        return null;
+
+      default:
+        return null;
     }
-
-    if (!validateDocumento(registerData.tipoDoc, registerData.numeroDoc)) {
-      errors.numeroDoc = 'Documento inválido para el tipo seleccionado';
-    }
-
-    if (!validateCelular(registerData.celular)) {
-      errors.celular = 'Debe tener 10 dígitos';
-    }
-
-    if (!registerData.direccion || registerData.direccion.length < 10) {
-      errors.direccion = 'Ingresa una dirección completa';
-    }
-
-    if (!validateEmail(registerData.email)) {
-      errors.email = 'Email inválido (debe comenzar con letra)';
-    }
-
-    const users = getStoredUsers();
-    if (users.find((u: any) => u.email === registerData.email)) {
-      errors.email = 'Este correo ya está registrado';
-    }
-
-    if (!validatePassword(registerData.password)) {
-      errors.password = '8+ caracteres, mayúscula, minúscula, número y especial';
-    }
-
-    if (registerData.password !== registerData.confirmPassword) {
-      errors.confirmPassword = 'Las contraseñas no coinciden';
-    }
-
-    setRegisterErrors(errors);
-    return Object.keys(errors).length === 0;
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  // Manejar cambio de campo con validación en tiempo real
+  const handleFieldChange = (fieldName: string, value: string) => {
+    setRegisterData({ ...registerData, [fieldName]: value });
+
+    // Validar solo si el campo fue tocado
+    if (touchedFields.has(fieldName)) {
+      const error = validateField(fieldName, value);
+      if (error) {
+        setRegisterErrors({ ...registerErrors, [fieldName]: error });
+      } else {
+        const newErrors = { ...registerErrors };
+        delete newErrors[fieldName];
+        setRegisterErrors(newErrors);
+      }
+    }
+  };
+
+  // Manejar blur para validar campo
+  const handleFieldBlur = (fieldName: string) => {
+    setTouchedFields(new Set([...touchedFields, fieldName]));
+    const value = registerData[fieldName as keyof typeof registerData] || '';
+    const error = validateField(fieldName, value);
+    if (error) {
+      setRegisterErrors({ ...registerErrors, [fieldName]: error });
+    } else {
+      const newErrors = { ...registerErrors };
+      delete newErrors[fieldName];
+      setRegisterErrors(newErrors);
+    }
+  };
+
+  const validateRegisterForm = (): boolean => {
+    const newErrors: any = {};
+    let hasErrors = false;
+
+    // Validar todos los campos
+    const fields = ['nombre', 'tipoDoc', 'numeroDoc', 'celular', 'ciudad', 'direccion', 'email', 'password', 'confirmPassword'];
+    
+    fields.forEach(fieldName => {
+      const value = registerData[fieldName as keyof typeof registerData] || '';
+      const error = validateField(fieldName, value);
+      if (error) {
+        newErrors[fieldName] = error;
+        hasErrors = true;
+      }
+    });
+
+    setRegisterErrors(newErrors);
+    setTouchedFields(new Set(['nombre', 'tipoDoc', 'numeroDoc', 'celular', 'ciudad', 'direccion', 'email', 'password', 'confirmPassword']));
+    
+    return !hasErrors;
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    console.log('\n📝 [LoginModal.handleRegister] ========== INICIANDO REGISTRO ==========');
+    console.log('📋 Datos del formulario:', registerData);
+
     if (!validateRegisterForm()) {
+      console.log('❌ [LoginModal.handleRegister] Validaciones fallaron');
       showToast('Por favor corrige los errores', 'error');
       return;
     }
 
-    const users = getStoredUsers();
-    const newUser = {
-      id: `${users.length === 0 ? 'ADM' : 'CLI'}-${Date.now()}`,
-      nombre: registerData.nombre,
-      tipoDoc: registerData.tipoDoc,
-      numeroDoc: registerData.numeroDoc,
-      celular: registerData.celular,
-      direccion: registerData.direccion,
-      email: registerData.email,
-      password: registerData.password,
-      role: users.length === 0 ? 'Administrador' : 'Cliente',
-      roleId: users.length === 0 ? 1 : 3,
-      activo: true,
-      fechaRegistro: new Date().toISOString(),
-    };
+    setIsSubmitting(true);
 
-    saveUser(newUser);
-    showToast('¡Registro exitoso! Ahora puedes iniciar sesión', 'success');
-    setTab('login');
-    setRegisterData({
-      nombre: '',
-      tipoDoc: 'CC',
-      numeroDoc: '',
-      celular: '',
-      direccion: '',
-      email: '',
-      password: '',
-      confirmPassword: '',
-    });
+    try {
+      console.log('✅ [LoginModal.handleRegister] Validaciones pasadas');
+      console.log('🔄 [LoginModal.handleRegister] Llamando registrarClienteDesdeEcommerce...');
+
+      // Usar el servicio de registro que crea tanto usuario como cliente
+      const result = registrarClienteDesdeEcommerce({
+        nombre: registerData.nombre,
+        tipoDocumento: registerData.tipoDoc,
+        numeroDocumento: registerData.numeroDoc,
+        telefono: registerData.celular,
+        ciudad: registerData.ciudad,
+        email: registerData.email,
+        direccion: registerData.direccion,
+        password: registerData.password,
+      });
+
+      if (!result.success) {
+        console.log('❌ [LoginModal.handleRegister] Error:', result.error);
+        showToast(result.error || 'Error al registrar', 'error');
+        return;
+      }
+
+      console.log('✅ [LoginModal.handleRegister] Registro exitoso');
+      console.log('   - Usuario ID:', result.usuario?.id);
+      console.log('   - Cliente ID:', result.cliente?.id);
+      console.log('   - Usuario objeto:', JSON.stringify(result.usuario, null, 2));
+      console.log('   - Cliente objeto:', JSON.stringify(result.cliente, null, 2));
+
+      showToast('¡Registro exitoso! Ahora puedes iniciar sesión', 'success');
+      
+      // Resetear formulario
+      setTab('login');
+      setRegisterData({
+        nombre: '',
+        tipoDoc: 'CC',
+        numeroDoc: '',
+        celular: '',
+        ciudad: '',
+        direccion: '',
+        email: '',
+        password: '',
+        confirmPassword: '',
+      });
+      setRegisterErrors({});
+      setTouchedFields(new Set());
+      
+      console.log('✅ [LoginModal.handleRegister] Formulario reseteado\n');
+    } catch (error) {
+      console.error('❌ [LoginModal.handleRegister] Error inesperado:', error);
+      showToast('Error al registrar. Intenta de nuevo.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRecoveryStep1 = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const users = getStoredUsers();
+    const users = localStorage.getItem('damabella_users') ? JSON.parse(localStorage.getItem('damabella_users') || '[]') : [];
     const user = users.find((u: any) => u.email === recoveryEmail);
 
     if (!user) {
@@ -251,12 +346,12 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
       return;
     }
 
-    const users = getStoredUsers();
+    const users = localStorage.getItem('damabella_users') ? JSON.parse(localStorage.getItem('damabella_users') || '[]') : [];
     const userIndex = users.findIndex((u: any) => u.email === recoveryEmail);
 
     if (userIndex !== -1) {
       users[userIndex].password = recoveryNewPassword;
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+      localStorage.setItem('damabella_users', JSON.stringify(users));
       showToast('¡Contraseña actualizada! Ahora puedes iniciar sesión', 'success');
       setTab('login');
       setRecoveryStep(1);
@@ -365,8 +460,8 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                 <Input
                   id="reg-nombre"
                   value={registerData.nombre}
-                  onChange={(e) => setRegisterData({ ...registerData, nombre: e.target.value })}
-                  onBlur={() => setTouchedFields(new Set([...touchedFields, 'nombre']))}
+                  onChange={(e) => handleFieldChange('nombre', e.target.value)}
+                  onBlur={() => handleFieldBlur('nombre')}
                   className={registerErrors.nombre && touchedFields.has('nombre') ? 'border-red-500' : ''}
                 />
                 {registerErrors.nombre && touchedFields.has('nombre') && <p className="text-red-600 text-xs mt-1">{registerErrors.nombre}</p>}
@@ -378,7 +473,8 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   <select
                     id="reg-tipodoc"
                     value={registerData.tipoDoc}
-                    onChange={(e) => setRegisterData({ ...registerData, tipoDoc: e.target.value })}
+                    onChange={(e) => handleFieldChange('tipoDoc', e.target.value)}
+                    onBlur={() => handleFieldBlur('tipoDoc')}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFB6C1]"
                   >
                     <option value="CC">Cédula</option>
@@ -392,8 +488,8 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   <Input
                     id="reg-numdoc"
                     value={registerData.numeroDoc}
-                    onChange={(e) => setRegisterData({ ...registerData, numeroDoc: e.target.value })}
-                    onBlur={() => setTouchedFields(new Set([...touchedFields, 'numeroDoc']))}
+                    onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
+                    onBlur={() => handleFieldBlur('numeroDoc')}
                     className={registerErrors.numeroDoc && touchedFields.has('numeroDoc') ? 'border-red-500' : ''}
                   />
                   {registerErrors.numeroDoc && touchedFields.has('numeroDoc') && <p className="text-red-600 text-xs mt-1">{registerErrors.numeroDoc}</p>}
@@ -408,11 +504,24 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   maxLength={10}
                   placeholder="3001234567"
                   value={registerData.celular}
-                  onChange={(e) => setRegisterData({ ...registerData, celular: e.target.value.replace(/\D/g, '') })}
-                  onBlur={() => setTouchedFields(new Set([...touchedFields, 'celular']))}
+                  onChange={(e) => handleFieldChange('celular', e.target.value.replace(/\D/g, ''))}
+                  onBlur={() => handleFieldBlur('celular')}
                   className={registerErrors.celular && touchedFields.has('celular') ? 'border-red-500' : ''}
                 />
                 {registerErrors.celular && touchedFields.has('celular') && <p className="text-red-600 text-xs mt-1">{registerErrors.celular}</p>}
+              </div>
+
+              <div>
+                <Label htmlFor="reg-ciudad">Ciudad *</Label>
+                <Input
+                  id="reg-ciudad"
+                  placeholder="Bogotá, Medellín, Cali, etc."
+                  value={registerData.ciudad}
+                  onChange={(e) => handleFieldChange('ciudad', e.target.value)}
+                  onBlur={() => handleFieldBlur('ciudad')}
+                  className={registerErrors.ciudad && touchedFields.has('ciudad') ? 'border-red-500' : ''}
+                />
+                {registerErrors.ciudad && touchedFields.has('ciudad') && <p className="text-red-600 text-xs mt-1">{registerErrors.ciudad}</p>}
               </div>
 
               <div>
@@ -421,8 +530,8 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   id="reg-direccion"
                   placeholder="Calle 123 #45-67, Apto 101"
                   value={registerData.direccion}
-                  onChange={(e) => setRegisterData({ ...registerData, direccion: e.target.value })}
-                  onBlur={() => setTouchedFields(new Set([...touchedFields, 'direccion']))}
+                  onChange={(e) => handleFieldChange('direccion', e.target.value)}
+                  onBlur={() => handleFieldBlur('direccion')}
                   className={registerErrors.direccion && touchedFields.has('direccion') ? 'border-red-500' : ''}
                 />
                 {registerErrors.direccion && touchedFields.has('direccion') && <p className="text-red-600 text-xs mt-1">{registerErrors.direccion}</p>}
@@ -434,8 +543,8 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   id="reg-email"
                   type="email"
                   value={registerData.email}
-                  onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
-                  onBlur={() => setTouchedFields(new Set([...touchedFields, 'email']))}
+                  onChange={(e) => handleFieldChange('email', e.target.value)}
+                  onBlur={() => handleFieldBlur('email')}
                   className={registerErrors.email && touchedFields.has('email') ? 'border-red-500' : ''}
                 />
                 {registerErrors.email && touchedFields.has('email') && <p className="text-red-600 text-xs mt-1">{registerErrors.email}</p>}
@@ -448,8 +557,8 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                     id="reg-password"
                     type={showRegisterPassword ? 'text' : 'password'}
                     value={registerData.password}
-                    onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
-                    onBlur={() => setTouchedFields(new Set([...touchedFields, 'password']))}
+                    onChange={(e) => handleFieldChange('password', e.target.value)}
+                    onBlur={() => handleFieldBlur('password')}
                     className={registerErrors.password && touchedFields.has('password') ? 'border-red-500' : ''}
                   />
                   <button
@@ -469,15 +578,19 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   id="reg-confirm"
                   type="password"
                   value={registerData.confirmPassword}
-                  onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })}
-                  onBlur={() => setTouchedFields(new Set([...touchedFields, 'confirmPassword']))}
+                  onChange={(e) => handleFieldChange('confirmPassword', e.target.value)}
+                  onBlur={() => handleFieldBlur('confirmPassword')}
                   className={registerErrors.confirmPassword && touchedFields.has('confirmPassword') ? 'border-red-500' : ''}
                 />
                 {registerErrors.confirmPassword && touchedFields.has('confirmPassword') && <p className="text-red-600 text-xs mt-1">{registerErrors.confirmPassword}</p>}
               </div>
 
-              <Button type="submit" className="w-full bg-[#FFB6C1] hover:bg-[#FF9EB1]">
-                Crear Cuenta
+              <Button 
+                type="submit" 
+                disabled={Object.keys(registerErrors).length > 0 || isSubmitting}
+                className="w-full bg-[#FFB6C1] hover:bg-[#FF9EB1] disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? 'Creando cuenta...' : 'Crear Cuenta'}
               </Button>
             </form>
           )}
