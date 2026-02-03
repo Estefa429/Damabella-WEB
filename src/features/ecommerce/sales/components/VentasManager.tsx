@@ -5,6 +5,7 @@ import {
   Eye,
   Ban,
   RotateCcw,
+  Repeat2,
   X,
   UserPlus,
   Download,
@@ -13,11 +14,20 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
+import { finalizarVenta, generarNumeroVenta, anularVentaSegura } from '../../../../services/saleService';
+import {
+  validarCambiosVenta,
+  puedeAnularseVentaConCambios,
+  marcarCambioAplicado,
+  validarAnulacionVenta,
+  type ValidacionCambios,
+} from '../../../../services/cambiosValidadores';
 
 const STORAGE_KEY = 'damabella_ventas';
 const CLIENTES_KEY = 'damabella_clientes';
 const PRODUCTOS_KEY = 'damabella_productos';
 const DEVOLUCIONES_KEY = 'damabella_devoluciones';
+const CAMBIOS_KEY = 'damabella_cambios';
 
 type MedioPago = 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
 
@@ -36,6 +46,29 @@ type MotivoDevolucion =
   | 'Color incorrecto'
   | 'Producto equivocado'
   | 'Otro';
+
+type CambioData = {
+  ventaOriginalId: string;
+  productoOriginalId: string;
+  tallaOriginal: string;
+  colorOriginal: string;
+  tallaDevuelta: string;
+  colorDevuelta: string;
+  tallaEntregada: string;
+  colorEntregada: string;
+  productoEntregadoId: string;
+  motivoCambio: string;
+  fechaCambio: string;
+  // � CRÍTICO: Datos financieros del cambio
+  precioDevuelto?: number;      // Precio unitario del producto devuelto
+  precioEntregado?: number;     // Precio unitario del producto entregado
+  diferencia?: number;          // precioEntregado - precioDevuelto (puede ser negativo)
+  medioPagoDiferencia?: MedioPago; // Cómo se cobra/paga la diferencia
+  // �🔒 CRÍTICO: Flags para control atómico de stock
+  stockDevuelto?: boolean;      // True = stock del original fue devuelto (+1)
+  stockEntregado?: boolean;     // True = stock del entregado fue descargado (-1)
+  reversado?: boolean;          // True = cambio fue reversado
+};
 
 const MOTIVOS_DEVOLUCION: MotivoDevolucion[] = [
   'Defectuoso',
@@ -62,7 +95,7 @@ interface Venta {
   clienteId: string;
   clienteNombre: string;
   fechaVenta: string;
-  estado: 'Completada' | 'Anulada' | 'Devolución';
+  estado: 'Completada' | 'Anulada' | 'Devuelta';
   items: ItemVenta[];
   subtotal: number;
   iva: number;
@@ -71,8 +104,16 @@ interface Venta {
   observaciones: string;
   anulada: boolean;
   motivoAnulacion?: string;
+  devolucionId?: string;  // 🔒 CRÍTICO: ID de la devolución aplicada (solo 1 por venta)
   createdAt: string;
   pedido_id?: string | null;
+  cambios?: CambioData[];
+  devoluciones?: DevolucionData[];
+  // 🔒 NUEVO: Flags de movimientos de stock (no se manejan por estado)
+  movimientosStock: {
+    salidaEjecutada: boolean;    // Stock fue descargado al crear venta
+    devolucionEjecutada: boolean; // Stock fue devuelto al anular venta
+  };
 }
 
 export default function VentasManager() {
@@ -216,10 +257,8 @@ export default function VentasManager() {
 
   const [nuevoItem, setNuevoItem] = useState({
     productoId: '',
-    talla: '',
-    color: '',
-    cantidad: '1',
-    precioUnitario: ''
+    varianteId: '',
+    cantidad: '1'
   });
 
   const [devolucionData, setDevolucionData] = useState<DevolucionData>({
@@ -231,7 +270,28 @@ export default function VentasManager() {
   medioPagoExcedente: 'Efectivo',
 });
 
+  const [showCambioModal, setShowCambioModal] = useState(false);
+  const [ventaToCambiar, setVentaToCambiar] = useState<Venta | null>(null);
+  const [cambioData, setCambioData] = useState<CambioData>({
+    ventaOriginalId: '',
+    productoOriginalId: '',
+    tallaOriginal: '',
+    colorOriginal: '',
+    tallaDevuelta: '',
+    colorDevuelta: '',
+    tallaEntregada: '',
+    colorEntregada: '',
+    productoEntregadoId: '',
+    motivoCambio: '',
+    fechaCambio: new Date().toISOString(),
+    precioDevuelto: 0,
+    precioEntregado: 0,
+    diferencia: 0,
+    medioPagoDiferencia: 'Efectivo',
+  });
 
+  // 🔒 Estado dedicado para productos disponibles en modal Cambio
+  const [productosDisponiblesCambio, setProductosDisponiblesCambio] = useState<any[]>([]);
 
   const [ventaCounter, setVentaCounter] = useState(() => {
     const counter = localStorage.getItem('damabella_venta_counter');
@@ -298,7 +358,12 @@ export default function VentasManager() {
         observaciones: pedido.observaciones || '',
         anulada: false,
         createdAt: new Date().toISOString(),
-        pedido_id: pedido.numeroPedido
+        pedido_id: pedido.numeroPedido,
+        // 🔒 NUEVO: Flags de movimientos de stock (se actualizan en finalizarVenta)
+        movimientosStock: {
+          salidaEjecutada: false,   // Se marca true en finalizarVenta()
+          devolucionEjecutada: false
+        }
       };
 
       const counter = parseInt(localStorage.getItem('damabella_venta_counter') || '1', 10);
@@ -334,9 +399,82 @@ export default function VentasManager() {
     window.removeEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
   };
 }, []);
+  // 🔒 FUNCIÓN HELPER: Verificar si una venta tiene devolución aplicada
+  const tieneDevolucionAplicada = (ventaId: number | string): boolean => {
+    const venta = (ventas || []).find((v: any) => v.id?.toString() === ventaId?.toString());
+    return !!venta?.devolucionId;  // Si tiene devolucionId, tiene devolución aplicada
+  };
 
+  // 🔒 FUNCIÓN HELPER: Verificar si una venta tiene cambio aplicado
+  const tieneChangioAplicado = (ventaId: number | string): boolean => {
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+    const cambioAplicado = (cambios || []).find(
+      (c: any) => 
+        c.ventaOriginalId?.toString() === ventaId?.toString() &&
+        c.stockDevuelto === true &&
+        c.stockEntregado === true &&
+        c.reversado !== true
+    );
+    return !!cambioAplicado;
+  };
 
-  const generarNumeroVenta = () => `VEN-${ventaCounter.toString().padStart(3, '0')}`;
+  const calcularCantidadDisponible = (ventaId: number, itemId: string): number => {
+    // 1. Obtener cantidad vendida del item
+    const venta = ventas.find((v: any) => v.id === ventaId);
+    const item = venta?.items?.find((i: any) => i.id === itemId);
+    if (!item) return 0;
+    
+    const cantidadVendida = item.cantidad || 0;
+
+    // 2. Calcular cantidad devuelta
+    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const cantidadDevuelta = (devoluciones || []).reduce((total: number, dev: any) => {
+      if (dev.ventaId?.toString() === ventaId?.toString()) {
+        const itemDev = (dev.items || []).find((i: any) => i.id === itemId);
+        return total + (itemDev?.cantidad || 0);
+      }
+      return total;
+    }, 0);
+
+    // 3. Calcular cantidad cambiada
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+    const cantidadCambiada = (cambios || []).reduce((total: number, cam: any) => {
+      if (cam.ventaOriginalId?.toString() === ventaId?.toString()) {
+        // Buscar si este item fue devuelto en un cambio
+        const itemCam = (cam.productoOriginalId === item.productoId && 
+                        cam.tallaDevuelta === item.talla && 
+                        cam.colorDevuelta === item.color) ? 1 : 0;
+        return total + itemCam;
+      }
+      return total;
+    }, 0);
+
+    // 4. Calcular disponible
+    const cantidadDisponible = cantidadVendida - cantidadDevuelta - cantidadCambiada;
+    return Math.max(0, cantidadDisponible);
+  };
+
+  // 🔒 useEffect: Calcular productos disponibles cuando se abre modal Cambio
+  // Se ejecuta cada vez que el modal se abre o cuando cambian las devoluciones/cambios
+  useEffect(() => {
+    if (!showCambioModal || !ventaToCambiar) {
+      setProductosDisponiblesCambio([]);
+      return;
+    }
+
+    // Obtener devoluciones y cambios actuales
+    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+
+    // Filtrar items de la venta que tienen cantidadDisponible > 0
+    const productosDisponibles = (ventaToCambiar.items || []).filter((item) => {
+      const cantidadDisponible = calcularCantidadDisponible(ventaToCambiar.id, item.id);
+      return cantidadDisponible > 0;
+    });
+
+    setProductosDisponiblesCambio(productosDisponibles);
+  }, [showCambioModal, ventaToCambiar, ventas]);
+
 
   const calcularTotales = (items: ItemVenta[]) => {
     const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
@@ -415,10 +553,8 @@ export default function VentasManager() {
 
     setNuevoItem({
       productoId: '',
-      talla: '',
-      color: '',
-      cantidad: '1',
-      precioUnitario: ''
+      varianteId: '',
+      cantidad: '1'
     });
     setClienteSearchTerm('');
     setFormErrors({});
@@ -438,38 +574,40 @@ export default function VentasManager() {
 
 
 
-  const filteredClientes = clientes.filter((c: any) =>
+  const filteredClientes = (clientes || []).filter((c: any) =>
     (c.nombre?.toLowerCase() ?? '').includes(clienteSearchTerm.toLowerCase()) ||
     (c.numeroDoc ?? '').includes(clienteSearchTerm)
   );
 
-  const getProductoSeleccionado = () => productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
+  const getProductoSeleccionado = () => (productos || []).find((p: any) => p.id.toString() === nuevoItem.productoId);
 
-  const getTallasDisponibles = () => {
-    const producto = getProductoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
-    return producto.tallas || [];
-  };
+  // 🔒 DEPRECATED: Se usa varianteId en lugar de talla/color
+  // const getTallasDisponibles = () => {
+  //   const producto = getProductoSeleccionado();
+  //   if (!producto) return [];
+  //   if (producto.variantes) return (producto.variantes || []).map((v: any) => v.talla);
+  //   return producto.tallas || [];
+  // };
 
-  const getColoresDisponibles = () => {
-    const producto = getProductoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes && nuevoItem.talla) {
-      const variante = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
-      if (!variante) return [];
-      return variante.colores.map((c: any) => c.color);
-    }
-    return producto.colores || [];
-  };
+  // 🔒 DEPRECATED: Se usa varianteId en lugar de talla/color
+  // const getColoresDisponibles = () => {
+  //   const producto = getProductoSeleccionado();
+  //   if (!producto) return [];
+  //   if (producto.variantes && nuevoItem.talla) {
+  //     const variante = (producto.variantes || []).find((v: any) => v.talla === nuevoItem.talla);
+  //     if (!variante) return [];
+  //     return (variante.colores || []).map((c: any) => c.color);
+  //   }
+  //   return producto.colores || [];
+  // };
 
   const getProductoNuevoSeleccionado = () =>
-    productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
+    (productos || []).find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
 
   const getTallasDisponiblesCambio = () => {
     const producto = getProductoNuevoSeleccionado();
     if (!producto) return [];
-    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
+    if (producto.variantes) return (producto.variantes || []).map((v: any) => v.talla);
     return producto.tallas || [];
   };
 
@@ -477,35 +615,134 @@ export default function VentasManager() {
     const producto = getProductoNuevoSeleccionado();
     if (!producto) return [];
     if (producto.variantes && devolucionData.productoNuevoTalla) {
-      const variante = producto.variantes.find((v: any) => v.talla === devolucionData.productoNuevoTalla);
+      const variante = (producto.variantes || []).find((v: any) => v.talla === devolucionData.productoNuevoTalla);
       if (!variante) return [];
       return (variante.colores || []).map((c: any) => c.color);
     }
     return producto.colores || [];
   };
 
+  // 🔒 HELPERS PARA FILTRAR PRODUCTOS A ENTREGAR POR STOCK
+
+  // Función: Obtener productos que tienen al menos una variante con stock > 0
+  const getProductosConStockDisponible = () => {
+    return (productos || []).filter((p: any) => {
+      if (!p.variantes || p.variantes.length === 0) return false;
+      // Verificar si existe al menos una variante con al menos un color con stock > 0
+      return p.variantes.some((v: any) =>
+        v.colores && v.colores.some((c: any) => (c.cantidad || c.stock || 0) > 0)
+      );
+    });
+  };
+
+  // Función: Obtener tallas que tienen al menos un color con stock > 0
+  const getTallasConStockDisponible = (productoId: string) => {
+    const producto = (productos || []).find((p: any) => p.id.toString() === productoId);
+    if (!producto || !producto.variantes) return [];
+    
+    return producto.variantes
+      .filter((v: any) => v.colores && v.colores.some((c: any) => (c.cantidad || c.stock || 0) > 0))
+      .map((v: any) => v.talla);
+  };
+
+  // Función: Obtener colores con stock > 0 para una talla específica
+  const getColoresConStockDisponible = (productoId: string, talla: string) => {
+    const producto = (productos || []).find((p: any) => p.id.toString() === productoId);
+    if (!producto || !producto.variantes) return [];
+    
+    const variante = producto.variantes.find((v: any) => v.talla === talla);
+    if (!variante || !variante.colores) return [];
+    
+    return variante.colores
+      .filter((c: any) => (c.cantidad || c.stock || 0) > 0)
+      .map((c: any) => ({ color: c.color, stock: c.cantidad || c.stock || 0 }));
+  };
+
+  // Función: Verificar si hay stock disponible para una variante específica
+  const tieneStockDisponible = (productoId: string, talla: string, color: string): boolean => {
+    const producto = (productos || []).find((p: any) => p.id.toString() === productoId);
+    if (!producto || !producto.variantes) return false;
+    
+    const variante = producto.variantes.find((v: any) => v.talla === talla);
+    if (!variante || !variante.colores) return false;
+    
+    const colorObj = variante.colores.find((c: any) => c.color === color);
+    return colorObj && (colorObj.cantidad || colorObj.stock || 0) > 0;
+  };
 
   const agregarItem = () => {
-    if (!nuevoItem.productoId || !nuevoItem.talla || !nuevoItem.color || !nuevoItem.cantidad) {
-      setNotificationMessage('Completa todos los campos del producto');
+    // 🔒 VALIDACIÓN CRÍTICA: varianteId es obligatorio (no talla/color libres)
+    if (!nuevoItem.productoId || !nuevoItem.varianteId || !nuevoItem.cantidad) {
+      setNotificationMessage('Debes seleccionar producto, variante y cantidad');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
 
-    const producto = productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
-    if (!producto) return;
+    const producto = (productos || []).find((p: any) => p.id.toString() === nuevoItem.productoId);
+    if (!producto) {
+      setNotificationMessage('Producto no encontrado');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 BÚSQUEDA OBLIGATORIA: La variante DEBE existir en PRODUCTOS_KEY
+    if (!(producto.variantes || []) || producto.variantes.length === 0) {
+      setNotificationMessage('❌ Este producto no tiene variantes definidas. Cree el stock desde Compras.');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // Buscar la variante seleccionada
+    let varianteTalla = null;
+    let colorItem = null;
+    let tallaSeleccionada = '';
+    let colorSeleccionado = '';
+
+    for (const variante of (producto.variantes || [])) {
+      for (const color of (variante.colores || [])) {
+        const varId = `${variante.talla}-${color.color}`;
+        if (varId === nuevoItem.varianteId) {
+          varianteTalla = variante;
+          colorItem = color;
+          tallaSeleccionada = variante.talla;
+          colorSeleccionado = color.color;
+          break;
+        }
+      }
+      if (colorItem) break;
+    }
+
+    // 🔒 GUARD CLAUSE: Si la variante NO existe, ABORTAR
+    if (!varianteTalla || !colorItem) {
+      setNotificationMessage(`❌ La variante seleccionada no existe. Las variantes solo se crean desde Compras.`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
 
     const cantidad = parseInt(nuevoItem.cantidad, 10);
+
+    // 🔒 VALIDACIÓN: Stock insuficiente
+    if (colorItem.cantidad < cantidad) {
+      setNotificationMessage(`❌ Stock insuficiente. Disponible: ${colorItem.cantidad} unidades, Solicitado: ${cantidad}`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
     const precioUnitario = producto.precioVenta;
     const subtotal = cantidad * precioUnitario;
 
+    // ✅ TODO VALIDADO: Crear item
     const item: ItemVenta = {
       id: Date.now().toString(),
       productoId: nuevoItem.productoId,
       productoNombre: producto.nombre,
-      talla: nuevoItem.talla,
-      color: nuevoItem.color,
+      talla: tallaSeleccionada,  // ✅ Viene de la variante, NO es editable
+      color: colorSeleccionado,   // ✅ Viene de la variante, NO es editable
       cantidad,
       precioUnitario,
       subtotal
@@ -513,12 +750,11 @@ export default function VentasManager() {
 
     setFormData({ ...formData, items: [...formData.items, item] });
 
+    // Reset solo campos, mantener producto seleccionado
     setNuevoItem({
-      productoId: '',
-      talla: '',
-      color: '',
-      cantidad: '1',
-      precioUnitario: ''
+      productoId: nuevoItem.productoId,
+      varianteId: '',
+      cantidad: '1'
     });
   };
 
@@ -526,6 +762,7 @@ export default function VentasManager() {
     setFormData({ ...formData, items: formData.items.filter(item => item.id !== itemId) });
   };
 
+  // 🔒 FUNCIÓN ÚNICA PERMITIDA EN VENTAS: Descontar stock
   const handleSave = () => {
     const numeroVenta = generarNumeroVenta();
     const allErrors: any = {};
@@ -580,13 +817,42 @@ export default function VentasManager() {
       metodoPago: usarSaldoAFavor
         ? (restante > 0 ? `Saldo a favor + ${metodoPagoRestante}` : 'Saldo a favor')
         : formData.metodoPago,
-
       observaciones: formData.observaciones,
       anulada: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      // 🔒 NUEVO: Flags de movimientos de stock (se actualizan en finalizarVenta)
+      movimientosStock: {
+        salidaEjecutada: false,   // Se marca true en finalizarVenta()
+        devolucionEjecutada: false
+      }
     };
 
-    setVentas(prev => [...prev, ventaData]);
+    // 🔒 LLAMAR A FUNCIÓN CENTRAL: finalizarVenta()
+    // Esta función es responsable de:
+    // 1. Validar variantes y stock
+    // 2. Descontar stock
+    // 3. Guardar venta en localStorage CON FLAGS ACTUALIZADOS
+    // 4. Disparar eventos de sincronización
+    const resultado = finalizarVenta(ventaData as any, formData.items);
+    
+    // 🔒 GUARD CLAUSE: Si el descuento falla, ABORTAR TODO
+    if (!resultado.exitoso) {
+      console.error(`❌ [Ventas] ERROR: ${resultado.error}`);
+      setNotificationMessage(resultado.error || 'Error al finalizar venta');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return; // STOP: No continuar
+    }
+
+    // ✅ Stock descargado correctamente, ahora actualizar UI de Ventas
+    // Obtener venta desde localStorage (tiene flags actualizados)
+    const ventasActualizadas = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    setVentas(ventasActualizadas);
+    
+    // Actualizar productos en estado local para reflejar cambios
+    const productosActualizados = JSON.parse(localStorage.getItem(PRODUCTOS_KEY) || '[]');
+    setProductos(productosActualizados);
+    
     if (saldoUsado > 0) {
       const clientesActualizados = clientes.map((c: any) => {
         if (c.id.toString() === formData.clienteId.toString()) {
@@ -603,12 +869,22 @@ export default function VentasManager() {
     setVentaCounter(ventaCounter + 1);
     setShowModal(false);
 
-    setNotificationMessage('Venta creada exitosamente');
+    setNotificationMessage('✅ Venta creada exitosamente - Stock actualizado automáticamente');
     setNotificationType('success');
     setShowNotificationModal(true);
+    
+    // Reset formulario
+    setFormData({
+      clienteId: '',
+      fechaVenta: new Date().toISOString().split('T')[0],
+      items: [],
+      metodoPago: 'Efectivo',
+      observaciones: ''
+    });
   };
 
   const handleAnular = () => {
+    // 🔒 VALIDACIÓN CRÍTICA 1: Motivo es obligatorio
     if (!ventaToAnular || !motivoAnulacion.trim()) {
       setNotificationMessage('Debes ingresar un motivo de anulación');
       setNotificationType('error');
@@ -616,19 +892,105 @@ export default function VentasManager() {
       return;
     }
 
-    setVentas(ventas.map(v =>
+    // 🔒 NUEVA VALIDACIÓN CRÍTICA: NO permitir anular si hay cambios aplicados
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+    const cambioAplicado = (cambios || []).find(
+      (c: any) => 
+        c.ventaOriginalId?.toString() === ventaToAnular?.id?.toString() &&
+        c.stockDevuelto === true &&
+        c.stockEntregado === true &&
+        c.reversado !== true
+    );
+
+    if (cambioAplicado) {
+      setNotificationMessage(
+        `❌ No puedes anular esta venta porque tiene un cambio aplicado (${cambioAplicado.numeroCambio}).\n` +
+        `Primero debes reversar el cambio antes de poder anular la venta.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 VALIDACIÓN CRÍTICA 2: Usar función centralizada SEGURA
+    // Esta función:
+    // - Valida que no tenga cambios/devoluciones reales
+    // - Devuelve stock SOLO si fue descargado antes (salidaEjecutada === true)
+    // - Marca devolucionEjecutada = true para prevenir duplicación
+    // - Bloquea anulaciones múltiples
+    const resultado = anularVentaSegura(ventaToAnular, motivoAnulacion);
+
+    if (!resultado.exitoso) {
+      setNotificationMessage(resultado.error || 'Error al anular venta');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // ✅ ANULACIÓN EXITOSA - Actualizar UI
+
+    // PASO 1: Actualizar lista de ventas en estado local
+    setVentas((ventasActualesState) => (ventasActualesState || []).map(v =>
       v.id === ventaToAnular.id
-        ? { ...v, estado: 'Anulada', anulada: true, motivoAnulacion }
+        ? {
+            ...v,
+            estado: 'Anulada',
+            anulada: true,
+            motivoAnulacion,
+            // 🔒 Actualizar flags de movimientos
+            movimientosStock: {
+              salidaEjecutada: true,
+              devolucionEjecutada: true
+            }
+          }
         : v
     ));
 
+    // PASO 2: Actualizar productos en estado local (si hubo devolución de stock)
+    if (resultado.stockDevuelto && resultado.stockDevuelto.length > 0) {
+      // Recargar productos desde localStorage para asegurar sincronización
+      const productosJSON = localStorage.getItem(PRODUCTOS_KEY);
+      if (productosJSON) {
+        const productosActualizados = JSON.parse(productosJSON);
+        setProductos(productosActualizados);
+      }
+    }
+
+    // PASO 3: Actualizar saldo a favor del cliente
+    // 🔒 CRÍTICO: El total de la venta anulada se convierte en saldo a favor (NO se devuelve dinero)
+    const clientesActualizados = (clientes || []).map((c: any) => {
+      if (c.id.toString() === ventaToAnular.clienteId.toString()) {
+        return {
+          ...c,
+          saldoAFavor: Number(c.saldoAFavor || 0) + Number(ventaToAnular.total || 0),
+        };
+      }
+      return c;
+    });
+
+    localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
+    setClientes(clientesActualizados);
+
+    // PASO 4: Limpiar formulario
     setShowAnularModal(false);
     setVentaToAnular(null);
     setMotivoAnulacion('');
 
-    setNotificationMessage('Venta anulada exitosamente');
+    // PASO 5: Notificar éxito
+    const stockDevueltoCount = resultado.stockDevuelto?.length || 0;
+    const mensaje =
+      stockDevueltoCount > 0
+        ? `✅ Venta ${ventaToAnular.numeroVenta} anulada. Stock devuelto: ${stockDevueltoCount} items. ` +
+          `Saldo a favor: $${(ventaToAnular.total || 0).toLocaleString()}.`
+        : `✅ Venta ${ventaToAnular.numeroVenta} anulada (sin stock que devolver). ` +
+          `Saldo a favor: $${(ventaToAnular.total || 0).toLocaleString()}.`;
+
+    setNotificationMessage(mensaje);
     setNotificationType('success');
     setShowNotificationModal(true);
+
+    // PASO 6: Disparar evento de sincronización
+    window.dispatchEvent(new Event('salesUpdated'));
   };
 
   const handleCrearCliente = () => {
@@ -670,6 +1032,7 @@ export default function VentasManager() {
   };
 
   const handleCrearDevolucion = () => {
+    // 🔒 VALIDACIÓN 1: Venta válida
     if (!ventaToDevolver || !devolucionData.motivo) {
       setNotificationMessage('Debes seleccionar un motivo de devolución');
       setNotificationType('error');
@@ -677,154 +1040,214 @@ export default function VentasManager() {
       return;
     }
 
+    // 🔒 VALIDACIÓN 1.4: CRÍTICA - Verificar que NO existe devolución previa
+    if (ventaToDevolver.devolucionId) {
+      setNotificationMessage(
+        `❌ Esta venta ya tiene una devolución aplicada (${ventaToDevolver.devolucionId}).
+` +
+        `Una venta solo puede tener UNA devolución.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
 
-    if (devolucionData.itemsDevueltos.length === 0) {
+    // 🔒 VALIDACIÓN 1.5: Bloqueo cruzado - Si ya existe un CAMBIO para esta venta, NO permitir devolución
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+    const cambioExistente = (cambios || []).find((c: any) => c.ventaOriginalId?.toString() === ventaToDevolver.id?.toString());
+    if (cambioExistente) {
+      setNotificationMessage(
+        `❌ Esta venta ya tiene un cambio registrado (${cambioExistente.numeroCambio}). ` +
+        `No puedes hacer una devolución en una venta que ya tiene un cambio.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 VALIDACIÓN 2: Solo devoluciones en ventas COMPLETADAS
+    if (ventaToDevolver.estado !== 'Completada') {
+      setNotificationMessage(
+        `❌ No puedes procesar devolucion de una venta en estado "${ventaToDevolver.estado}". ` +
+        `Solo se permiten devoluciones de ventas COMPLETADAS.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 VALIDACIÓN 3: Items seleccionados
+    if ((devolucionData.itemsDevueltos || []).length === 0) {
       setNotificationMessage('Debes seleccionar al menos un producto para devolver');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
 
-    if (!devolucionData.productoNuevoId) {
-      setNotificationMessage('Debes seleccionar el producto por el que se hará el cambio');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-    if (!devolucionData.productoNuevoTalla || !devolucionData.productoNuevoColor) {
-      setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-
-    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
-    const numeroDevolucion = `DEV-${(devoluciones.length + 1).toString().padStart(3, '0')}`;
-
-    const itemsDevueltos = devolucionData.itemsDevueltos.map(itemDev => {
-      const itemOriginal = ventaToDevolver.items.find(i => i.id === itemDev.itemId);
-      if (!itemOriginal) return null;
-
-      return {
-        id: Date.now().toString() + Math.random(),
-        productoNombre: itemOriginal.productoNombre,
-        talla: itemOriginal.talla,
-        color: itemOriginal.color,
-        cantidad: itemDev.cantidad,
-        precioUnitario: itemOriginal.precioUnitario,
-        subtotal: itemDev.cantidad * itemOriginal.precioUnitario
-      };
-    }).filter(Boolean);
-
-    const totalDevolucion = (itemsDevueltos as any[]).reduce((sum: number, item: any) => sum + item.subtotal, 0);
-    const productoNuevo = productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
-    if (!productoNuevo) {
-      setNotificationMessage('Producto de cambio no encontrado');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-    const precioProductoNuevo = productoNuevo.precioVenta || 0;
-    const diferencia = precioProductoNuevo - totalDevolucion;
-
-    const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
-    const diferenciaPagar = diferencia > 0 ? diferencia : 0;
-
-    if (diferenciaPagar > 0 && !devolucionData.medioPagoExcedente) {
-      setNotificationMessage('Debes seleccionar el medio de pago del excedente');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-
-    const nuevaDevolucion = {
-      id: Date.now(),
-      numeroDevolucion,
-      ventaId: ventaToDevolver.id,
-      numeroVenta: ventaToDevolver.numeroVenta,
-      clienteId: ventaToDevolver.clienteId,
-      clienteNombre: ventaToDevolver.clienteNombre,
-      fechaDevolucion: new Date().toISOString().split('T')[0],
-      motivo: devolucionData.motivo,
-      items: itemsDevueltos,
-      total: totalDevolucion,
-      createdAt: new Date().toISOString(),
-
-      // NUEVO: estado y datos del cambio
-      estadoGestion: 'Cambiado',
-      productoNuevo: {
-        id: productoNuevo.id,
-        nombre: productoNuevo.nombre,
-        precio: precioProductoNuevo,
-      },
-      productoNuevoTalla: devolucionData.productoNuevoTalla,
-      productoNuevoColor: devolucionData.productoNuevoColor,
-
-      // NUEVO: balance
-      saldoAFavor,
-      diferenciaPagar,
-      medioPagoExcedente: diferenciaPagar > 0 ? devolucionData.medioPagoExcedente : undefined,
-    };
-
-
-    localStorage.setItem(DEVOLUCIONES_KEY, JSON.stringify([...devoluciones, nuevaDevolucion]));
-
-    // Actualizar saldo a favor del cliente
-    const clientesActualizados = clientes.map((c: any) => {
-      if (c.id.toString() === ventaToDevolver.clienteId.toString()) {
-        return {
-          ...c,
-          saldoAFavor: Number(c.saldoAFavor || 0) + Number(saldoAFavor || 0),
-        };
+    // 🔒 VALIDACIÓN 3.5: Validar que no se devuelve más de lo disponible
+    for (const itemDev of (devolucionData.itemsDevueltos || [])) {
+      const cantidadDisponible = calcularCantidadDisponible(ventaToDevolver.id, itemDev.itemId);
+      if (itemDev.cantidad > cantidadDisponible) {
+        setNotificationMessage(
+          `❌ El producto intenta devolver ${itemDev.cantidad} unidades pero solo hay ${cantidadDisponible} disponibles (considerando devoluciones y cambios previos).`
+        );
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
       }
-      return c;
-    });
-
-
-    localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
-    setClientes(clientesActualizados);
-
-    // ✅ CAMBIO CLAVE: Marcar la venta como "Devolución"
-    setVentas(prev =>
-      prev.map(v =>
-        v.id === ventaToDevolver.id
-          ? { ...v, estado: 'Devolución' }
-          : v
-      )
-    );
-
-    // (Opcional) Notificar para sincronizar otras pestañas/listeners
-    window.dispatchEvent(new Event('salesUpdated'));
-
-    setShowDevolucionModal(false);
-    setVentaToDevolver(null);
-    setDevolucionData({
-      motivo: 'Defectuoso',
-      itemsDevueltos: [],
-      productoNuevoId: '',
-      productoNuevoTalla: '',
-      productoNuevoColor: '',
-      medioPagoExcedente: 'Efectivo'
-    });
-
-
-    let msg = `Devolución ${numeroDevolucion} creada exitosamente. `;
-
-    if (saldoAFavor > 0) {
-      msg += `Saldo a favor: $${saldoAFavor.toLocaleString()}.`;
-    } else if (diferenciaPagar > 0) {
-      msg += `Excedente pagado: $${diferenciaPagar.toLocaleString()} (${devolucionData.medioPagoExcedente}).`;
-    } else {
-      msg += `Cambio exacto (sin saldo ni excedente).`;
     }
 
-    setNotificationMessage(msg);
+    // 🔒 OPERACIÓN ATÓMICA: Envolver todo en try-catch
+    try {
+      const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+      const numeroDevolucion = `DEV-${(devoluciones.length + 1).toString().padStart(3, '0')}`;
 
-    setNotificationType('success');
-    setShowNotificationModal(true);
+      const itemsDevueltos = (devolucionData.itemsDevueltos || []).map(itemDev => {
+        const itemOriginal = (ventaToDevolver.items || []).find(i => i.id === itemDev.itemId);
+        if (!itemOriginal) return null;
+
+        return {
+          id: Date.now().toString() + Math.random(),
+          productoNombre: itemOriginal.productoNombre,
+          productoId: itemOriginal.productoId,
+          talla: itemOriginal.talla,
+          color: itemOriginal.color,
+          cantidad: itemDev.cantidad,
+          precioUnitario: itemOriginal.precioUnitario,
+          subtotal: itemDev.cantidad * itemOriginal.precioUnitario
+        };
+      }).filter(Boolean);
+
+      const totalDevolucion = (itemsDevueltos as any[]).reduce((sum: number, item: any) => sum + item.subtotal, 0);
+
+      // ✅ PASO 1: Sumar stock de productos devueltos
+      const productosActualizados = (productos || []).map((producto: any) => {
+        let productoModificado = false;
+        const variantesActualizadas = (producto.variantes || []).map((variante: any) => {
+          let varianteModificada = false;
+          const coloresActualizados = (variante.colores || []).map((color: any) => {
+            // Verificar si este color/talla fue devuelto
+            const itemDevuelto = (itemsDevueltos || []).find(
+              (item: any) =>
+                item.productoId?.toString() === producto.id?.toString() &&
+                item.talla === variante.talla &&
+                item.color === color.color
+            );
+
+            if (itemDevuelto) {
+              varianteModificada = true;
+              productoModificado = true;
+              // Sumar cantidad al stock
+              return {
+                ...color,
+                cantidad: (color.cantidad || 0) + itemDevuelto.cantidad
+              };
+            }
+            return color;
+          });
+
+          if (varianteModificada) {
+            return { ...variante, colores: coloresActualizados };
+          }
+          return variante;
+        });
+
+        if (productoModificado) {
+          return { ...producto, variantes: variantesActualizadas };
+        }
+        return producto;
+      });
+
+      // ✅ PASO 2: Crear registro de devolución
+      const saldoAFavor = totalDevolucion;
+
+      const nuevaDevolucion = {
+        id: Date.now(),
+        numeroDevolucion,
+        ventaId: ventaToDevolver.id,
+        numeroVenta: ventaToDevolver.numeroVenta,
+        clienteId: ventaToDevolver.clienteId,
+        clienteNombre: ventaToDevolver.clienteNombre,
+        fechaDevolucion: new Date().toISOString().split('T')[0],
+        motivo: devolucionData.motivo,
+        items: itemsDevueltos,
+        total: totalDevolucion,
+        createdAt: new Date().toISOString(),
+        estadoGestion: 'Aplicada' as const,  // 🔒 APLICADA: Devolución completada inmediatamente (stock + saldo + venta afectados)
+        productoNuevo: null,
+        productoNuevoTalla: null,
+        productoNuevoColor: null,
+        saldoAFavor,
+        diferenciaPagar: 0,
+        medioPagoExcedente: undefined,
+      };
+
+      // ✅ PASO 3: Actualizar saldo a favor del cliente
+      const clientesActualizados = (clientes || []).map((c: any) => {
+        if (c.id.toString() === ventaToDevolver.clienteId.toString()) {
+          return {
+            ...c,
+            saldoAFavor: Number(c.saldoAFavor || 0) + Number(saldoAFavor || 0),
+          };
+        }
+        return c;
+      });
+
+      // ✅ PASO 4: Guardar devolución en localStorage
+      localStorage.setItem(DEVOLUCIONES_KEY, JSON.stringify([...devoluciones, nuevaDevolucion]));
+
+      // ✅ PASO 5: Guardar productos actualizados
+      localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosActualizados));
+      setProductos(productosActualizados);
+
+      // ✅ PASO 6: Guardar clientes actualizados
+      localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
+      setClientes(clientesActualizados);
+
+      // ✅ PASO 7: CRÍTICO - Marcar la venta con devolucionId y cambiar estado a 'Devuelta'
+      const ventasActualizadas = (ventas || []).map((v: Venta) => {
+        if (v.id === ventaToDevolver.id) {
+          return {
+            ...v,
+            devolucionId: numeroDevolucion,  // 🔒 Marcar con ID de devolución
+            estado: 'Devuelta' as const,      // 🔒 Cambiar estado
+          };
+        }
+        return v;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(ventasActualizadas));
+      setVentas(ventasActualizadas);
+
+      // ✅ PASO 8: Limpiar y notificar
+      setShowDevolucionModal(false);
+      setVentaToDevolver(null);
+      setDevolucionData({
+        motivo: 'Defectuoso',
+        itemsDevueltos: [],
+        productoNuevoId: '',
+        productoNuevoTalla: '',
+        productoNuevoColor: '',
+        medioPagoExcedente: 'Efectivo'
+      });
+
+      const msg = `✅ Devolución ${numeroDevolucion} aplicada exitosamente. Stock devuelto y saldo a favor: $${saldoAFavor.toLocaleString()}.`;
+
+      setNotificationMessage(msg);
+      setNotificationType('success');
+      setShowNotificationModal(true);
+
+      // ✅ PASO 9: Disparar evento de sincronización
+      window.dispatchEvent(new Event('salesUpdated'));
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
+      setNotificationMessage(
+        `❌ Error al procesar devolución: ${errorMsg}\n` +
+        `La operación fue CANCELADA. Stock NO fue modificado.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      console.error('Error en handleCrearDevolucion:', error);
+    }
   };
 
   const handleToggleItemDevolucion = (itemId: string, cantidad: number) => {
@@ -849,6 +1272,528 @@ export default function VentasManager() {
     }
   };
 
+  // ==================== SISTEMA DE CAMBIOS (CAMBIOS) ====================
+  // Validación 1: Verificar que la venta original existe y es válida
+  const validarVentaOriginal = (venta: Venta | null): { valido: boolean; error: string } => {
+    if (!venta) {
+      return { valido: false, error: 'La venta original no existe' };
+    }
+    if (venta.anulada) {
+      return { valido: false, error: 'No puedes cambiar una venta anulada' };
+    }
+    if (!venta.items || venta.items.length === 0) {
+      return { valido: false, error: 'La venta no tiene productos' };
+    }
+    return { valido: true, error: '' };
+  };
+
+  // Validación 2: Verificar que la variante devuelta existe en la venta original
+  const validarVarianteDevuelta = (venta: Venta | null, talla: string, color: string): { valido: boolean; error: string; itemEncontrado?: any } => {
+    if (!venta) return { valido: false, error: 'Venta no válida' };
+    
+    const itemDevuelto = (venta.items || []).find(
+      item => item.talla === talla && item.color === color
+    );
+    
+    if (!itemDevuelto) {
+      return { valido: false, error: `Producto con talla ${talla} y color ${color} no existe en esta venta` };
+    }
+    
+    return { valido: true, error: '', itemEncontrado: itemDevuelto };
+  };
+
+  // Validación 3: Verificar que la variante entregada existe en el producto de cambio
+  const validarVarianteEntregada = (productoId: string, talla: string, color: string): { valido: boolean; error: string; varianteEncontrada?: any } => {
+    const producto = (productos || []).find((p: any) => p.id.toString() === productoId);
+    
+    if (!producto) {
+      return { valido: false, error: 'Producto de cambio no existe' };
+    }
+    
+    if (!(producto.variantes || []) || producto.variantes.length === 0) {
+      return { valido: false, error: 'Producto de cambio no tiene variantes' };
+    }
+    
+    const variante = (producto.variantes || []).find((v: any) => v.talla === talla && v.color === color);
+    
+    if (!variante) {
+      return { valido: false, error: `Talla ${talla} o Color ${color} no disponibles en producto de cambio` };
+    }
+    
+    return { valido: true, error: '', varianteEncontrada: variante };
+  };
+
+  // 🔒 FUNCIÓN CRÍTICA: Validación atómica de cambios
+  // Previene duplicación, verifica stock, bloquea múltiples cambios
+  const validarOperacionCambioAtomica = (
+    venta: Venta | null,
+    productoOriginalId: string,
+    productoEntregadoId: string,
+    tallaEntregada: string,
+    colorEntregada: string
+  ): { valido: boolean; error: string } => {
+    if (!venta) return { valido: false, error: 'Venta no válida' };
+
+    // 1. ❌ BLOQUEO: Si la venta TIENE UN CAMBIO APLICADO, no permitir otro
+    const cambiosExistentes = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+    const cambioAplicado = (cambiosExistentes || []).find(
+      (c: any) => 
+        c.ventaOriginalId?.toString() === venta.id?.toString() &&
+        c.stockDevuelto === true &&
+        c.stockEntregado === true &&
+        c.reversado !== true
+    );
+    
+    if (cambioAplicado) {
+      return { 
+        valido: false, 
+        error: `❌ Esta venta ya tiene un cambio aplicado (${cambioAplicado.numeroCambio}). ` +
+               `No puedes hacer más de un cambio por venta. Si necesitas reversarlo, primero debes anular el cambio.` 
+      };
+    }
+
+    // 2. 🔍 Obtener productos desde PRODUCTOS_KEY
+    const productosActuales = JSON.parse(localStorage.getItem(PRODUCTOS_KEY) || '[]');
+    
+    // 3. Verificar producto original existe
+    const productoOriginal = (productosActuales || []).find(
+      (p: any) => p.id.toString() === productoOriginalId
+    );
+
+    if (!productoOriginal) {
+      return { 
+        valido: false, 
+        error: 'Producto original no encontrado en inventario' 
+      };
+    }
+
+    // 4. 🔍 CRÍTICO: Buscar el PRODUCTO A ENTREGAR correcto (NO items[0])
+    const productoAEntregar = (productosActuales || []).find(
+      (p: any) => p.id.toString() === productoEntregadoId
+    );
+
+    if (!productoAEntregar) {
+      return { 
+        valido: false, 
+        error: 'Producto a entregar no encontrado en inventario' 
+      };
+    }
+
+    // 5. 💾 Validación de stock VIRTUAL: Hacer cálculo considerando devolución
+    const productosVirtuales = JSON.parse(JSON.stringify(productosActuales)); // Deep clone
+
+    // 5.1 Aplicar devolución virtual al producto original
+    const productoDevueltoVirtual = (productosVirtuales || []).find(
+      (p: any) => p.id.toString() === productoOriginalId
+    );
+
+    // 5.2 Encontrar variante y color del producto original para sumar stock virtual
+    if (productoDevueltoVirtual && productoDevueltoVirtual.variantes) {
+      // Nota: En el cambio real ya sabemos talla y color devueltos porque están en cambioData
+      // Pero aquí no los tenemos, así que solo validamos que el producto existe
+    }
+
+    // 5.3 Validar stock del PRODUCTO A ENTREGAR con variante y color ESPECÍFICOS
+    if (!productoAEntregar.variantes || productoAEntregar.variantes.length === 0) {
+      return { 
+        valido: false, 
+        error: 'Producto a entregar no tiene variantes definidas' 
+      };
+    }
+
+    // 5.4 Buscar variante específica
+    const varianteAEntregar = (productoAEntregar.variantes || []).find(
+      (v: any) => v.talla === tallaEntregada
+    );
+
+    if (!varianteAEntregar) {
+      return { 
+        valido: false, 
+        error: `Talla ${tallaEntregada} no disponible en producto a entregar` 
+      };
+    }
+
+    // 5.5 Buscar color específico
+    const colorAEntregar = (varianteAEntregar.colores || []).find(
+      (c: any) => c.color === colorEntregada
+    );
+
+    if (!colorAEntregar) {
+      return { 
+        valido: false, 
+        error: `Color ${colorEntregada} no disponible en talla ${tallaEntregada}` 
+      };
+    }
+
+    // 5.6 VALIDACIÓN FINAL: Stock disponible
+    const stockActual = colorAEntregar.cantidad || 0;
+    if (stockActual < 1) {
+      return { 
+        valido: false, 
+        error: `❌ Stock insuficiente para ${productoAEntregar.nombre} (${tallaEntregada}-${colorEntregada}). Disponible: ${stockActual}` 
+      };
+    }
+
+    return { valido: true, error: '' };
+  };
+
+  // Validación 4: Verificar stock disponible de la variante entregada
+  // 🔒 CRÍTICO: CONSIDERA stock virtual (stock actual + devolución del producto original)
+  // Función principal: Procesar el cambio con stock virtual en memoria
+  const handleCrearCambio = () => {
+    // GUARD CLAUSE 1: Validar venta original
+    const validacionVenta = validarVentaOriginal(ventaToCambiar);
+    if (!validacionVenta.valido) {
+      setNotificationMessage(validacionVenta.error);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 VALIDACIÓN 1.5: Bloqueo cruzado - Si ya existe una DEVOLUCIÓN para esta venta, NO permitir cambio
+    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const devolucionExistente = (devoluciones || []).find((d: any) => d.ventaId?.toString() === ventaToCambiar?.id?.toString());
+    if (devolucionExistente) {
+      setNotificationMessage(
+        `❌ Esta venta ya tiene una devolución registrada (${devolucionExistente.numeroDevolucion}). ` +
+        `No puedes hacer un cambio en una venta que ya tiene una devolución.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 VALIDACIÓN ADICIONAL: Solo permitir cambios de ventas COMPLETADAS
+    if (ventaToCambiar?.estado !== 'Completada') {
+      setNotificationMessage(
+        `❌ No puedes hacer cambio de una venta en estado "${ventaToCambiar?.estado}". ` +
+        `Solo se permiten cambios de ventas COMPLETADAS.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // GUARD CLAUSE 2: Validar que la variante devuelta existe en la venta
+    if (!cambioData.tallaDevuelta || !cambioData.colorDevuelta) {
+      setNotificationMessage('Debes seleccionar la talla y color a devolver');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    const validacionDevuelta = validarVarianteDevuelta(ventaToCambiar, cambioData.tallaDevuelta, cambioData.colorDevuelta);
+    if (!validacionDevuelta.valido) {
+      setNotificationMessage(validacionDevuelta.error);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // GUARD CLAUSE 3: Validar producto de cambio
+    if (!cambioData.productoEntregadoId) {
+      setNotificationMessage('Debes seleccionar el producto a entregar');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // GUARD CLAUSE 4: Validar que la variante entregada existe
+    if (!cambioData.tallaEntregada || !cambioData.colorEntregada) {
+      setNotificationMessage('Debes seleccionar la talla y color a entregar');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // GUARD CLAUSE 5: Validar que hay un motivo para el cambio
+    if (!cambioData.motivoCambio || cambioData.motivoCambio.trim() === '') {
+      setNotificationMessage('Debes especificar el motivo del cambio');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 VALIDACIÓN CRÍTICA ATÓMICA: Verificar que NO existe cambio aplicado + stock disponible
+    const validacionAtomica = validarOperacionCambioAtomica(
+      ventaToCambiar,
+      cambioData.productoOriginalId,
+      cambioData.productoEntregadoId,
+      cambioData.tallaEntregada,
+      cambioData.colorEntregada
+    );
+
+    if (!validacionAtomica.valido) {
+      setNotificationMessage(validacionAtomica.error);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // 🔒 OPERACIÓN ATÓMICA: AMBOS MOVIMIENTOS DE STOCK
+    try {
+      // PASO 0: Obtener productos para calcular precios
+      const productosActuales = JSON.parse(localStorage.getItem(PRODUCTOS_KEY) || '[]');
+      const productosVirtuales = JSON.parse(JSON.stringify(productosActuales)); // Deep clone
+
+      // 💰 CÁLCULO: Obtener precio del producto devuelto
+      const productoDevueltoInfo = productosActuales.find(
+        (p: any) => p.id.toString() === cambioData.productoOriginalId
+      );
+      if (!productoDevueltoInfo) {
+        throw new Error('Producto original no encontrado en inventario');
+      }
+      const precioDevuelto = productoDevueltoInfo.precioVenta || 0;
+
+      // 💰 CÁLCULO: Obtener precio del producto entregado
+      const productoEntregadoInfo = productosActuales.find(
+        (p: any) => p.id.toString() === cambioData.productoEntregadoId
+      );
+      if (!productoEntregadoInfo) {
+        throw new Error('Producto a entregar no encontrado en inventario');
+      }
+      const precioEntregado = productoEntregadoInfo.precioVenta || 0;
+
+      // 💰 CÁLCULO: Diferencia de precio
+      const diferencia = precioEntregado - precioDevuelto;
+
+      // ✅ OPERACIÓN 1: DEVOLVER stock del producto original (+1)
+      const productoDevuelto = (productosVirtuales || []).find(
+        (p: any) => p.id.toString() === cambioData.productoOriginalId
+      );
+
+      if (!productoDevuelto) {
+        throw new Error('Producto original no encontrado en stock');
+      }
+
+      const varianteDevuelta = (productoDevuelto.variantes || []).find(
+        (v: any) => v.talla === cambioData.tallaDevuelta
+      );
+
+      if (!varianteDevuelta) {
+        throw new Error(`Variante ${cambioData.tallaDevuelta} no encontrada`);
+      }
+
+      const colorDevuelto = (varianteDevuelta.colores || []).find(
+        (c: any) => c.color === cambioData.colorDevuelta
+      );
+
+      if (!colorDevuelto) {
+        throw new Error(`Color ${cambioData.colorDevuelta} no encontrado`);
+      }
+
+      // DEVOLUCIÓN: Sumar +1 al stock
+      colorDevuelto.cantidad = (colorDevuelto.cantidad || 0) + 1;
+      console.log(`✅ [Cambio] DEVOLUCIÓN: +1 ${productoDevuelto.nombre} (${cambioData.tallaDevuelta}-${cambioData.colorDevuelta}), Stock ahora: ${colorDevuelto.cantidad}`);
+
+      // ✅ OPERACIÓN 2: DESCARGAR stock del producto entregado (-1)
+      const productoEntregado = (productosVirtuales || []).find(
+        (p: any) => p.id.toString() === cambioData.productoEntregadoId
+      );
+
+      if (!productoEntregado) {
+        throw new Error('Producto a entregar no encontrado en stock');
+      }
+
+      const varianteEntregada = (productoEntregado.variantes || []).find(
+        (v: any) => v.talla === cambioData.tallaEntregada
+      );
+
+      if (!varianteEntregada) {
+        throw new Error(`Variante ${cambioData.tallaEntregada} no disponible en producto a entregar`);
+      }
+
+      const colorEntregado = (varianteEntregada.colores || []).find(
+        (c: any) => c.color === cambioData.colorEntregada
+      );
+
+      if (!colorEntregado) {
+        throw new Error(`Color ${cambioData.colorEntregada} no disponible en talla ${cambioData.tallaEntregada}`);
+      }
+
+      // VERIFICAR STOCK ANTES DE DESCARGAR
+      const stockDisponible = colorEntregado.cantidad || 0;
+      if (stockDisponible < 1) {
+        throw new Error(`❌ Stock insuficiente. Disponible: ${stockDisponible}`);
+      }
+
+      // SALIDA: Restar -1 del stock
+      colorEntregado.cantidad = stockDisponible - 1;
+      console.log(`✅ [Cambio] SALIDA: -1 ${productoEntregado.nombre} (${cambioData.tallaEntregada}-${cambioData.colorEntregada}), Stock ahora: ${colorEntregado.cantidad}`);
+
+      // ✅ TODAS LAS OPERACIONES COMPLETADAS - Crear registro del cambio
+      const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+      const numeroCambio = `CAM-${(cambios.length + 1).toString().padStart(3, '0')}`;
+
+      // 🔒 CRÍTICO: Los flags DEBEN ser true (ambas operaciones completadas)
+      const nuevoCambio: CambioData & { id: string; numeroCambio: string; clienteId: string; clienteNombre: string; createdAt: string } = {
+        id: Date.now().toString(),
+        numeroCambio,
+        clienteId: ventaToCambiar?.clienteId || '',
+        clienteNombre: ventaToCambiar?.clienteNombre || '',
+        ventaOriginalId: ventaToCambiar?.id.toString() || '',
+        productoOriginalId: cambioData.productoOriginalId,
+        tallaOriginal: cambioData.tallaOriginal,
+        colorOriginal: cambioData.colorOriginal,
+        tallaDevuelta: cambioData.tallaDevuelta,
+        colorDevuelta: cambioData.colorDevuelta,
+        tallaEntregada: cambioData.tallaEntregada,
+        colorEntregada: cambioData.colorEntregada,
+        productoEntregadoId: cambioData.productoEntregadoId,
+        motivoCambio: cambioData.motivoCambio,
+        fechaCambio: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        // 💰 CAMPOS FINANCIEROS
+        precioDevuelto,
+        precioEntregado,
+        diferencia,
+        medioPagoDiferencia: cambioData.medioPagoDiferencia || 'Efectivo',
+        // 🔒 FLAGS CRÍTICOS: Ambas operaciones completadas = cambio NO REPETIBLE
+        stockDevuelto: true,      // Stock del original fue devuelto (+1)
+        stockEntregado: true,     // Stock del entregado fue descargado (-1)
+        reversado: false,         // Cambio activo, no reversado
+      };
+
+      // 💾 PASO 2: Guardar cambio en localStorage
+      localStorage.setItem(CAMBIOS_KEY, JSON.stringify([...cambios, nuevoCambio]));
+
+      // 💾 PASO 3: Guardar productos con stock actualizado
+      localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosVirtuales));
+      setProductos(productosVirtuales);
+
+      // 💾 PASO 4: Marcar cambio como aplicado en los validadores
+      marcarCambioAplicado(nuevoCambio.id, true, true);
+
+      // 💰 PASO 5: Actualizar totales y saldo de cliente según la diferencia
+      let clientesActualizados = (clientes || []);
+      if (diferencia !== 0) {
+        clientesActualizados = clientesActualizados.map((c: any) => {
+          if (c.id.toString() === ventaToCambiar?.clienteId?.toString()) {
+            const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
+            return {
+              ...c,
+              saldoAFavor: Number(c.saldoAFavor || 0) + saldoAFavor,
+            };
+          }
+          return c;
+        });
+        localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
+        setClientes(clientesActualizados);
+      }
+
+      // 💾 PASO 6: Actualizar detalle de venta con nuevo producto y recalcular totales
+      const ventaActualizada: Venta = {
+        ...ventaToCambiar,
+        items: ventaToCambiar.items
+          .map((item: ItemVenta) => {
+            // Marcar item original como Cambiado
+            if (
+              item.productoId?.toString() === cambioData.productoOriginalId &&
+              item.talla === cambioData.tallaDevuelta &&
+              item.color === cambioData.colorDevuelta
+            ) {
+              return {
+                ...item,
+                estado: 'Cambiado',  // Marker que fue cambiado
+              };
+            }
+            return item;
+          })
+          .concat([
+            // ✅ CRÍTICO: Agregar nuevo item con PRECIO CORRECTO
+            {
+              id: `item-${Date.now()}`,
+              productoId: cambioData.productoEntregadoId,
+              productoNombre: productoEntregado?.nombre || 'Producto',
+              talla: cambioData.tallaEntregada,
+              color: cambioData.colorEntregada,
+              cantidad: 1,
+              precioUnitario: precioEntregado,  // ✅ PRECIO REAL, NO $0
+              subtotal: precioEntregado,        // ✅ SUBTOTAL = precio * cantidad (1)
+              estado: 'Activo',
+            } as ItemVenta,
+          ]),
+      };
+
+      // 💰 RECALCULAR TOTALES DE LA VENTA
+      const nuevoSubtotal = (ventaActualizada.items || []).reduce((sum: number, item: any) => {
+        if (item.estado !== 'Cambiado') {
+          return sum + item.subtotal;
+        }
+        return sum;
+      }, 0);
+      const nuevoIva = nuevoSubtotal * 0.19;
+      const nuevoTotal = nuevoSubtotal + nuevoIva;
+
+      ventaActualizada.subtotal = nuevoSubtotal;
+      ventaActualizada.iva = nuevoIva;
+      ventaActualizada.total = nuevoTotal;
+
+      // 💾 PASO 7: Guardar venta actualizada
+      const ventasActualizadas = (ventas || []).map((v: Venta) =>
+        v.id === ventaToCambiar.id ? ventaActualizada : v
+      );
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(ventasActualizadas));
+      setVentas(ventasActualizadas);
+
+      // 💾 PASO 8: Limpiar formulario
+      setShowCambioModal(false);
+      setVentaToCambiar(null);
+      setCambioData({
+        ventaOriginalId: '',
+        productoOriginalId: '',
+        tallaOriginal: '',
+        colorOriginal: '',
+        tallaDevuelta: '',
+        colorDevuelta: '',
+        tallaEntregada: '',
+        colorEntregada: '',
+        productoEntregadoId: '',
+        motivoCambio: '',
+        fechaCambio: new Date().toISOString(),
+        precioDevuelto: 0,
+        precioEntregado: 0,
+        diferencia: 0,
+        medioPagoDiferencia: 'Efectivo',
+      });
+
+      // 💰 CONSTRUIR NOTIFICACIÓN CON DETALLE FINANCIERO
+      let notificacionDetalle = `✅ Cambio ${numeroCambio} procesado exitosamente.\n`;
+      notificacionDetalle += `📦 Devuelto: +1 ${productoDevuelto.nombre} ($${precioDevuelto.toLocaleString()})\n`;
+      notificacionDetalle += `📦 Entregado: -1 ${productoEntregado.nombre} ($${precioEntregado.toLocaleString()})\n`;
+      notificacionDetalle += `\n`;
+
+      if (diferencia === 0) {
+        notificacionDetalle += `💰 Mismo precio - Sin cobro adicional\n`;
+      } else if (diferencia > 0) {
+        notificacionDetalle += `💰 Diferencia: $${diferencia.toLocaleString()} A COBRAR\n`;
+        notificacionDetalle += `   Método pago: ${cambioData.medioPagoDiferencia || 'Efectivo'}\n`;
+      } else {
+        notificacionDetalle += `💰 Diferencia: $${Math.abs(diferencia).toLocaleString()} SALDO A FAVOR\n`;
+      }
+
+      notificacionDetalle += `🔒 Cambio NO REPETIBLE - Stock validado y persistido\n`;
+      notificacionDetalle += `📊 Totales venta recalculados`;
+
+      setNotificationMessage(notificacionDetalle);
+      setNotificationType('success');
+      setShowNotificationModal(true);
+
+      // Disparar evento de actualización
+      window.dispatchEvent(new Event('salesUpdated'));
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
+      setNotificationMessage(
+        `❌ Error al procesar cambio: ${errorMsg}\n` +
+        `La operación fue CANCELADA. Stock NO fue modificado.`
+      );
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      console.error('Error en handleCrearCambio:', error);
+    }
+  };
+
   const descargarComprobante = (venta: Venta) => {
     const contenido = `
 =================================
@@ -863,7 +1808,7 @@ Estado: ${venta.estado}
 ---------------------------------
 PRODUCTOS
 ---------------------------------
-${venta.items.map(item => `
+${(venta.items || []).map(item => `
 ${item.productoNombre}
 Talla: ${item.talla} | Color: ${item.color}
 Cantidad: ${item.cantidad} x $${item.precioUnitario.toLocaleString()}
@@ -998,7 +1943,7 @@ Gracias por su compra
 };
 
 
-  const filteredVentas = ventas.filter(v => {
+  const filteredVentas = (ventas || []).filter(v => {
     const searchLower = searchTerm.toLowerCase();
     const matchNumero = (v.numeroVenta?.toLowerCase() ?? '').includes(searchLower);
     const matchCliente = (v.clienteNombre?.toLowerCase() ?? '').includes(searchLower);
@@ -1006,13 +1951,13 @@ Gracias por su compra
     const matchFecha = new Date(v.fechaVenta).toLocaleDateString().includes(searchTerm);
     const matchTotal = v.total.toString().includes(searchTerm);
     const matchPedidoId = v.pedido_id ? (v.pedido_id?.toLowerCase() ?? '').includes(searchLower) : false;
-    const matchProductos = v.items.some(item => (item.productoNombre?.toLowerCase() ?? '').includes(searchLower));
+    const matchProductos = (v.items || []).some(item => (item.productoNombre?.toLowerCase() ?? '').includes(searchLower));
     return matchNumero || matchCliente || matchEstado || matchFecha || matchTotal || matchPedidoId || matchProductos;
   });
 
   const totales = calcularTotales(formData.items);
 
-  const clienteSeleccionado = clientes.find(
+  const clienteSeleccionado = (clientes || []).find(
     (c: any) => c.id?.toString() === formData.clienteId?.toString()
   );
 
@@ -1102,13 +2047,12 @@ Gracias por su compra
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
-                        {/* ✅ CAMBIO: color para "Devolución" */}
                         <span className={`inline-flex px-3 py-1 rounded-full text-sm ${
                           venta.estado === 'Completada'
                             ? 'bg-green-100 text-green-700'
-                            : venta.estado === 'Devolución'
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-red-100 text-red-700'
+                            : venta.estado === 'Devuelta'
+                            ? 'bg-orange-100 text-orange-700'
+                            : 'bg-red-100 text-red-700'
                         }`}>
                           {venta.estado}
                         </span>
@@ -1131,8 +2075,9 @@ Gracias por su compra
                           <Download size={18} />
                         </button>
 
-                        {!venta.anulada && (
+                        {!venta.anulada && venta.estado !== 'Devuelta' && (
                           <>
+                            {/* 🔒 BOTÓN DEVOLUCIÓN - Deshabilitado si hay cambio/devolución aplicada */}
                             <button
                               onClick={() => {
                                 setVentaToDevolver(venta);
@@ -1146,15 +2091,79 @@ Gracias por su compra
                                 });
                                 setShowDevolucionModal(true);
                               }}
-                              className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600"
-                              title="Generar devolución"
+                              disabled={tieneChangioAplicado(venta.id) || tieneDevolucionAplicada(venta.id)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                tieneChangioAplicado(venta.id) || tieneDevolucionAplicada(venta.id)
+                                  ? 'hover:bg-gray-100 rounded-lg transition-colors text-gray-300 cursor-not-allowed'
+                                  : 'hover:bg-purple-50 rounded-lg transition-colors text-purple-600'
+                              }`}
+                              title={
+                                tieneDevolucionAplicada(venta.id) 
+                                  ? 'Esta venta ya tiene devolución aplicada' 
+                                  : tieneChangioAplicado(venta.id)
+                                  ? 'No puedes devolver si hay cambio aplicado'
+                                  : 'Generar devolución'
+                              }
                             >
                               <RotateCcw size={18} />
                             </button>
+
+                            {/* 🔒 BOTÓN CAMBIO - Deshabilitado si hay cambio/devolución aplicada */}
+                            <button
+                              onClick={() => {
+                                setVentaToCambiar(venta);
+                                setCambioData({
+                                  ventaOriginalId: venta.id.toString(),
+                                  productoOriginalId: '',
+                                  tallaOriginal: '',
+                                  colorOriginal: '',
+                                  tallaDevuelta: '',
+                                  colorDevuelta: '',
+                                  tallaEntregada: '',
+                                  colorEntregada: '',
+                                  productoEntregadoId: '',
+                                  motivoCambio: '',
+                                  fechaCambio: new Date().toISOString(),
+                                  precioDevuelto: 0,
+                                  precioEntregado: 0,
+                                  diferencia: 0,
+                                  medioPagoDiferencia: 'Efectivo',
+                                });
+                                setShowCambioModal(true);
+                              }}
+                              disabled={tieneChangioAplicado(venta.id) || tieneDevolucionAplicada(venta.id)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                tieneChangioAplicado(venta.id) || tieneDevolucionAplicada(venta.id)
+                                  ? 'hover:bg-gray-100 rounded-lg transition-colors text-gray-300 cursor-not-allowed'
+                                  : 'hover:bg-green-50 rounded-lg transition-colors text-green-600'
+                              }`}
+                              title={
+                                tieneDevolucionAplicada(venta.id)
+                                  ? 'No puedes cambiar si hay devolución aplicada'
+                                  : tieneChangioAplicado(venta.id)
+                                  ? 'Cambio ya aplicado - Revérsalo primero'
+                                  : 'Hacer cambio'
+                              }
+                            >
+                              <Repeat2 size={18} />
+                            </button>
+
+                            {/* 🔒 BOTÓN ANULAR - Deshabilitado si hay cambio/devolución aplicada */}
                             <button
                               onClick={() => { setVentaToAnular(venta); setShowAnularModal(true); }}
-                              className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                              title="Anular"
+                              disabled={tieneChangioAplicado(venta.id) || tieneDevolucionAplicada(venta.id)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                tieneChangioAplicado(venta.id) || tieneDevolucionAplicada(venta.id)
+                                  ? 'hover:bg-gray-100 rounded-lg transition-colors text-gray-300 cursor-not-allowed'
+                                  : 'hover:bg-red-50 rounded-lg transition-colors text-red-600'
+                              }`}
+                              title={
+                                tieneDevolucionAplicada(venta.id)
+                                  ? 'No puedes anular si hay devolución aplicada'
+                                  : tieneChangioAplicado(venta.id)
+                                  ? 'No puedes anular si hay cambio aplicado'
+                                  : 'Anular'
+                              }
                             >
                               <Ban size={18} />
                             </button>
@@ -1327,12 +2336,17 @@ Gracias por su compra
           <div className="border-t pt-4">
             <h4 className="text-gray-900 mb-3">Agregar Productos</h4>
 
+            {/* 🔒 Mensaje informativo sobre variantes */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-700">
+              <strong>ℹ️ Variantes:</strong> Solo puedes vender combinaciones de Talla-Color que existan en el catálogo. Las nuevas variantes se crean desde el módulo <strong>Compras</strong>.
+            </div>
+
             <div className="bg-gray-50 rounded-lg p-4 mb-4 space-y-3">
               <div>
                 <label className="block text-gray-700 mb-2 text-sm">Producto</label>
                 <select
                   value={nuevoItem.productoId}
-                  onChange={(e) => setNuevoItem({ ...nuevoItem, productoId: e.target.value, talla: '', color: '' })}
+                  onChange={(e) => setNuevoItem({ ...nuevoItem, productoId: e.target.value, varianteId: '' })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                 >
                   <option value="">Seleccionar producto...</option>
@@ -1346,39 +2360,43 @@ Gracias por su compra
 
               {nuevoItem.productoId && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-gray-700 mb-2 text-sm">Talla</label>
-                      <select
-                        value={nuevoItem.talla}
-                        onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value, color: '' })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                      >
-                        <option value="">Seleccionar...</option>
-                        {getTallasDisponibles().map((talla: string) => (
-                          <option key={talla} value={talla}>{talla}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-gray-700 mb-2 text-sm">Color</label>
-                      <select
-                        value={nuevoItem.color}
-                        onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                        disabled={!nuevoItem.talla}
-                      >
-                        <option value="">Seleccionar...</option>
-                        {getColoresDisponibles().map((color: string) => (
-                          <option key={color} value={color}>{color}</option>
-                        ))}
-                      </select>
-                    </div>
+                  <div>
+                    <label className="block text-gray-700 mb-2 text-sm">
+                      <strong>Variante (Talla - Color - Stock) *</strong>
+                    </label>
+                    <select
+                      value={nuevoItem.varianteId}
+                      onChange={(e) => setNuevoItem({ ...nuevoItem, varianteId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    >
+                      <option value="">Seleccionar variante...</option>
+                      {productos
+                        .find((p: any) => p.id.toString() === nuevoItem.productoId)
+                        ?.variantes?.flatMap((variante: any) =>
+                          variante.colores.map((color: any) => {
+                            const varId = `${variante.talla}-${color.color}`;
+                            const stockDisp = color.cantidad || 0;
+                            const stockEstado = stockDisp > 0 
+                              ? `✅ ${stockDisp}` 
+                              : `❌ Sin stock`;
+                            return (
+                              <option key={varId} value={varId} disabled={stockDisp === 0}>
+                                {variante.talla} - {color.color} [{stockEstado}]
+                              </option>
+                            );
+                          })
+                        ) || <option disabled>Sin variantes disponibles</option>
+                      }
+                    </select>
+                    {!nuevoItem.varianteId && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        ℹ️ Solo se muestran variantes creadas desde Compras
+                      </p>
+                    )}
                   </div>
 
                   <div>
-                    <label className="block text-gray-700 mb-2 text-sm">Cantidad</label>
+                    <label className="block text-gray-700 mb-2 text-sm">Cantidad *</label>
                     <Input
                       type="number"
                       min="1"
@@ -1499,13 +2517,10 @@ Gracias por su compra
 
               <div>
                 <div className="text-gray-600 mb-1">Estado</div>
-                {/* ✅ CAMBIO: color para "Devolución" */}
                 <span className={`inline-block px-3 py-1 rounded-full text-sm ${
                   viewingVenta.estado === 'Completada'
                     ? 'bg-green-100 text-green-700'
-                    : viewingVenta.estado === 'Devolución'
-                      ? 'bg-orange-100 text-orange-700'
-                      : 'bg-red-100 text-red-700'
+                    : 'bg-red-100 text-red-700'
                 }`}>
                   {viewingVenta.estado}
                 </span>
@@ -1537,7 +2552,7 @@ Gracias por su compra
             <div className="border-t pt-4">
               <h4 className="text-gray-900 font-semibold mb-3">Productos</h4>
               <div className="space-y-2">
-                {viewingVenta.items.map((item) => (
+                {(viewingVenta.items || []).map((item) => (
                   <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
@@ -1610,7 +2625,18 @@ Gracias por su compra
             {/* Modal Generar Devolución */}
       <Modal
         isOpen={showDevolucionModal}
-        onClose={() => setShowDevolucionModal(false)}
+        onClose={() => {
+          setShowDevolucionModal(false);
+          setVentaToDevolver(null);
+          setDevolucionData({
+            motivo: 'Defectuoso',
+            itemsDevueltos: [],
+            productoNuevoId: '',
+            productoNuevoTalla: '',
+            productoNuevoColor: '',
+            medioPagoExcedente: 'Efectivo'
+          });
+        }}
         title={`Generar Devolución - ${ventaToDevolver?.numeroVenta}`}
         size="lg"
       >
@@ -1677,8 +2703,14 @@ Gracias por su compra
                     Seleccionar Productos a Devolver
                   </h4>
                   <div className="space-y-2">
-                    {ventaToDevolver.items.map((item) => {
-                      const itemDevuelto = devolucionData.itemsDevueltos.find(
+                    {(ventaToDevolver.items || []).map((item) => {
+                      // 🔒 Calcular cantidad disponible (vendida - devuelta - cambiada)
+                      const cantidadDisponible = calcularCantidadDisponible(ventaToDevolver.id, item.id);
+                      
+                      // Si no hay cantidad disponible, no mostrar
+                      if (cantidadDisponible <= 0) return null;
+                      
+                      const itemDevuelto = (devolucionData.itemsDevueltos || []).find(
                         (i) => i.itemId === item.id
                       );
                       const cantidadDevuelta = itemDevuelto?.cantidad || 0;
@@ -1705,7 +2737,7 @@ Gracias por su compra
                             <input
                               type="number"
                               min="0"
-                              max={item.cantidad}
+                              max={cantidadDisponible}
                               value={cantidadDevuelta}
                               onChange={(e) =>
                                 handleToggleItemDevolucion(
@@ -1715,7 +2747,7 @@ Gracias por su compra
                               }
                               className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                             />
-                            <span className="text-sm text-gray-600">de {item.cantidad}</span>
+                            <span className="text-sm text-gray-600">de {cantidadDisponible}</span>
                             {cantidadDevuelta > 0 && (
                               <span className="ml-auto text-sm text-green-600 font-medium">
                                 Devolución: $
@@ -1729,148 +2761,13 @@ Gracias por su compra
                   </div>
                 </div>
 
-                <div className="border-t pt-4">
-                  <h4 className="text-gray-900 font-semibold mb-3">
-                    Producto por el que se cambia *
-                  </h4>
-
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-gray-700 mb-2 text-sm">Producto nuevo</label>
-                      <select
-                        value={devolucionData.productoNuevoId}
-                        onChange={(e) => {
-                          const id = e.target.value;
-                          setDevolucionData({
-                            ...devolucionData,
-                            productoNuevoId: id,
-                            productoNuevoTalla: '',
-                            productoNuevoColor: '',
-                          });
-                        }}
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                      >
-                        <option value="">Seleccionar producto...</option>
-                        {productos
-                          .filter((p: any) => p.activo)
-                          .map((p: any) => (
-                            <option key={p.id} value={p.id}>
-                              {p.nombre} - ${(p.precioVenta || 0).toLocaleString()}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    {productoNuevo && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-gray-700 mb-2 text-sm">Talla</label>
-                          <select
-                            value={devolucionData.productoNuevoTalla}
-                            onChange={(e) =>
-                              setDevolucionData({
-                                ...devolucionData,
-                                productoNuevoTalla: e.target.value,
-                                productoNuevoColor: '',
-                              })
-                            }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                          >
-                            <option value="">Seleccionar...</option>
-                            {getTallasDisponiblesCambio().map((t: string) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-gray-700 mb-2 text-sm">Color</label>
-                          <select
-                            value={devolucionData.productoNuevoColor}
-                            onChange={(e) =>
-                              setDevolucionData({
-                                ...devolucionData,
-                                productoNuevoColor: e.target.value,
-                              })
-                            }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                            disabled={!devolucionData.productoNuevoTalla}
-                          >
-                            <option value="">Seleccionar...</option>
-                            {getColoresDisponiblesCambio().map((c: string) => (
-                              <option key={c} value={c}>{c}</option>
-                            ))}
-
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {totalDevuelto > 0 && devolucionData.productoNuevoId && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-                    <div className="font-semibold text-blue-900">Balance del cambio</div>
-
-                    <div className="flex justify-between text-sm text-blue-800">
-                      <span>Total devuelto:</span>
+                {totalDevuelto > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="font-semibold text-green-900 mb-2">✓ Resumen de Devolución</div>
+                    <div className="flex justify-between text-sm text-green-800">
+                      <span>Total a devolver (saldo a favor):</span>
                       <span className="font-medium">${totalDevuelto.toLocaleString()}</span>
                     </div>
-
-                    <div className="flex justify-between text-sm text-blue-800">
-                      <span>Producto nuevo:</span>
-                      <span className="font-medium">${precioProductoNuevo.toLocaleString()}</span>
-                    </div>
-
-                    {saldoAFavorCalc > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-green-700">Saldo a favor:</span>
-                        <span className="font-semibold text-green-700">
-                          ${saldoAFavorCalc.toLocaleString()}
-                        </span>
-                      </div>
-                    )}
-
-                    {excedenteCalc > 0 && (
-                      <>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-red-700">Excedente por pagar:</span>
-                          <span className="font-semibold text-red-700">
-                            ${excedenteCalc.toLocaleString()}
-                          </span>
-                        </div>
-
-                        <div>
-                          <label className="block text-gray-700 mb-2 text-sm">
-                            Medio de pago del excedente *
-                          </label>
-                          <select
-                            value={devolucionData.medioPagoExcedente}
-                            onChange={(e) =>
-                              setDevolucionData({
-                                ...devolucionData,
-                                medioPagoExcedente: e.target.value as any,
-                              })
-                            }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                          >
-                            <option value="Efectivo">Efectivo</option>
-                            <option value="Transferencia">Transferencia</option>
-                            <option value="Tarjeta">Tarjeta</option>
-                            <option value="Nequi">Nequi</option>
-                            <option value="Daviplata">Daviplata</option>
-                          </select>
-                        </div>
-                      </>
-                    )}
-
-                    {saldoAFavorCalc === 0 && excedenteCalc === 0 && (
-                      <div className="text-sm text-blue-700">
-                        El cambio queda en <span className="font-semibold">0</span> (sin saldo ni
-                        excedente).
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -1891,6 +2788,369 @@ Gracias por su compra
           })()}
       </Modal>
 
+      {/* Modal Cambios (Cambio de Productos - NO DEVOLUCION) */}
+      <Modal
+        isOpen={showCambioModal}
+        onClose={() => {
+          setShowCambioModal(false);
+          setVentaToCambiar(null);
+          setCambioData({
+            ventaOriginalId: '',
+            productoOriginalId: '',
+            tallaOriginal: '',
+            colorOriginal: '',
+            tallaDevuelta: '',
+            colorDevuelta: '',
+            tallaEntregada: '',
+            colorEntregada: '',
+            productoEntregadoId: '',
+            motivoCambio: '',
+            fechaCambio: new Date().toISOString(),
+            precioDevuelto: 0,
+            precioEntregado: 0,
+            diferencia: 0,
+            medioPagoDiferencia: 'Efectivo',
+          });
+        }}
+        title={`Cambio de Producto - ${ventaToCambiar?.numeroVenta}`}
+        size="lg"
+      >
+        {ventaToCambiar && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                <strong>ℹ️ Operación de Cambio:</strong> Devuelve un producto y recibe otro en su lugar.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-xs text-gray-600 uppercase tracking-wide font-semibold">
+                  Cliente
+                </div>
+                <div className="text-gray-900 font-medium mt-1">
+                  {ventaToCambiar.clienteNombre}
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-xs text-gray-600 uppercase tracking-wide font-semibold">
+                  Venta Original
+                </div>
+                <div className="text-gray-900 font-medium mt-1">
+                  {ventaToCambiar.numeroVenta}
+                </div>
+              </div>
+            </div>
+
+            {/* Sección: Producto Devuelto */}
+            <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded">
+              <h4 className="text-red-900 font-semibold mb-3">✖️ Producto a Devolver</h4>
+              <div>
+                <label className="block text-sm text-gray-700 mb-2">
+                  Seleccionar producto devuelto de esta venta *
+                </label>
+                <select
+                  value={
+                    // Encontrar el id del item que coincida con tallaDevuelta/colorDevuelta
+                    productosDisponiblesCambio.find(
+                      (i) => i.talla === cambioData.tallaDevuelta && i.color === cambioData.colorDevuelta
+                    )?.id || ''
+                  }
+                  onChange={(e) => {
+                    const item = productosDisponiblesCambio.find((i) => i.id === e.target.value);
+                    if (item) {
+                      setCambioData({
+                        ...cambioData,
+                        tallaDevuelta: item.talla,
+                        colorDevuelta: item.color,
+                        productoOriginalId: item.productoId?.toString() || '',
+                        tallaOriginal: item.talla,
+                        colorOriginal: item.color
+                      });
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="">Seleccionar...</option>
+                  {productosDisponiblesCambio.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.productoNombre} - Talla: {item.talla}, Color: {item.color} (Disponible: {calcularCantidadDisponible(ventaToCambiar.id, item.id)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Sección: Producto Entregado */}
+            <div className="border-l-4 border-green-500 bg-green-50 p-4 rounded">
+              <h4 className="text-green-900 font-semibold mb-3">✓ Producto a Entregar</h4>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">
+                    Producto a entregar *
+                  </label>
+                  <select
+                    value={cambioData.productoEntregadoId}
+                    onChange={(e) =>
+                      setCambioData({
+                        ...cambioData,
+                        productoEntregadoId: e.target.value,
+                        tallaEntregada: '',
+                        colorEntregada: ''
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="">Seleccionar producto...</option>
+                    {getProductosConStockDisponible().map((p: any) => (
+                      <option key={p.id} value={p.id.toString()}>
+                        {p.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {cambioData.productoEntregadoId && (
+                  <>
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-2">
+                        Talla *
+                      </label>
+                      <select
+                        value={cambioData.tallaEntregada}
+                        onChange={(e) =>
+                          setCambioData({
+                            ...cambioData,
+                            tallaEntregada: e.target.value,
+                            colorEntregada: ''
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      >
+                        <option value="">Seleccionar talla...</option>
+                        {getTallasConStockDisponible(cambioData.productoEntregadoId).map((talla: string) => (
+                          <option key={talla} value={talla}>
+                            {talla}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {cambioData.tallaEntregada && (
+                      <div>
+                        <label className="block text-sm text-gray-700 mb-2">
+                          Color *
+                        </label>
+                        <select
+                          value={cambioData.colorEntregada}
+                          onChange={(e) =>
+                            setCambioData({
+                              ...cambioData,
+                              colorEntregada: e.target.value
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                        >
+                          <option value="">Seleccionar color...</option>
+                          {getColoresConStockDisponible(cambioData.productoEntregadoId, cambioData.tallaEntregada).map((c: any) => (
+                            <option key={c.color} value={c.color}>
+                              {c.color} (Stock: {c.stock})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Sección: Motivo del Cambio */}
+            <div>
+              <label className="block text-sm text-gray-700 mb-2">
+                Motivo del Cambio *
+              </label>
+              <textarea
+                value={cambioData.motivoCambio}
+                onChange={(e) =>
+                  setCambioData({
+                    ...cambioData,
+                    motivoCambio: e.target.value
+                  })
+                }
+                placeholder="Ej: Cliente quiere diferente talla, color incorrecto, producto defectuoso..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                rows={3}
+              />
+            </div>
+
+            {/* Resumen con Precios */}
+            {cambioData.tallaDevuelta && cambioData.colorDevuelta && cambioData.tallaEntregada && cambioData.colorEntregada && (
+              <div className="space-y-3">
+                {/* Información de precios */}
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-300">
+                  <div className="text-sm font-semibold text-gray-900 mb-3">📊 Información de Precios:</div>
+                  
+                  <div className="space-y-2 text-sm">
+                    {/* Precio devuelto */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700">
+                        ✖️ Devuelve: {ventaToCambiar.items.find(
+                          (i) => i.talla === cambioData.tallaDevuelta && i.color === cambioData.colorDevuelta
+                        )?.productoNombre}
+                      </span>
+                      <span className="font-semibold text-red-600">
+                        $
+                        {(() => {
+                          const productoOriginal = productos.find((p: any) =>
+                            p.id.toString() === cambioData.productoOriginalId
+                          );
+                          return (productoOriginal?.precioVenta || 0).toLocaleString();
+                        })()}
+                      </span>
+                    </div>
+
+                    {/* Precio entregado */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700">
+                        ✓ Recibe: {productos.find((p: any) => p.id.toString() === cambioData.productoEntregadoId)?.nombre}
+                      </span>
+                      <span className="font-semibold text-green-600">
+                        $
+                        {(() => {
+                          const productoEntregado = productos.find((p: any) =>
+                            p.id.toString() === cambioData.productoEntregadoId
+                          );
+                          return (productoEntregado?.precioVenta || 0).toLocaleString();
+                        })()}
+                      </span>
+                    </div>
+
+                    {/* Separador */}
+                    <div className="border-t border-gray-300 pt-2 mt-2"></div>
+
+                    {/* Diferencia */}
+                    {(() => {
+                      const precioOriginal = productos.find((p: any) =>
+                        p.id.toString() === cambioData.productoOriginalId
+                      )?.precioVenta || 0;
+                      const precioEntregado = productos.find((p: any) =>
+                        p.id.toString() === cambioData.productoEntregadoId
+                      )?.precioVenta || 0;
+                      const diferencia = precioEntregado - precioOriginal;
+
+                      if (diferencia === 0) {
+                        return (
+                          <div className="flex justify-between items-center bg-blue-50 p-2 rounded">
+                            <span className="text-blue-800 font-semibold">Diferencia:</span>
+                            <span className="text-blue-800 font-bold">$0 - Mismo precio</span>
+                          </div>
+                        );
+                      } else if (diferencia > 0) {
+                        return (
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center bg-orange-50 p-2 rounded border border-orange-200">
+                              <span className="text-orange-800 font-semibold">A COBRAR:</span>
+                              <span className="text-orange-800 font-bold">${diferencia.toLocaleString()}</span>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-700 mb-1">
+                                Método de pago del excedente *
+                              </label>
+                              <select
+                                value={cambioData.medioPagoDiferencia || 'Efectivo'}
+                                onChange={(e) =>
+                                  setCambioData({
+                                    ...cambioData,
+                                    medioPagoDiferencia: e.target.value as MedioPago,
+                                  })
+                                }
+                                className="w-full px-2 py-1 border border-orange-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              >
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Transferencia">Transferencia</option>
+                                <option value="Tarjeta">Tarjeta</option>
+                                <option value="Nequi">Nequi</option>
+                                <option value="Daviplata">Daviplata</option>
+                              </select>
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="flex justify-between items-center bg-green-50 p-2 rounded border border-green-200">
+                            <span className="text-green-800 font-semibold">SALDO A FAVOR:</span>
+                            <span className="text-green-800 font-bold">${Math.abs(diferencia).toLocaleString()}</span>
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+                </div>
+
+                {/* Resumen del cambio */}
+                <div className="bg-gray-100 rounded-lg p-3 border border-gray-300">
+                  <div className="text-sm font-semibold text-gray-900 mb-2">Detalles del Cambio:</div>
+                  <div className="text-xs text-gray-700 space-y-1">
+                    <div>
+                      ✖️ Devuelve: {ventaToCambiar.items.find(
+                        (i) => i.talla === cambioData.tallaDevuelta && i.color === cambioData.colorDevuelta
+                      )?.productoNombre} ({cambioData.tallaDevuelta}/{cambioData.colorDevuelta})
+                    </div>
+                    <div>
+                      ✓ Recibe: {productos.find((p: any) => p.id.toString() === cambioData.productoEntregadoId)?.nombre} ({cambioData.tallaEntregada}/{cambioData.colorEntregada})
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-end pt-4 border-t">
+              <Button
+                onClick={() => {
+                  setShowCambioModal(false);
+                  setVentaToCambiar(null);
+                  setCambioData({
+                    ventaOriginalId: '',
+                    productoOriginalId: '',
+                    tallaOriginal: '',
+                    colorOriginal: '',
+                    tallaDevuelta: '',
+                    colorDevuelta: '',
+                    tallaEntregada: '',
+                    colorEntregada: '',
+                    productoEntregadoId: '',
+                    motivoCambio: '',
+                    fechaCambio: new Date().toISOString(),
+                    precioDevuelto: 0,
+                    precioEntregado: 0,
+                    diferencia: 0,
+                    medioPagoDiferencia: 'Efectivo',
+                  });
+                }}
+                variant="secondary"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleCrearCambio}
+                variant="primary"
+                className="bg-green-600 hover:bg-green-700"
+                disabled={
+                  !cambioData.tallaDevuelta ||
+                  !cambioData.colorDevuelta ||
+                  !cambioData.tallaEntregada ||
+                  !cambioData.colorEntregada ||
+                  !tieneStockDisponible(cambioData.productoEntregadoId, cambioData.tallaEntregada, cambioData.colorEntregada)
+                }
+              >
+                ✓ Confirmar Cambio
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Modal Nuevo Cliente */}
       <Modal

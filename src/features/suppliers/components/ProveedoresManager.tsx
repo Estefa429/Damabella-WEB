@@ -57,7 +57,21 @@ export function ProveedoresManager() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(proveedores));
   }, [proveedores]);
 
-  // Recargar compras cuando cambian
+  // Recargar compras cuando se abre el modal de historial
+  useEffect(() => {
+    if (showHistorialModal) {
+      const stored = localStorage.getItem(COMPRAS_KEY);
+      if (stored) {
+        try {
+          setCompras(JSON.parse(stored));
+        } catch (error) {
+          console.error('Error al cargar compras:', error);
+        }
+      }
+    }
+  }, [showHistorialModal]);
+
+  // Recargar compras cuando cambian en otro contexto (cross-tab)
   useEffect(() => {
     const handleStorageChange = () => {
       const stored = localStorage.getItem(COMPRAS_KEY);
@@ -240,12 +254,46 @@ export function ProveedoresManager() {
     setShowViewModal(true);
   };
 
+  // 📊 Helper: Obtener compras de un proveedor específico
   const getComprasProveedor = (proveedorId: number) => {
-    return compras.filter((c: any) => c.proveedorId === proveedorId);
+    if (!compras || !Array.isArray(compras)) return [];
+    const comprasFiltered = compras.filter((c: any) => {
+      // Comparar como número y string para flexibilidad
+      return c.proveedorId === proveedorId || c.proveedorId === String(proveedorId);
+    });
+    // Ordenar por fecha descendente (más reciente primero)
+    return comprasFiltered.sort((a: any, b: any) => {
+      const fechaA = new Date(a.fechaCompra || a.fechaRegistro || 0).getTime();
+      const fechaB = new Date(b.fechaCompra || b.fechaRegistro || 0).getTime();
+      return fechaB - fechaA;
+    });
   };
 
+  // 💰 Helper: Calcular total de monto de compras de un proveedor
   const getTotalComprasProveedor = (proveedorId: number) => {
-    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => sum + c.total, 0);
+    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => {
+      return sum + (c.total || 0);
+    }, 0);
+  };
+
+  // 📦 Helper: Contar cantidad total de productos en compras
+  const getCantidadProductosProveedor = (proveedorId: number) => {
+    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => {
+      const cantidadCompra = (c.items || []).reduce((itemSum: number, item: any) => {
+        return itemSum + (item.cantidad || 0);
+      }, 0);
+      return sum + cantidadCompra;
+    }, 0);
+  };
+
+  // 🎨 Helper: Formatear valor en COP
+  const formatearCOP = (valor: number) => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(valor);
   };
 
   const filteredProveedores = proveedores.filter(p => {
@@ -545,60 +593,84 @@ export function ProveedoresManager() {
       <Modal
         isOpen={showHistorialModal}
         onClose={() => setShowHistorialModal(false)}
-        title={`Historial de Compras - ${viewingProveedor?.nombre}`}
+        title={`Historial de Compras – ${viewingProveedor?.nombre}`}
       >
-        <div className="space-y-4">
+        <div className="space-y-6">
           {viewingProveedor && (
             <>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="grid grid-cols-2 gap-4">
+              {/* Resumen de Totales */}
+              <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <div className="text-gray-600 mb-1">Total Compras</div>
-                    <div className="text-2xl text-gray-900">
+                    <div className="text-blue-600 text-sm font-medium mb-1">Total Compras</div>
+                    <div className="text-3xl font-bold text-blue-900">
                       {getComprasProveedor(viewingProveedor.id).length}
                     </div>
                   </div>
                   <div>
-                    <div className="text-gray-600 mb-1">Total Monto</div>
-                    <div className="text-2xl text-green-600">
-                      ${getTotalComprasProveedor(viewingProveedor.id).toLocaleString()}
+                    <div className="text-blue-600 text-sm font-medium mb-1">Productos Recibidos</div>
+                    <div className="text-3xl font-bold text-blue-900">
+                      {getCantidadProductosProveedor(viewingProveedor.id)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-blue-600 text-sm font-medium mb-1">Monto Acumulado</div>
+                    <div className="text-2xl font-bold text-green-600">
+                      {formatearCOP(getTotalComprasProveedor(viewingProveedor.id))}
                     </div>
                   </div>
                 </div>
               </div>
 
+              {/* Lista de Compras */}
               {getComprasProveedor(viewingProveedor.id).length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-12 text-gray-500">
                   <Store className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p>No hay compras registradas para este proveedor</p>
+                  <p className="text-lg font-medium">Este proveedor aún no tiene compras registradas.</p>
+                  <p className="text-sm mt-2">Las compras aparecerán aquí cuando se registren en el módulo de Compras.</p>
                 </div>
               ) : (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="border border-gray-200 rounded-lg overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-100 border-b border-gray-200">
                       <tr>
-                        <th className="text-left py-2 px-3 text-gray-600">N° Compra</th>
-                        <th className="text-left py-2 px-3 text-gray-600">Fecha</th>
-                        <th className="text-center py-2 px-3 text-gray-600">Estado</th>
-                        <th className="text-right py-2 px-3 text-gray-600">Total</th>
+                        <th className="text-left py-3 px-4 text-gray-700 font-semibold">Fecha</th>
+                        <th className="text-left py-3 px-4 text-gray-700 font-semibold">N° Compra</th>
+                        <th className="text-center py-3 px-4 text-gray-700 font-semibold">Cantidad</th>
+                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">Subtotal</th>
+                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">IVA</th>
+                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">Total</th>
+                        <th className="text-center py-3 px-4 text-gray-700 font-semibold">Estado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {getComprasProveedor(viewingProveedor.id).map((compra: any) => (
-                        <tr key={compra.id}>
-                          <td className="py-2 px-3 text-gray-900">{compra.numeroCompra}</td>
-                          <td className="py-2 px-3 text-gray-700">{compra.fechaCompra}</td>
-                          <td className="py-2 px-3 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
+                        <tr key={compra.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4 text-gray-900">
+                            {new Date(compra.fechaCompra || compra.fechaRegistro).toLocaleDateString('es-CO')}
+                          </td>
+                          <td className="py-3 px-4 text-gray-900 font-medium">{compra.numeroCompra}</td>
+                          <td className="py-3 px-4 text-center text-gray-700">
+                            {(compra.items || []).reduce((sum: number, item: any) => sum + (item.cantidad || 0), 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right text-gray-900">
+                            {formatearCOP(compra.subtotal || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right text-gray-900">
+                            {formatearCOP(compra.iva || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-semibold text-gray-900">
+                            {formatearCOP(compra.total || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
                               compra.estado === 'Recibida' ? 'bg-green-100 text-green-700' :
                               compra.estado === 'Pendiente' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-red-100 text-red-700'
+                              compra.estado === 'Anulada' ? 'bg-red-100 text-red-700' :
+                              'bg-blue-100 text-blue-700'
                             }`}>
-                              {compra.estado}
+                              {compra.estado || 'Confirmada'}
                             </span>
-                          </td>
-                          <td className="py-2 px-3 text-right text-gray-900">
-                            ${compra.total.toLocaleString()}
                           </td>
                         </tr>
                       ))}

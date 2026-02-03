@@ -5,6 +5,7 @@ import { Button, Input, Modal } from '../../../shared/components/native';
 const STORAGE_KEY = 'damabella_compras';
 const PROVEEDORES_KEY = 'damabella_proveedores';
 const PRODUCTOS_KEY = 'damabella_productos';
+const CATEGORIAS_KEY = 'damabella_categorias';
 
 const COLOR_MAP = {
   'Negro': '#000000',
@@ -21,12 +22,16 @@ interface ItemCompra {
   id: string;
   productoId: string;
   productoNombre: string;
+  categoriaId?: string;
+  categoriaNombre?: string;
   talla?: string;
   color?: string;
   cantidad: number;
   precioCompra: number;
   precioVenta: number;
   subtotal: number;
+  imagen?: string;
+  referencia?: string;
 }
 
 interface Compra {
@@ -45,10 +50,263 @@ interface Compra {
   createdAt: string;
 }
 
+// 🔧 FUNCIÓN AUXILIAR: Normalizar nombre de producto para búsqueda
+const normalizarNombreProducto = (nombre: string): string => {
+  return nombre.trim().toLowerCase();
+};
+
+// 🆕 FUNCIÓN PARA UNIFICAR PRODUCTOS DUPLICADOS
+function unificarProductosDuplicados(productosActuales: any[]): any[] {
+  const productosMap = new Map();
+  
+  // Agrupar productos por nombre normalizado
+  productosActuales.forEach((producto: any) => {
+    const nombreNormalizado = normalizarNombreProducto(producto.nombre);
+    
+    if (!productosMap.has(nombreNormalizado)) {
+      productosMap.set(nombreNormalizado, {
+        base: producto,
+        duplicados: []
+      });
+    } else {
+      productosMap.get(nombreNormalizado).duplicados.push(producto);
+    }
+  });
+  
+  // Unificar: tomar el primero como base y agregar todas las variantes
+  const productosUnificados: any[] = [];
+  
+  productosMap.forEach((grupo: any) => {
+    const { base, duplicados } = grupo;
+    let variantesMerged = [...(base.variantes || [])];
+    
+    // Migrar variantes de los duplicados
+    duplicados.forEach((dup: any) => {
+      if (dup.variantes && dup.variantes.length > 0) {
+        dup.variantes.forEach((varianteDup: any) => {
+          const varianteExistente = variantesMerged.find(
+            (v: any) => v.talla === varianteDup.talla
+          );
+          
+          if (varianteExistente) {
+            // Merge de colores
+            varianteDup.colores.forEach((colorDup: any) => {
+              const colorExistente = varianteExistente.colores.find(
+                (c: any) => c.color === colorDup.color
+              );
+              
+              if (colorExistente) {
+                colorExistente.cantidad += colorDup.cantidad;
+              } else {
+                varianteExistente.colores.push(colorDup);
+              }
+            });
+          } else {
+            variantesMerged.push(varianteDup);
+          }
+        });
+      }
+    });
+    
+    console.log(`🔗 [unificarProductosDuplicados] Unificado "${base.nombre}":`, {
+      variantesBase: base.variantes?.length || 0,
+      variantesAñadidas: duplicados.length,
+      variantesFinal: variantesMerged.length
+    });
+    
+    productosUnificados.push({
+      ...base,
+      variantes: variantesMerged,
+      updatedAt: new Date().toISOString(),
+      lastUpdatedFrom: 'Unificación de duplicados'
+    });
+  });
+  
+  return productosUnificados;
+}
+
+// 🆕 FUNCIÓN PARA AGREGAR/ACTUALIZAR PRODUCTOS EN EL MÓDULO PRODUCTOS
+/**
+ * Agrega o actualiza un producto en la lista de productos (localStorage)
+ * Búsqueda por NOMBRE NORMALIZADO, no por SKU
+ * Si el producto existe (mismo nombre) → suma variantes
+ * Si no existe → crea nuevo con SKU único
+ * 
+ * @param itemCompra - Item de la compra con datos del producto
+ * @param productosActuales - Array actual de productos
+ * @returns Array actualizado de productos
+ */
+function agregarOActualizarProducto(
+  itemCompra: ItemCompra,
+  productosActuales: any[]
+): any[] {
+  // ✅ VALIDAR categoryId (OBLIGATORIO, NO PUEDE SER VACÍO)
+  if (!itemCompra.categoriaId || String(itemCompra.categoriaId).trim() === '') {
+    console.error(`❌ [agregarOActualizarProducto] ABORTADO: categoryId faltante o vacío para ${itemCompra.productoNombre}`);
+    console.error(`   Recibido:`, {
+      categoriaId: itemCompra.categoriaId,
+      categoriaNombre: itemCompra.categoriaNombre
+    });
+    return productosActuales;
+  }
+
+  const nombreNormalizado = normalizarNombreProducto(itemCompra.productoNombre);
+  
+  // 🔍 BUSCAR SI EXISTE POR NOMBRE NORMALIZADO (NO POR SKU)
+  const productoExistente = productosActuales.find(
+    (p: any) => normalizarNombreProducto(p.nombre) === nombreNormalizado
+  );
+
+  if (productoExistente) {
+    // ✏️ ACTUALIZAR PRODUCTO EXISTENTE - AGREGAR VARIANTE
+    console.log(`✏️ [agregarOActualizarProducto] Producto existente encontrado por nombre: ${productoExistente.nombre}`);
+    console.log(`   Reutilizando:`, {
+      id: productoExistente.id,
+      nombre: productoExistente.nombre,
+      SKU: productoExistente.referencia,
+      variantesActuales: productoExistente.variantes?.length || 0
+    });
+
+    const productosActualizados = productosActuales.map((p: any) => {
+      if (normalizarNombreProducto(p.nombre) === nombreNormalizado) {
+        // Si no tiene variantes, crear la estructura
+        let variantes = p.variantes || [];
+        
+        // Buscar si existe la talla en variantes
+        let varianteTalla = variantes.find((v: any) => v.talla === itemCompra.talla);
+        
+        if (varianteTalla) {
+          // Buscar si existe el color
+          let colorItem = varianteTalla.colores.find((c: any) => c.color === itemCompra.color);
+          if (colorItem) {
+            // Sumar cantidad al color existente
+            colorItem.cantidad += itemCompra.cantidad || 0;
+            console.log(`   ➕ Color existente actualizado: ${itemCompra.color} += ${itemCompra.cantidad}`);
+          } else {
+            // Agregar nuevo color
+            varianteTalla.colores.push({
+              color: itemCompra.color,
+              cantidad: itemCompra.cantidad || 0
+            });
+            console.log(`   ➕ Nuevo color agregado: ${itemCompra.color} = ${itemCompra.cantidad}`);
+          }
+        } else {
+          // Agregar nueva talla con color
+          variantes.push({
+            talla: itemCompra.talla,
+            colores: itemCompra.color ? [
+              {
+                color: itemCompra.color,
+                cantidad: itemCompra.cantidad || 0
+              }
+            ] : []
+          });
+          console.log(`   ➕ Nueva talla agregada: ${itemCompra.talla}`);
+        }
+
+        // 🔧 MERGE: Mantener datos existentes, solo actualizar si vienen definidos en la compra
+        // 🔒 CRÍTICO: La categoría SIEMPRE debe preservarse o asignarse si está en la compra
+        const productoActualizado = {
+          ...p,  // Primero mantener TODO el producto existente
+          variantes,  // Actualizar variantes (cantidad)
+          // Solo actualizar precio si viene definido y es diferente
+          precioCompra: itemCompra.precioCompra && itemCompra.precioCompra > 0 ? itemCompra.precioCompra : p.precioCompra,
+          precioVenta: itemCompra.precioVenta && itemCompra.precioVenta > 0 ? itemCompra.precioVenta : p.precioVenta,
+          // Solo actualizar imagen si viene definida en la compra
+          imagen: itemCompra.imagen && itemCompra.imagen.trim() !== '' ? itemCompra.imagen : p.imagen,
+          // 🔒 CATEGORÍA: Usar categoría de la compra si viene definida. Si no, mantener existente. NUNCA quedar sin categoría.
+          categoryId: (itemCompra.categoriaId && String(itemCompra.categoriaId).trim() !== '') 
+            ? itemCompra.categoriaId 
+            : (p.categoryId || itemCompra.categoriaId || ''),
+          // 🆕 NOMBRE: Guardar también el nombre de la categoría para ProductosManager
+          categoria: itemCompra.categoriaNombre || p.categoria || '',
+          updatedAt: new Date().toISOString(),
+          lastUpdatedFrom: `Compra - ${p.referencia}`
+        };
+
+        // 🔒 VALIDAR que la categoría NO quedó vacía
+        if (!productoActualizado.categoryId) {
+          console.warn(`⚠️ [agregarOActualizarProducto] ADVERTENCIA: Producto ${p.nombre} quedó sin categoryId después de actualizar`);
+        }
+
+        console.log(`✅ [agregarOActualizarProducto] ${p.nombre} actualizado:`);
+        console.log(`   Talla: ${itemCompra.talla}, Color: ${itemCompra.color}, Cantidad: ${itemCompra.cantidad}`);
+        console.log(`   Precios mantenidos - Compra: $${productoActualizado.precioCompra}, Venta: $${productoActualizado.precioVenta}`);
+        console.log(`   Category ID: ${productoActualizado.categoryId}`);
+        console.log(`   Imagen mantenida: ${productoActualizado.imagen ? 'Sí' : 'No'}`);
+
+        return productoActualizado;
+      }
+      return p;
+    });
+
+    return productosActualizados;
+  } else {
+    // 🆕 CREAR NUEVO PRODUCTO (no existe en la lista)
+    console.log(`🆕 [agregarOActualizarProducto] Creando nuevo producto: ${itemCompra.productoNombre}`);
+    console.log(`   Category ID capturado: "${itemCompra.categoriaId}"`);
+
+    // Generar referencia/SKU única para este producto
+    const referencia = itemCompra.referencia || `SKU_${Date.now()}_${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+
+    // Construir variantes en el formato correcto (esperado por ProductosManager)
+    const variantes = [];
+    if (itemCompra.talla) {
+      const varianteTalla = {
+        talla: itemCompra.talla,
+        colores: itemCompra.color ? [
+          {
+            color: itemCompra.color,
+            cantidad: Math.round((itemCompra.cantidad || 0) * 100) / 100
+          }
+        ] : []
+      };
+      variantes.push(varianteTalla);
+    }
+
+    const nuevoProducto = {
+      id: Date.now(),
+      nombre: itemCompra.productoNombre,
+      proveedor: 'Compras',
+      categoryId: itemCompra.categoriaId,
+      // 🆕 NOMBRE: Guardar también el nombre de la categoría
+      categoria: itemCompra.categoriaNombre || '',
+      precioVenta: itemCompra.precioVenta || 0,
+      precioCompra: itemCompra.precioCompra || 0,
+      activo: true,
+      variantes: variantes,
+      imagen: itemCompra.imagen || '',
+      createdAt: new Date().toISOString(),
+      // Campos adicionales para trazabilidad
+      referencia: referencia,
+      createdFromSKU: referencia
+    };
+
+    console.log(`✅ [agregarOActualizarProducto] Nuevo producto creado:`);
+    console.log(`   Nombre: ${nuevoProducto.nombre}`);
+    console.log(`   SKU: ${referencia}`);
+    console.log(`   Category ID: ${nuevoProducto.categoryId}`);
+    console.log(`   Precio Compra: $${nuevoProducto.precioCompra}`);
+    console.log(`   Precio Venta: $${nuevoProducto.precioVenta}`);
+    console.log(`   Imagen: ${nuevoProducto.imagen ? '✓ Sí' : '✗ No'}`);
+    console.log(`   Variantes: ${JSON.stringify(variantes)}`);
+
+    return [...productosActuales, nuevoProducto];
+  }
+}
+
 export function ComprasManager() {
   const [compras, setCompras] = useState<Compra[]>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    if (stored) {
+      const comprasCarguadas = JSON.parse(stored);
+      // 🔒 Normalizar compras antiguas: convertir "Pendiente" a "Recibida" (Confirmada)
+      return comprasCarguadas.map((compra: any) => ({
+        ...compra,
+        estado: (compra.estado === 'Pendiente') ? 'Recibida' : (compra.estado || 'Recibida')
+      }));
+    }
+    return [];
   });
 
   const [proveedores, setProveedores] = useState(() => {
@@ -59,61 +317,13 @@ export function ComprasManager() {
   const [productos, setProductos] = useState(() => {
     const stored = localStorage.getItem(PRODUCTOS_KEY);
     if (stored) {
-      return JSON.parse(stored);
+      const productosCarguados = JSON.parse(stored);
+      // ✅ Unificar duplicados al cargar
+      return unificarProductosDuplicados(productosCarguados);
     }
-    // Productos temporales - Ropa femenina
-    return [
-      {
-        id: '1',
-        nombre: 'Vestido Corto Casual',
-        referencia: 'VES-CORTA-001',
-        codigoInterno: 'VCC-001',
-        precioVenta: 65000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Rojo', 'Negro', 'Blanco', 'Azul', 'Rosa'],
-      },
-      {
-        id: '2',
-        nombre: 'Vestido Largo Elegante',
-        referencia: 'VES-LARGO-002',
-        codigoInterno: 'VLE-002',
-        precioVenta: 95000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Rojo', 'Champagne', 'Azul Marino'],
-      },
-      {
-        id: '3',
-        nombre: 'Enterizo Ejecutivo',
-        referencia: 'ENT-EJE-003',
-        codigoInterno: 'ENE-003',
-        precioVenta: 85000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Blanco', 'Gris', 'Azul'],
-      },
-      {
-        id: '4',
-        nombre: 'Set Blusa y Falda',
-        referencia: 'SET-BF-004',
-        codigoInterno: 'SBF-004',
-        precioVenta: 105000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Rosa', 'Blanco', 'Negro', 'Beige'],
-      },
-      {
-        id: '5',
-        nombre: 'Vestido Midi Floral',
-        referencia: 'VES-MIDI-005',
-        codigoInterno: 'VMF-005',
-        precioVenta: 75000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Multicolor', 'Rosa Pálido', 'Azul Claro', 'Verde Menta'],
-      },
-    ];
+    // ❌ SIN PRODUCTOS TEMPORALES - Compras debe poder crear productos nuevos
+    // Los productos se crean DESDE el módulo de Compras, no existen por defecto
+    return [];
   });
 
   const [tallas, setTallas] = useState(() => {
@@ -142,6 +352,35 @@ export function ComprasManager() {
     return [];
   });
 
+  const [categorias, setcategorias] = useState(() => {
+    const stored = localStorage.getItem(CATEGORIAS_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        
+        // Si son strings (nombres), convertir a objetos
+        if (Array.isArray(parsed) && typeof parsed[0] === 'string') {
+          return parsed.map((name: string) => ({
+            id: name.toLowerCase().replace(/\s+/g, '_'),
+            name: name,
+            active: true
+          }));
+        }
+        
+        // Si son objetos, usar estructura existente
+        return parsed.map((cat: any) => ({
+          id: cat.id || cat.name?.toLowerCase().replace(/\s+/g, '_') || '',
+          name: cat.name || cat.nombre || '',
+          active: cat.active !== false
+        }));
+      } catch (e) {
+        console.error('Error cargando categorías:', e);
+        return [];
+      }
+    }
+    return [];
+  });
+
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [viewingCompra, setViewingCompra] = useState<Compra | null>(null);
@@ -149,6 +388,7 @@ export function ComprasManager() {
   const [proveedorSearchTerm, setProveedorSearchTerm] = useState('');
   const [productoSearchTerm, setProductoSearchTerm] = useState('');
   const [showProveedorDropdown, setShowProveedorDropdown] = useState(false);
+  const categoriaSelectRef = React.useRef<HTMLSelectElement>(null);
   const [showProductoDropdown, setShowProductoDropdown] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
@@ -169,13 +409,21 @@ export function ComprasManager() {
   const [formErrors, setFormErrors] = useState<any>({});
   const [itemsError, setItemsError] = useState<string>('');
 
+  // 🔒 Estado para el historial de compras por proveedor
+  const [proveedorSeleccionadoHistorial, setProveedorSeleccionadoHistorial] = useState<string>('');
+
   const [nuevoItem, setNuevoItem] = useState({
     productoId: '',
+    productoNombre: '',
+    categoriaId: '',
+    categoriaNombre: '',
     talla: '',
     color: '',
     cantidad: '',
     precioCompra: '',
-    precioVenta: ''
+    precioVenta: '',
+    imagen: '',
+    referencia: ''
   });
 
   // Contador para el número de compra
@@ -371,6 +619,61 @@ export function ComprasManager() {
     };
   }, []);
 
+  // Sincronizar categorías desde localStorage
+  useEffect(() => {
+    const cargarCategorias = () => {
+      const stored = localStorage.getItem(CATEGORIAS_KEY);
+      if (stored) {
+        try {
+          const categoriasActualizadas = JSON.parse(stored);
+          const categoriasFormato = categoriasActualizadas
+            .filter((cat: any) => cat.active !== false)
+            .map((cat: any) => {
+              // Si es string, convertir a objeto
+              if (typeof cat === 'string') {
+                return {
+                  id: cat.toLowerCase().replace(/\s+/g, '_'),
+                  name: cat,
+                  active: true
+                };
+              }
+              // Si es objeto, usar estructura existente
+              return {
+                id: cat.id || cat.name?.toLowerCase().replace(/\s+/g, '_') || '',
+                name: cat.name || cat.nombre || '',
+                active: cat.active !== false
+              };
+            });
+          setcategorias(categoriasFormato);
+          console.log('✅ [ComprasManager] Categorías sincronizadas:', categoriasFormato.map((c: any) => c.name));
+        } catch (e) {
+          console.error('❌ [ComprasManager] Error cargando categorías:', e);
+        }
+      }
+    };
+
+    // Cargar inmediatamente
+    cargarCategorias();
+
+    // Escuchar cambios en otros tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === CATEGORIAS_KEY && e.newValue) {
+        console.log('📡 [ComprasManager] Categorías actualizadas desde otro tab');
+        cargarCategorias();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Verificar periódicamente en el mismo tab
+    const interval = setInterval(cargarCategorias, 500);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
+
   const validateField = (field: string, value: any) => {
     const errors: any = {};
     
@@ -412,11 +715,16 @@ export function ComprasManager() {
     });
     setNuevoItem({
       productoId: '',
+      productoNombre: '',
       talla: '',
       color: '',
       cantidad: '',
       precioCompra: '',
-      precioVenta: ''
+      precioVenta: '',
+      categoriaId: '',
+      categoriaNombre: '',
+      imagen: '',
+      referencia: ''
     });
     setFormErrors({});
     setItemsError('');
@@ -438,14 +746,30 @@ export function ComprasManager() {
   };
 
   const handleSelectProducto = (productoId: string, productoNombre: string) => {
-    // Buscar el producto para obtener tallas y colores
+    // Buscar el producto para obtener tallas, colores y CATEGORÍA
     const producto = productos.find((p: any) => String(p.id) === String(productoId));
+    
+    // 🔒 CRÍTICO: Asegurar que la categoría se copia del producto existente
+    let categoriaIdFinal = producto?.categoryId || '';
+    let categoriaNombreFinal = '';
+    
+    if (categoriaIdFinal) {
+      const catFound = categorias.find(c => String(c.id) === String(categoriaIdFinal));
+      categoriaNombreFinal = catFound?.name || '';
+      console.log(`✅ Categoría del producto existente: ${categoriaIdFinal} (${categoriaNombreFinal})`);
+    } else {
+      console.warn(`⚠️ Producto existente SIN categoría: ${productoNombre}. Será requerida al agregar.`);
+    }
     
     setNuevoItem({ 
       ...nuevoItem, 
       productoId,
-      talla: '', // Limpiar talla al cambiar producto
-      color: ''  // Limpiar color al cambiar producto
+      productoNombre,
+      referencia: producto?.referencia || '',
+      categoriaId: categoriaIdFinal,
+      categoriaNombre: categoriaNombreFinal,
+      talla: '',
+      color: ''
     });
     setProductoSearchTerm(productoNombre);
     setShowProductoDropdown(false);
@@ -453,8 +777,10 @@ export function ComprasManager() {
     // Log para debugging
     if (producto) {
       console.log(`✅ Producto seleccionado: ${producto.nombre}`);
+      console.log(`📦 SKU/Referencia: ${producto.referencia}`);
       console.log(`📏 Tallas disponibles: ${producto.tallas?.join(', ') || 'No especificadas'}`);
       console.log(`🎨 Colores disponibles: ${producto.colores?.join(', ') || 'No especificados'}`);
+      console.log(`📂 Categoría ID: ${categoriaIdFinal || 'SIN ASIGNAR'}`);
     }
   };
 
@@ -467,31 +793,88 @@ export function ComprasManager() {
   );
 
   const agregarItem = () => {
-    if (!nuevoItem.productoId || !nuevoItem.color || !nuevoItem.cantidad || !nuevoItem.precioCompra || !nuevoItem.precioVenta) {
-      setNotificationMessage('Por favor completa todos los campos del item (incluyendo color)');
+    // 🔒 CRÍTICO: Obtener categoriaId desde múltiples fuentes
+    let categoriaIdFinal = nuevoItem.categoriaId;
+    let categoriaNombreFinal = nuevoItem.categoriaNombre;
+    
+    // FALLBACK 1: Si no hay categoría en estado, obtener del select
+    if (!categoriaIdFinal) {
+      const selectValue = categoriaSelectRef.current?.value;
+      if (selectValue) {
+        categoriaIdFinal = selectValue;
+        console.log('✅ [agregarItem] Fallback 1: Categoría obtenida del select:', categoriaIdFinal);
+      }
+    }
+    
+    // FALLBACK 2: Si el producto existe en BD, obtener categoryId de ahí
+    if (!categoriaIdFinal) {
+      const productoBD = productos.find((p: any) => 
+        normalizarNombreProducto(p.nombre) === normalizarNombreProducto(nuevoItem.productoNombre)
+      );
+      if (productoBD && productoBD.categoryId) {
+        categoriaIdFinal = productoBD.categoryId;
+        console.log('✅ [agregarItem] Fallback 2: Categoría obtenida del producto en BD:', categoriaIdFinal);
+      }
+    }
+    
+    // 🔒 CRÍTICO: SIEMPRE resolver el nombre desde categoryId si falta
+    // Esto asegura que categoriaNombre NUNCA esté vacío si categoryId existe
+    if (categoriaIdFinal && !categoriaNombreFinal) {
+      const catFound = categorias.find(c => String(c.id) === String(categoriaIdFinal));
+      categoriaNombreFinal = catFound?.name || '';
+      console.log('✅ [agregarItem] Resolviendo nombre desde categoryId:', {
+        categoryId: categoriaIdFinal,
+        categoriaNombre: categoriaNombreFinal
+      });
+    }
+    
+    console.log('📋 [ComprasManager] agregarItem - Estado final:', {
+      productoId: nuevoItem.productoId,
+      productoNombre: nuevoItem.productoNombre,
+      categoriaId: categoriaIdFinal,
+      categoriaNombre: categoriaNombreFinal,
+      color: nuevoItem.color,
+      cantidad: nuevoItem.cantidad,
+      precioCompra: nuevoItem.precioCompra,
+      precioVenta: nuevoItem.precioVenta
+    });
+
+    // ✅ CAMBIO: Permitir crear productos que NO existen
+    // Solo requerir: nombre del producto, color, cantidad, precios y categoría
+    const productoNombre = nuevoItem.productoNombre || 
+      (nuevoItem.productoId ? productos.find((p:any) => String(p.id) === String(nuevoItem.productoId))?.nombre : '');
+
+    if (!productoNombre || !nuevoItem.color || !nuevoItem.cantidad || !nuevoItem.precioCompra || !nuevoItem.precioVenta) {
+      setNotificationMessage('Por favor completa: nombre del producto, color, cantidad, precios');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
 
-    const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
-    
-    // Si no existe en BD pero está en las opciones temporales, usar el nombre del select
-    let productoNombre = producto?.nombre;
-    if (!productoNombre) {
-      const productosTemporales: any = {
-        'prod1': 'Camisa',
-        'prod2': 'Pantalón',
-        'prod3': 'Blusa',
-        'prod4': 'Chaqueta'
-      };
-      productoNombre = productosTemporales[nuevoItem.productoId] || 'Producto desconocido';
+    if (!categoriaIdFinal) {
+      console.warn('❌ [ComprasManager] Error: Categoría no seleccionada. categoriaId=', categoriaIdFinal);
+      setNotificationMessage('Por favor selecciona una categoría para el producto');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
     }
+
+    console.log('✅ [ComprasManager] Validaciones OK - Producto:', productoNombre, 'Categoría:', categoriaNombreFinal);
 
     const cantidad = parseFloat(nuevoItem.cantidad);
     const precioCompra = parseFloat(nuevoItem.precioCompra);
     const precioVenta = parseFloat(nuevoItem.precioVenta);
     const subtotal = cantidad * precioCompra;
+
+    console.log(`📝 Creando item:`, {
+      productoNombre: nuevoItem.productoNombre,
+      cantidad,
+      precioCompra,
+      precioVenta,
+      subtotal,
+      cantidadEsNumero: typeof cantidad === 'number',
+      precioCompraEsNumero: typeof precioCompra === 'number'
+    });
 
     const item: ItemCompra = {
       id: Date.now().toString(),
@@ -502,21 +885,33 @@ export function ComprasManager() {
       cantidad,
       precioCompra,
       precioVenta,
-      subtotal
+      subtotal,
+      categoriaId: categoriaIdFinal,
+      categoriaNombre: categoriaNombreFinal,
+      imagen: nuevoItem.imagen,
+      referencia: nuevoItem.referencia
     };
+
+    console.log(`✅ Item agregado a tabla. Total items ahora: ${formData.items.length + 1}`);
 
     setFormData({
       ...formData,
       items: [...formData.items, item]
     });
 
+    // Reset SOLO los campos del item, pero mantén la categoría seleccionada
     setNuevoItem({
       productoId: '',
+      productoNombre: '',
       talla: '',
       color: '',
       cantidad: '',
       precioCompra: '',
-      precioVenta: ''
+      precioVenta: '',
+      categoriaId: categoriaIdFinal,  // MANTENER CATEGORÍA
+      categoriaNombre: categoriaNombreFinal,  // MANTENER NOMBRE CATEGORÍA
+      imagen: '',
+      referencia: ''
     });
     setProductoSearchTerm('');
   };
@@ -529,7 +924,13 @@ export function ComprasManager() {
   };
 
   const calcularSubtotal = () => {
-    return formData.items.reduce((sum, item) => sum + (item.subtotal || 0), 0);
+    const total = formData.items.reduce((sum, item) => {
+      const itemSubtotal = item.subtotal || 0;
+      console.log(`📦 Item: ${item.productoNombre}, Cant: ${item.cantidad}, P.Compra: ${item.precioCompra}, Subtotal: ${itemSubtotal}`);
+      return sum + itemSubtotal;
+    }, 0);
+    console.log(`💰 SUBTOTAL TOTAL DE COMPRA: $${total}`);
+    return total;
   };
 
   const calcularIVA = () => {
@@ -540,6 +941,44 @@ export function ComprasManager() {
 
   const calcularTotal = () => {
     return calcularSubtotal() + calcularIVA();
+  };
+
+  // 🔒 HELPERS para historial de compras por proveedor
+  const filtrarComprasPorProveedor = (proveedorId: string): Compra[] => {
+    if (!proveedorId) return [];
+    return compras.filter((c) => c.proveedorId === proveedorId);
+  };
+
+  const contarCompras = (comprasProveedor: Compra[]): number => {
+    return comprasProveedor.length;
+  };
+
+  const sumarCantidadProductos = (comprasProveedor: Compra[]): number => {
+    return comprasProveedor.reduce((total, compra) => {
+      const cantidadItems = (compra.items || []).reduce((sum, item) => sum + (item.cantidad || 0), 0);
+      return total + cantidadItems;
+    }, 0);
+  };
+
+  const sumarMontoTotal = (comprasProveedor: Compra[]): number => {
+    return comprasProveedor.reduce((total, compra) => total + (compra.total || 0), 0);
+  };
+
+  const ordenarComprasPorFecha = (comprasProveedor: Compra[]): Compra[] => {
+    return [...comprasProveedor].sort((a, b) => {
+      const fechaA = new Date(a.fechaCompra || '').getTime();
+      const fechaB = new Date(b.fechaCompra || '').getTime();
+      return fechaB - fechaA; // Descendente (más reciente primero)
+    });
+  };
+
+  const formatearCOP = (valor: number): string => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(valor);
   };
 
   const handleSave = () => {
@@ -559,6 +998,21 @@ export function ComprasManager() {
 
     if (formData.items.length === 0) {
       setItemsError('Debes agregar al menos un producto a la compra');
+      return;
+    }
+
+    // ✅ VALIDACIÓN CRÍTICA: TODOS los items DEBEN tener categoryId válido
+    const itemsSinCategoria = formData.items.filter((item: ItemCompra) => 
+      !item.categoriaId || String(item.categoriaId).trim() === ''
+    );
+
+    if (itemsSinCategoria.length > 0) {
+      const nombresProductos = itemsSinCategoria.map((item: ItemCompra) => item.productoNombre).join(', ');
+      const mensaje = `❌ CRÍTICO: Los siguientes productos NO tienen categoría asignada:\n${nombresProductos}\n\nTodos los productos DEBEN tener una categoría. No se puede continuar.`;
+      setItemsError(mensaje);
+      setNotificationMessage(mensaje);
+      setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
@@ -587,12 +1041,12 @@ export function ComprasManager() {
       subtotal,
       iva,
       total,
-      estado: 'Pendiente',
+      estado: 'Recibida',
       observaciones: formData.observaciones,
       createdAt: new Date().toISOString()
     };
 
-    // 📊 ACTUALIZAR STOCK EN PRODUCTOS
+    // 📊 ACTUALIZAR STOCK EN PRODUCTOS Y CREAR NUEVOS PRODUCTOS
     const productosActualizados = productos.map((prod: any) => {
       // Buscar si este producto tiene items en la compra
       const itemsDelProducto = formData.items.filter((item: any) => 
@@ -618,24 +1072,289 @@ export function ComprasManager() {
       return prod;
     });
     
-    // Guardar productos actualizados con stock
-    localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosActualizados));
-    setProductos(productosActualizados);
-    console.log('✅ [ComprasManager] Stock de productos actualizado');
+    // 🆕 CREAR O ACTUALIZAR PRODUCTOS USANDO LA FUNCIÓN ESPECIALIZADA
+    let productosFinales = [...productosActualizados];
+    const productosAgregados: string[] = [];
+    const productosActualizados_: string[] = [];
+    
+    formData.items.forEach((item: ItemCompra) => {
+      // Contar si es nuevo o actualizado (por nombre normalizado)
+      const existía = productosFinales.some(
+        (p: any) => normalizarNombreProducto(p.nombre) === normalizarNombreProducto(item.productoNombre)
+      );
+      
+      // Aplicar la función especializada
+      productosFinales = agregarOActualizarProducto(item, productosFinales);
+      
+      // Registrar qué se agregó/actualizó
+      if (!existía) {
+        productosAgregados.push(item.productoNombre);
+      } else {
+        productosActualizados_.push(item.productoNombre);
+      }
+    });
+
+    // 🔗 UNIFICAR PRODUCTOS DUPLICADOS (si hay)
+    console.log('🔗 [ComprasManager] Verificando productos duplicados...');
+    const productosUnificados = unificarProductosDuplicados(productosFinales);
+    if (productosUnificados.length < productosFinales.length) {
+      console.log(`✅ [ComprasManager] ${productosFinales.length - productosUnificados.length} productos duplicados fueron unificados`);
+    }
+    productosFinales = productosUnificados;
+    
+    // 🔧 ACTUALIZAR ESTADO DEL PRODUCTO SEGÚN STOCK TOTAL
+    // Si el stock total > 0, asegurar que esté marcado como activo
+    productosFinales = actualizarEstadoProductoSegunStock(productosFinales);
+    
+    // Guardar productos actualizados/creados en localStorage
+    localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosFinales));
+    
+    // 📡 Log detallado de lo guardado
+    console.log('📊 [ComprasManager] Estado actual de productos en localStorage:');
+    console.log(`   Total de productos: ${productosFinales.length}`);
+    productosFinales.forEach((p: any, idx: number) => {
+      console.log(`   ${idx + 1}. ${p.nombre} (SKU: ${p.referencia}) - Variantes: ${p.variantes?.length || 0} - Activo: ${p.activo}`);
+    });
+    
+    setProductos(productosFinales);
+    
+    // 📡 Disparar evento de storage para sincronizar en tiempo real con otros módulos (EcommerceContext)
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: PRODUCTOS_KEY,
+      newValue: JSON.stringify(productosFinales),
+      oldValue: null,
+      url: window.location.href
+    }));
+    
+    // Resumen de cambios
+    if (productosAgregados.length > 0) {
+      console.log(`✅ [ComprasManager] Se crearon ${productosAgregados.length} nuevos productos: ${productosAgregados.join(', ')}`);
+    }
+    if (productosActualizados_.length > 0) {
+      console.log(`📦 [ComprasManager] Se actualizaron ${productosActualizados_.length} productos: ${productosActualizados_.join(', ')}`);
+    }
+    console.log('✅ [ComprasManager] Productos sincronizados correctamente con el módulo Productos');
 
     setCompras([...compras, compraData]);
     setCompraCounter(compraCounter + 1);
+    
+    // Mostrar notificación de éxito con información sobre productos creados/actualizados
+    let mensaje = '✅ Compra guardada correctamente';
+    if (productosAgregados.length > 0) {
+      mensaje += ` | 🆕 ${productosAgregados.length} nuevo(s)`;
+    }
+    if (productosActualizados_.length > 0) {
+      mensaje += ` | 📦 ${productosActualizados_.length} actualizado(s)`;
+    }
+    mensaje += ' en Productos';
+    setNotificationMessage(mensaje);
+    setNotificationType('success');
+    setShowNotificationModal(true);
+    
+    // Limpiar formulario
+    setFormData({
+      proveedorId: '',
+      proveedorNombre: '',
+      fechaCompra: new Date().toISOString().split('T')[0],
+      items: [],
+      iva: '0',
+      observaciones: ''
+    });
+    setFormErrors({});
+    setItemsError('');
     setShowModal(false);
   };
 
+  // 🔄 FUNCIÓN: Revertir el stock exactamente lo que la compra agregó
+  // 🔧 FUNCIÓN HELPER: Calcular stock total y actualizar estado del producto
+  const actualizarEstadoProductoSegunStock = (productos: any[]): any[] => {
+    return productos.map((producto: any) => {
+      // Calcular stock total: suma de todas las variantes y colores
+      let stockTotal = 0;
+      if (producto.variantes && Array.isArray(producto.variantes)) {
+        stockTotal = producto.variantes.reduce((totalVar: number, variante: any) => {
+          const stockVariante = (variante.colores || []).reduce((totalCol: number, color: any) => {
+            return totalCol + (color.cantidad || 0);
+          }, 0);
+          return totalVar + stockVariante;
+        }, 0);
+      }
+
+      // Determinar si debe estar activo
+      const debeEstarActivo = stockTotal > 0;
+      const estaActivo = producto.activo !== false;
+      const estadoProducto = stockTotal > 0 ? 'Activo' : 'Inactivo';
+
+      // Si el estado cambió, actualizar
+      if (debeEstarActivo !== estaActivo || producto.estado !== estadoProducto) {
+        console.log(
+          `🔄 [actualizarEstadoProductoSegunStock] ${producto.nombre}: ` +
+          `Stock Total = ${stockTotal}, Activo: ${estaActivo} → ${debeEstarActivo}, ` +
+          `Estado: "${producto.estado}" → "${estadoProducto}"`
+        );
+        return {
+          ...producto,
+          activo: debeEstarActivo,
+          estado: estadoProducto
+        };
+      }
+
+      return producto;
+    });
+  };
+
+  const revertirStockCompra = (compraAAnular: Compra, productosActuales: any[]): any[] => {
+    console.log(`\n🔄 [revertirStockCompra] INICIANDO reversión para compra: ${compraAAnular.numeroCompra}`);
+    console.log(`   Compra tiene ${compraAAnular.items.length} item(s)`);
+
+    let productosActualizados = [...productosActuales];
+
+    // Iterar sobre cada item en la compra a anular
+    compraAAnular.items.forEach((itemCompra: ItemCompra, idx: number) => {
+      console.log(`\n   Item ${idx + 1}: ${itemCompra.productoNombre} (Talla: ${itemCompra.talla}, Color: ${itemCompra.color}, Qty: ${itemCompra.cantidad})`);
+
+      // Buscar el producto por nombre normalizado (igual como se agregó)
+      const nombreNormalizado = normalizarNombreProducto(itemCompra.productoNombre);
+      const productoIndex = productosActualizados.findIndex(
+        (p: any) => normalizarNombreProducto(p.nombre) === nombreNormalizado
+      );
+
+      if (productoIndex === -1) {
+        console.warn(`   ⚠️  Producto NO encontrado: ${itemCompra.productoNombre}`);
+        return;
+      }
+
+      const producto = productosActualizados[productoIndex];
+      console.log(`   ✓ Producto encontrado: ID ${producto.id}`);
+
+      // Guard: Verificar que el producto tenga variantes
+      if (!producto.variantes || producto.variantes.length === 0) {
+        console.warn(`   ⚠️  Producto sin variantes: ${producto.nombre}`);
+        return;
+      }
+
+      // Buscar la talla
+      const varianteIndex = producto.variantes.findIndex(
+        (v: any) => v.talla === itemCompra.talla
+      );
+
+      if (varianteIndex === -1) {
+        console.warn(`   ⚠️  Talla NO encontrada: ${itemCompra.talla}`);
+        return;
+      }
+
+      const variante = producto.variantes[varianteIndex];
+      console.log(`   ✓ Talla encontrada: ${variante.talla}`);
+
+      // Buscar el color
+      const colorIndex = variante.colores.findIndex(
+        (c: any) => c.color === itemCompra.color
+      );
+
+      if (colorIndex === -1) {
+        console.warn(`   ⚠️  Color NO encontrado: ${itemCompra.color}`);
+        return;
+      }
+
+      const colorItem = variante.colores[colorIndex];
+      const cantidadAnterior = colorItem.cantidad;
+      const cantidadAResta = itemCompra.cantidad || 0;
+      const cantidadNueva = Math.max(0, cantidadAnterior - cantidadAResta);
+
+      console.log(`   📊 Stock: ${cantidadAnterior} - ${cantidadAResta} = ${cantidadNueva}`);
+
+      // Guard: Verificar consistencia (stock no debe ser negativo después)
+      if (cantidadNueva < 0) {
+        console.warn(`   ⚠️  ADVERTENCIA: Stock sería negativo (${cantidadNueva}). Ajustando a 0`);
+      }
+
+      // Actualizar la cantidad en el color
+      colorItem.cantidad = cantidadNueva;
+
+      console.log(`   ✅ Stock actualizado: ${itemCompra.color} ahora tiene ${cantidadNueva} unidades`);
+    });
+
+    console.log(`\n✅ [revertirStockCompra] Reversión completada para ${compraAAnular.numeroCompra}\n`);
+    
+    // 🔧 ACTUALIZAR ESTADO DEL PRODUCTO SEGÚN STOCK TOTAL
+    // Si el stock total queda en 0, marcar como inactivo
+    const productosConEstadoActualizado = actualizarEstadoProductoSegunStock(productosActualizados);
+    
+    return productosConEstadoActualizado;
+  };
+
+  // 🚫 FUNCIÓN: Anular una compra con reversión de stock
   const anularCompra = (id: number) => {
-    setConfirmMessage('¿Está seguro de anular esta compra? Esta acción no se puede deshacer.');
+    // Guard 1: Verificar que la compra existe
+    const compraAAnular = compras.find(c => c.id === id);
+    if (!compraAAnular) {
+      setNotificationMessage('❌ Compra no encontrada');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // Guard 2: Verificar que no está ya anulada
+    if (compraAAnular.estado === 'Anulada') {
+      setNotificationMessage('❌ Esta compra ya fue anulada');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    // Guard 3: Verificar que tiene items
+    if (!compraAAnular.items || compraAAnular.items.length === 0) {
+      setNotificationMessage('❌ Compra sin items - no se puede anular');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    setConfirmMessage('¿Está seguro de anular esta compra?\n\n✅ Se revertirá el stock exactamente.\n❌ Esta acción no se puede deshacer.');
     setConfirmAction(() => () => {
-      setCompras(compras.map(c => 
+      console.log(`\n🚫 [anularCompra] INICIANDO ANULACIÓN de compra: ${compraAAnular.numeroCompra}`);
+      console.log(`   Items en compra: ${compraAAnular.items.length}`);
+
+      // Step 1: Revertir el stock en productos
+      console.log(`\n📦 Step 1: Revertiendo stock en productos...`);
+      const productosActualizados = revertirStockCompra(compraAAnular, productos);
+
+      // Guard 4: Verificar que la reversión tuvo efecto
+      const cambiosStock = productosActualizados.some((p: any, idx: number) => {
+        const productoOriginal = productos[idx];
+        return JSON.stringify(p) !== JSON.stringify(productoOriginal);
+      });
+
+      if (!cambiosStock) {
+        console.warn(`\n⚠️  Advertencia: No hubo cambios en el stock`);
+      }
+
+      // Step 2: Guardar productos actualizados
+      console.log(`\n💾 Step 2: Guardando productos actualizados en localStorage...`);
+      localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosActualizados));
+      setProductos(productosActualizados);
+
+      // Disparar evento de sincronización
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: PRODUCTOS_KEY,
+        newValue: JSON.stringify(productosActualizados),
+        oldValue: null,
+        url: window.location.href
+      }));
+
+      // Step 3: Marcar compra como ANULADA (no eliminar)
+      console.log(`\n📝 Step 3: Marcando compra como ANULADA...`);
+      const comprasActualizadas = compras.map(c => 
         c.id === id ? { ...c, estado: 'Anulada' as 'Anulada' } : c
-      ));
+      );
+
+      // El useEffect automáticamente guardará en localStorage
+      setCompras(comprasActualizadas);
+
+      console.log(`\n✅ [anularCompra] ANULACIÓN COMPLETADA para ${compraAAnular.numeroCompra}\n`);
+
       setShowConfirmModal(false);
-      setNotificationMessage('Compra anulada correctamente');
+      setNotificationMessage(`✅ Compra ${compraAAnular.numeroCompra} anulada. Stock revertido correctamente.`);
       setNotificationType('success');
       setShowNotificationModal(true);
     });
@@ -673,6 +1392,143 @@ export function ComprasManager() {
           <Plus size={20} />
           Nueva Compra
         </Button>
+      </div>
+
+      {/* 🔒 Historial de Compras por Proveedor */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 className="text-gray-900 font-semibold mb-4">Historial de Compras por Proveedor</h3>
+        
+        <div className="mb-4">
+          <label className="block text-sm text-gray-700 mb-2">Seleccionar proveedor</label>
+          <select
+            value={proveedorSeleccionadoHistorial}
+            onChange={(e) => setProveedorSeleccionadoHistorial(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">-- Seleccionar un proveedor --</option>
+            {proveedores.map((proveedor) => (
+              <option key={proveedor.id} value={proveedor.id}>
+                {proveedor.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {proveedorSeleccionadoHistorial && (() => {
+          const comprasProveedor = filtrarComprasPorProveedor(proveedorSeleccionadoHistorial);
+          const comprasOrdenadas = ordenarComprasPorFecha(comprasProveedor);
+          const proveedorNombre = proveedores.find((p) => p.id === proveedorSeleccionadoHistorial)?.nombre || '';
+          const totalCompras = contarCompras(comprasProveedor);
+          const cantidadProductos = sumarCantidadProductos(comprasProveedor);
+          const montoTotal = sumarMontoTotal(comprasProveedor);
+
+          return (
+            <div className="space-y-4">
+              {/* Título dinámico */}
+              <h4 className="text-gray-800 font-semibold">
+                Historial de Compras – {proveedorNombre}
+              </h4>
+
+              {/* Resumen */}
+              <div className="grid grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
+                <div>
+                  <p className="text-sm text-gray-600">Total de compras</p>
+                  <p className="text-xl font-semibold text-gray-900">{totalCompras}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Cantidad total de productos</p>
+                  <p className="text-xl font-semibold text-gray-900">{cantidadProductos}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Monto total acumulado</p>
+                  <p className="text-xl font-semibold text-gray-900">{formatearCOP(montoTotal)}</p>
+                </div>
+              </div>
+
+              {/* Tabla de compras */}
+              {comprasOrdenadas.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Truck className="mx-auto mb-2 text-gray-300" size={32} />
+                  <p>Este proveedor aún no tiene compras registradas.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <table className="w-full">
+                    <thead className="bg-gray-100 border-b border-gray-200">
+                      <tr>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
+                          Fecha
+                        </th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
+                          N° Compra
+                        </th>
+                        <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">
+                          Cantidad de Productos
+                        </th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
+                          Subtotal
+                        </th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
+                          IVA
+                        </th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
+                          Total
+                        </th>
+                        <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">
+                          Estado
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {comprasOrdenadas.map((compra) => {
+                        const cantidadItems = (compra.items || []).reduce(
+                          (sum, item) => sum + (item.cantidad || 0),
+                          0
+                        );
+
+                        return (
+                          <tr key={compra.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4 text-sm text-gray-700">
+                              {new Date(compra.fechaCompra).toLocaleDateString('es-CO')}
+                            </td>
+                            <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                              {compra.numeroCompra}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-center text-gray-700">
+                              {cantidadItems}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-right text-gray-700">
+                              {formatearCOP(compra.subtotal || 0)}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-right text-gray-700">
+                              {formatearCOP(compra.iva || 0)}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-right font-semibold text-gray-900">
+                              {formatearCOP(compra.total || 0)}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-center">
+                              <span
+                                className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                                  compra.estado === 'Recibida'
+                                    ? 'bg-green-100 text-green-800'
+                                    : compra.estado === 'Pendiente'
+                                    ? 'bg-yellow-100 text-yellow-800'
+                                    : 'bg-red-100 text-red-800'
+                                }`}
+                              >
+                                {compra.estado}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Search */}
@@ -839,27 +1695,63 @@ export function ComprasManager() {
             
             <div className="space-y-3 mb-4">
               <div>
-                <label className="block text-gray-700 mb-2 text-sm">Producto</label>
-                <select
-                  value={nuevoItem.productoId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setNuevoItem({ ...nuevoItem, productoId: val });
-                    const sel = productos.find((p:any) => String(p.id) === String(val));
-                    setProductoSearchTerm(sel ? sel.nombre : '');
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                >
-                  <option value="">Seleccionar producto...</option>
-                  {productos.filter((p:any)=>p.activo).map((p:any) => (
-                    <option key={p.id} value={String(p.id)}>{p.nombre} {p.referencia ? `(${p.referencia})` : ''}</option>
-                  ))}
-                </select>
+                <label className="block text-gray-700 mb-2 text-sm">Nombre del Producto *</label>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Escribe el nombre del producto o selecciona uno existente"
+                    value={nuevoItem.productoNombre}
+                    onChange={(e) => setNuevoItem({ ...nuevoItem, productoNombre: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+                  />
+                  {productos.length > 0 && (
+                    <div className="text-xs text-gray-600">
+                      O selecciona uno existente:
+                      <select
+                        value={nuevoItem.productoId}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const sel = productos.find((p:any) => String(p.id) === String(val));
+                          if (sel) {
+                            // 🔒 CRÍTICO: Copiar la categoría del producto existente
+                            let categoriaIdFinal = sel.categoryId || '';
+                            let categoriaNombreFinal = '';
+                            if (categoriaIdFinal) {
+                              const catFound = categorias.find(c => String(c.id) === String(categoriaIdFinal));
+                              categoriaNombreFinal = catFound?.name || '';
+                            }
+                            
+                            console.log('✅ [select-onChange] Producto seleccionado:', {
+                              nombre: sel.nombre,
+                              categoryId: categoriaIdFinal,
+                              categoriaNombre: categoriaNombreFinal
+                            });
+                            
+                            setNuevoItem({ 
+                              ...nuevoItem, 
+                              productoId: val,
+                              productoNombre: sel.nombre,
+                              categoriaId: categoriaIdFinal,
+                              categoriaNombre: categoriaNombreFinal,
+                              referencia: sel.referencia || ''
+                            });
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 mt-2"
+                      >
+                        <option value="">-- Seleccionar producto existente --</option>
+                        {productos.filter((p:any)=>p.activo).map((p:any) => (
+                          <option key={p.id} value={String(p.id)}>{p.nombre} {p.referencia ? `(${p.referencia})` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Talla</label>
+                  <label className="block text-gray-700 mb-2 text-sm">Talla *</label>
                   <div className="flex gap-2">
                     <select
                       value={nuevoItem.talla}
@@ -867,18 +1759,9 @@ export function ComprasManager() {
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                     >
                       <option value="">Seleccionar talla...</option>
-                      {(() => {
-                        // Obtener tallas del producto seleccionado
-                        const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
-                        const tallasProducto = producto?.tallas || [];
-                        
-                        // Combinar con tallas globales
-                        const todasLasTallas = [...new Set([...tallasProducto, ...tallas])];
-                        
-                        return todasLasTallas.map(talla => (
-                          <option key={talla} value={talla}>{talla}</option>
-                        ));
-                      })()}
+                      {tallas.map(talla => (
+                        <option key={talla} value={talla}>{talla}</option>
+                      ))}
                     </select>
                     <Input
                       type="text"
@@ -899,14 +1782,11 @@ export function ComprasManager() {
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    {(() => {
-                      const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
-                      return producto?.tallas?.length ? `Tallas disponibles: ${producto.tallas.join(', ')}` : 'Selecciona un producto para ver tallas';
-                    })()}
+                    Tallas globales disponibles: {tallas.join(', ')}
                   </p>
                 </div>
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Color</label>
+                  <label className="block text-gray-700 mb-2 text-sm">Color *</label>
                   <div className="space-y-2">
                     {/* Color Picker Visual + Input */}
                     <div className="flex gap-2 items-end">
@@ -962,9 +1842,9 @@ export function ComprasManager() {
                       </div>
                     </div>
                     
-                    {/* Paleta de Colores - Mejorada */}
+                    {/* Paleta de Colores */}
                     <div>
-                      <span className="text-xs text-gray-600 mb-3 block font-medium">O selecciona un color:</span>
+                      <span className="text-xs text-gray-600 mb-3 block font-medium">O selecciona un color predefinido:</span>
                       <div className="grid grid-cols-4 gap-2">
                         {Object.entries(COLOR_MAP).map(([name, hex]) => {
                           const isSelected = nuevoItem.color && String(nuevoItem.color).toLowerCase() === String(name).toLowerCase();
@@ -990,10 +1870,7 @@ export function ComprasManager() {
                         })}
                       </div>
                       <p className="text-xs text-gray-500 mt-2">
-                        {(() => {
-                          const producto = productos.find((p: any) => String(p.id) === String(nuevoItem.productoId));
-                          return producto?.colores?.length ? `Colores del producto: ${producto.colores.join(', ')}` : 'Selecciona un producto para ver colores';
-                        })()}
+                        Los colores se definen en esta compra. Puedes escribir cualquier color personalizado.
                       </p>
                     </div>
                   </div>
@@ -1031,20 +1908,112 @@ export function ComprasManager() {
                   />
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div>
+                  <label className="block text-gray-700 mb-2 text-sm">Categoría del Producto</label>
+                  <select
+                    ref={categoriaSelectRef}
+                    value={nuevoItem.categoriaId || ''}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const cat = categorias.find(c => c.id === id);
+                      console.log('🔍 [ComprasManager] Categoría seleccionada en onChange:', { 
+                        id, 
+                        nombre: cat?.name
+                      });
+                      setNuevoItem(prev => ({ 
+                        ...prev, 
+                        categoriaId: id,
+                        categoriaNombre: cat?.name || ''
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+                  >
+                    <option value="">Seleccionar categoría...</option>
+                    {categorias.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                  {!nuevoItem.categoriaId && (
+                    <p className="text-xs text-gray-500 mt-1">La categoría es importante para organizar productos</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 mb-2 text-sm">Imagen del Producto</label>
+                  <Input
+                    type="text"
+                    value={nuevoItem.imagen}
+                    onChange={(e) => setNuevoItem({ ...nuevoItem, imagen: e.target.value })}
+                    placeholder="URL de imagen o ruta"
+                    className="text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">URL o ruta de la imagen del producto</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 mb-2 text-sm">Referencia (SKU)</label>
+                <Input
+                  type="text"
+                  value={nuevoItem.referencia}
+                  onChange={(e) => setNuevoItem({ ...nuevoItem, referencia: e.target.value })}
+                  placeholder="Ref-001 o código único"
+                  className="text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">Código o referencia único del producto (opcional)</p>
+              </div>
             </div>
 
-            <Button onClick={agregarItem} variant="primary" className="w-full mb-4">
+            <Button onClick={() => {
+              // Obtener el categoriaId directamente del select (más confiable que el state)
+              const selectValue = categoriaSelectRef.current?.value || '';
+              const cat = categorias.find(c => c.id === selectValue);
+              
+              console.log('📋 [ComprasManager] ANTES de agregarItem:', {
+                categoriaId_state: nuevoItem.categoriaId,
+                categoriaId_select: selectValue,
+                categoriaNombre_select: cat?.name,
+                nuevoItem: JSON.stringify(nuevoItem, null, 2)
+              });
+              
+              // Si el select tiene valor pero el state no, actualizar state
+              if (selectValue && !nuevoItem.categoriaId) {
+                console.log('🔧 [ComprasManager] Actualizando estado con categoría del select...');
+                const updatedItem = {
+                  ...nuevoItem,
+                  categoriaId: selectValue,
+                  categoriaNombre: cat?.name || ''
+                };
+                setNuevoItem(updatedItem);
+                // Esperar a que se actualice y luego agregar
+                setTimeout(() => agregarItem(), 50);
+              } else if (selectValue && nuevoItem.categoriaId !== selectValue) {
+                console.log('🔧 [ComprasManager] Sincronizando categoría del select...');
+                const updatedItem = {
+                  ...nuevoItem,
+                  categoriaId: selectValue,
+                  categoriaNombre: cat?.name || ''
+                };
+                setNuevoItem(updatedItem);
+                setTimeout(() => agregarItem(), 50);
+              } else {
+                agregarItem();
+              }
+            }} variant="primary" className="w-full mb-4">
               <Plus size={16} />
               Agregar Producto
             </Button>
 
             {/* Lista de productos agregados */}
             {formData.items.length > 0 && (
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="text-left py-2 px-3 text-gray-600">Producto</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Categoría</th>
                       <th className="text-left py-2 px-3 text-gray-600">Talla</th>
                       <th className="text-left py-2 px-3 text-gray-600">Color</th>
                       <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
@@ -1060,6 +2029,11 @@ export function ComprasManager() {
                       return (
                       <tr key={item.id}>
                         <td className="py-2 px-3 text-gray-900">{item.productoNombre}</td>
+                        <td className="py-2 px-3 text-gray-700">
+                          <span className="inline-block bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-medium">
+                            {item.categoriaNombre || '⚠️ ERROR: Sin asignar'}
+                          </span>
+                        </td>
                         <td className="py-2 px-3 text-gray-700">{item.talla || '-'}</td>
                         <td className="py-2 px-3 text-gray-700">
                           <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Settings,
@@ -33,6 +33,7 @@ import { ProductosManager } from '../../ecommerce/products';
 import { ProveedoresManager } from '../../suppliers';
 import { ComprasManager } from '../../purchases';
 import { ClientesManager } from '../../ecommerce/customers';
+import ClienteDetallePage from '../../ecommerce/customers/pages/ClienteDetallePage';
 import { PedidosManager } from '../../ecommerce/orders';
 import { VentasManager } from '../../ecommerce/sales';
 import { DevolucionesManager } from '../../returns';
@@ -55,13 +56,28 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   const [user, setUser] = useState(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [clienteDetalle, setClienteDetalle] = useState<any>(null);
+
+  // 🔗 Escuchar evento de navegación a detalle de cliente
+  useEffect(() => {
+    const handleNavigateClienteDetalle = (event: any) => {
+      const cliente = event.detail;
+      if (cliente && cliente.id) {
+        setClienteDetalle(cliente);
+        setCurrentPage('cliente-detalle');
+      }
+    };
+
+    window.addEventListener('navigate-cliente-detalle', handleNavigateClienteDetalle);
+    return () => window.removeEventListener('navigate-cliente-detalle', handleNavigateClienteDetalle);
+  }, []);
 
   // Obtener permisos del rol del usuario
   const getUserPermissions = () => {
     const roles = JSON.parse(localStorage.getItem('damabella_roles') || '[]');
     const userRole = roles.find((r: any) => 
       r.id === user.roleId || 
-      r.nombre === user.role || 
+      r.nombre === user.role ||
       r.name === user.role
     );
     
@@ -273,6 +289,11 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
         return <ComprasManager />;
       case 'clientes':
         return <ClientesManager />;
+      case 'cliente-detalle':
+        return <ClienteDetallePage 
+          cliente={clienteDetalle} 
+          onBack={() => setCurrentPage('clientes')} 
+        />;
       case 'pedidos':
         return <PedidosManager />;
       case 'ventas':
