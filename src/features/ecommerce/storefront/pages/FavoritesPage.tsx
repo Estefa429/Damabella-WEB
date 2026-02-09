@@ -11,40 +11,76 @@ interface FavoritesPageProps {
 }
 
 export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser = null }: FavoritesPageProps) {
-  const { products, favorites, toggleFavorite, addToCart } = useEcommerce();
+  const { products, favorites, toggleFavorite, addToCart, getProductStock } = useEcommerce();
 
   const favoriteProducts = products.filter(p => favorites.includes(p.id));
 
   const handleAddToCart = (product: any) => {
+    // ✅ Validaciones defensivas
+    if (!product) {
+      alert('Producto no válido');
+      return;
+    }
+
+    if (!product.id) {
+      console.error('Producto sin ID:', product);
+      alert('Error: Producto sin identificador');
+      return;
+    }
+
     // Validar que el producto tenga variantes
-    if (!product?.variants || product.variants.length === 0) {
+    if (!product.variants || product.variants.length === 0) {
       alert('Este producto no tiene variantes disponibles');
       return;
     }
 
     const firstVariant = product.variants[0];
 
+    if (!firstVariant || !firstVariant.color) {
+      alert('Error: Variante sin datos');
+      return;
+    }
+
     // Validar que la variante tenga tallas
-    if (!firstVariant?.sizes || firstVariant.sizes.length === 0) {
+    if (!firstVariant.sizes || firstVariant.sizes.length === 0) {
       alert('Este producto no tiene tallas disponibles');
       return;
     }
 
-    const firstSize = firstVariant.sizes.find((s: any) => s.stock > 0);
+    const firstSize = firstVariant.sizes.find((s: any) => s && s.stock > 0);
 
-    if (firstSize) {
-      addToCart({
+    if (!firstSize || !firstSize.size) {
+      alert('Este producto no tiene stock disponible');
+      return;
+    }
+
+    // ✅ Validar stock disponible en admin
+    const availableStock = getProductStock(product.id, firstVariant.color, firstSize.size);
+    
+    if (availableStock === 0) {
+      alert('❌ Este producto no tiene stock disponible');
+      return;
+    }
+
+    try {
+      // ✅ Llamar a addToCart y esperar resultado boolean
+      const success = addToCart({
         productId: product.id,
-        productName: product.name,
-        price: product.price,
-        image: product.image,
+        productName: product.name || 'Producto sin nombre',
+        price: product.price || 0,
+        image: product.image || '',
         color: firstVariant.color,
-        colorHex: firstVariant.colorHex,
+        colorHex: firstVariant.colorHex || '#000000',
         size: firstSize.size,
         quantity: 1,
       });
-    } else {
-      alert('Este producto no tiene stock disponible');
+
+      if (!success) {
+        console.warn('[FavoritesPage] addToCart retornó false para:', product.name);
+      }
+    } catch (error) {
+      console.error('[FavoritesPage] Error al agregar al carrito:', error);
+      alert('Error al agregar al carrito. Intenta de nuevo.');
     }
   };
 

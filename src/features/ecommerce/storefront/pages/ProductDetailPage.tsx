@@ -13,7 +13,7 @@ interface ProductDetailPageProps {
 }
 
 export function ProductDetailPage({ productId, onNavigate, isAuthenticated = false, currentUser = null }: ProductDetailPageProps) {
-  const { products, favorites, toggleFavorite, addToCart, addToRecentlyViewed } = useEcommerce();
+  const { products, favorites, toggleFavorite, addToCart, addToRecentlyViewed, getProductStock } = useEcommerce();
   const { showToast } = useToast();
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
@@ -89,24 +89,55 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
   const isFavorite = favorites.includes(product.id);
 
   const handleAddToCart = () => {
+    // ✅ Validaciones defensivas
     if (!selectedColor || !selectedSize) {
       showToast('Selecciona color y talla', 'error');
       return;
     }
 
-    // Permite agregar al carrito sin restricción de stock
-    addToCart({
-      productId: product.id,
-      productName: product.name,
-      price: product.price,
-      image: product.image,
-      color: selectedColor,
-      colorHex: selectedVariant?.colorHex || '#000000',
-      size: selectedSize,
-      quantity,
-    });
+    if (!product || !product.id) {
+      showToast('Producto no válido', 'error');
+      return;
+    }
 
-    showToast('✅ Producto agregado al carrito', 'success');
+    if (!selectedVariant) {
+      showToast('Variante no encontrada', 'error');
+      return;
+    }
+
+    // Validar stock disponible
+    const availableStock = getProductStock(product.id, selectedColor, selectedSize);
+    
+    if (availableStock === 0) {
+      showToast('❌ Este producto no tiene stock disponible', 'error');
+      return;
+    }
+
+    if (quantity > availableStock) {
+      showToast(`❌ Solo disponibles ${availableStock} unidades de este producto`, 'error');
+      return;
+    }
+
+    try {
+      // ✅ Llamar a addToCart y esperar resultado boolean
+      const success = addToCart({
+        productId: product.id,
+        productName: product.name || 'Producto sin nombre',
+        price: product.price || 0,
+        image: product.image || '',
+        color: selectedColor,
+        colorHex: selectedVariant?.colorHex || '#000000',
+        size: selectedSize,
+        quantity,
+      });
+
+      if (!success) {
+        console.warn('[ProductDetailPage] addToCart retornó false para:', product.name);
+      }
+    } catch (error) {
+      console.error('[ProductDetailPage] Error al agregar al carrito:', error);
+      showToast('Error al agregar al carrito. Intenta de nuevo.', 'error');
+    }
   };
 
   const handleToggleFavorite = () => {

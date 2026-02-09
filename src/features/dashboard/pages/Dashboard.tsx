@@ -1,7 +1,21 @@
 import { StatsCard } from '../components/StatsCard';
 import { Card, Badge } from '../../../shared/components/native';
-import { DollarSign, ShoppingCart, RotateCcw, Users, Package, TrendingUp, Clock, CheckCircle } from 'lucide-react';
-import { mockDashboardStats, mockTransactions, mockProducts, mockNotifications } from '../../../shared/utils/mockData';
+import { DollarSign, ShoppingCart, RotateCcw, Users, Clock } from 'lucide-react';
+import { useMemo, useEffect, useState } from 'react';
+import {
+  getVentasDelMes,
+  getPedidosPendientes,
+  getClientesActivos,
+  getDevolucionesDelMes,
+  getSalesMonthlyData,
+  getCategoryDistribution,
+  getTopProducts,
+  getPendingOrdersTable,
+  getClientsRegisteredMonthly,
+  formatCOP,
+  auditarLocalStorage,
+  subscribeToStorageChanges,
+} from '../utils/dashboardHelpers';
 import {
   AreaChart,
   Area,
@@ -19,62 +33,46 @@ import {
   Cell,
 } from 'recharts';
 
-// Datos para gráficas
-const salesData = [
-  { month: 'Ene', ventas: 8500000, pedidos: 45 },
-  { month: 'Feb', ventas: 9200000, pedidos: 52 },
-  { month: 'Mar', ventas: 10100000, pedidos: 58 },
-  { month: 'Abr', ventas: 9800000, pedidos: 54 },
-  { month: 'May', ventas: 11200000, pedidos: 63 },
-  { month: 'Jun', ventas: 10500000, pedidos: 59 },
-  { month: 'Jul', ventas: 11800000, pedidos: 67 },
-  { month: 'Ago', ventas: 12000000, pedidos: 69 },
-  { month: 'Sep', ventas: 11500000, pedidos: 65 },
-  { month: 'Oct', ventas: 12200000, pedidos: 70 },
-  { month: 'Nov', ventas: 12500000, pedidos: 72 },
-  { month: 'Dic', ventas: 13800000, pedidos: 82 },
-];
-
-const categoryData = [
-  { name: 'Vestidos Largos', value: 45, color: '#374151' },
-  { name: 'Vestidos Cortos', value: 38, color: '#6B7280' },
-  { name: 'Sets', value: 25, color: '#9CA3AF' },
-  { name: 'Enterizos', value: 32, color: '#D1D5DB' },
-];
-
-const categorySalesData = [
-  { name: 'Vestidos Largos', ventas: 12500000, cantidad: 145, color: '#374151' },
-  { name: 'Vestidos Cortos', ventas: 9200000, cantidad: 110, color: '#6B7280' },
-  { name: 'Sets', ventas: 7800000, cantidad: 98, color: '#9CA3AF' },
-  { name: 'Enterizos', ventas: 8900000, cantidad: 87, color: '#D1D5DB' },
-];
-
-const topProducts = [
-  { name: 'Vestido Largo Elegante', ventas: 145, ingresos: 23155000 },
-  { name: 'Set Deportivo Premium', ventas: 132, ingresos: 17148000 },
-  { name: 'Vestido Corto Casual', ventas: 98, ingresos: 8810200 },
-  { name: 'Enterizo Formal', ventas: 87, ingresos: 11571000 },
-  { name: 'Vestido Largo Fiesta', ventas: 76, ingresos: 13452000 },
-];
-
-const clientsRegistered = [
-  { month: 'Ene', clientes: 12 },
-  { month: 'Feb', clientes: 18 },
-  { month: 'Mar', clientes: 25 },
-  { month: 'Abr', clientes: 22 },
-  { month: 'May', clientes: 30 },
-  { month: 'Jun', clientes: 28 },
-  { month: 'Jul', clientes: 35 },
-  { month: 'Ago', clientes: 42 },
-  { month: 'Sep', clientes: 38 },
-  { month: 'Oct', clientes: 45 },
-  { month: 'Nov', clientes: 52 },
-  { month: 'Dic', clientes: 60 },
-];
-
 export function Dashboard() {
-  const stats = mockDashboardStats;
-  const pedidosPendientes = mockTransactions.filter(t => t.status === 'Procesando').length;
+  // ============================================================
+  // ESTADO PARA FORZAR RE-RENDER CUANDO CAMBIA localStorage
+  // ============================================================
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // ============================================================
+  // AUDITORÍA Y REACTIVIDAD - useEffect
+  // ============================================================
+  useEffect(() => {
+    // 🔍 Auditoría inicial: listar keys en localStorage
+    console.log('====== DASHBOARD INICIANDO ======');
+    auditarLocalStorage();
+
+    // 🔄 Suscribirse a cambios en localStorage
+    const unsubscribe = subscribeToStorageChanges(() => {
+      console.log('🔄 [DASHBOARD] Forzando re-cálculo de datos...');
+      setRefreshTrigger((prev) => prev + 1); // Fuerza re-render
+    });
+
+    // Limpiar suscripción al desmontar
+    return () => {
+      console.log('[DASHBOARD] Limpiando suscripciones...');
+      unsubscribe();
+    };
+  }, []);
+
+  // ============================================================
+  // CÁLCULOS CENTRALIZADOS - useMemo para evitar recálculos
+  // ============================================================
+
+  const ventasDelMes = useMemo(() => getVentasDelMes(), [refreshTrigger]);
+  const pedidosPendientes = useMemo(() => getPedidosPendientes(), [refreshTrigger]);
+  const clientesActivos = useMemo(() => getClientesActivos(), [refreshTrigger]);
+  const devolucionesDelMes = useMemo(() => getDevolucionesDelMes(), [refreshTrigger]);
+  const salesMonthlyData = useMemo(() => getSalesMonthlyData(), [refreshTrigger]);
+  const categoryDistribution = useMemo(() => getCategoryDistribution(), [refreshTrigger]);
+  const topProductsData = useMemo(() => getTopProducts(5), [refreshTrigger]);
+  const pendingOrdersTable = useMemo(() => getPendingOrdersTable(5), [refreshTrigger]);
+  const clientsRegisteredData = useMemo(() => getClientsRegisteredMonthly(), [refreshTrigger]);
 
   return (
     <div className="space-y-6">
@@ -86,28 +84,28 @@ export function Dashboard() {
       {/* Tarjetas de estadísticas */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
-          title="Ventas Totales"
-          value={`$${(stats.totalSales / 1000000).toFixed(1)}M`}
+          title="Ventas del Mes"
+          value={formatCOP(ventasDelMes)}
           icon={DollarSign}
-          growth={stats.salesGrowth}
+          growth={0}
         />
         <StatsCard
-          title="Pedidos"
-          value={stats.totalOrders}
+          title="Pedidos Pendientes"
+          value={pedidosPendientes.toString()}
           icon={ShoppingCart}
-          growth={stats.ordersGrowth}
+          growth={0}
         />
         <StatsCard
           title="Devoluciones"
-          value={stats.totalReturns}
+          value={devolucionesDelMes.toString()}
           icon={RotateCcw}
-          growth={stats.returnsGrowth}
+          growth={0}
         />
         <StatsCard
-          title="Clientes"
-          value={stats.totalClients}
+          title="Clientes Activos"
+          value={clientesActivos.toString()}
           icon={Users}
-          growth={stats.clientsGrowth}
+          growth={0}
         />
       </div>
 
@@ -120,7 +118,7 @@ export function Dashboard() {
             <Badge variant="info">2024</Badge>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={salesData}>
+            <AreaChart data={salesMonthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" stroke="#6b7280" />
               <YAxis stroke="#6b7280" tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`} />
@@ -137,7 +135,7 @@ export function Dashboard() {
             <Badge variant="success">↑ 15%</Badge>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={salesData}>
+            <LineChart data={salesMonthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" stroke="#6b7280" />
               <YAxis stroke="#6b7280" label={{ value: 'Cantidad de Pedidos', angle: -90, position: 'insideLeft' }} />
@@ -153,20 +151,20 @@ export function Dashboard() {
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
-                data={categoryData}
+                data={categoryDistribution}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, value }) => `${name}: ${value} unidades`}
+                label={({ name, value }) => `${name}: ${value}%`}
                 outerRadius={100}
                 fill="#8884d8"
                 dataKey="value"
               >
-                {categoryData.map((entry, index) => (
+                {categoryDistribution.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => `${value} unidades`} />
+              <Tooltip formatter={(value) => `${value}%`} />
             </PieChart>
           </ResponsiveContainer>
         </Card>
@@ -175,7 +173,7 @@ export function Dashboard() {
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Clientes Registrados (Cantidad)</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={clientsRegistered}>
+            <BarChart data={clientsRegisteredData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" stroke="#6b7280" />
               <YAxis stroke="#6b7280" label={{ value: 'Cantidad de Clientes', angle: -90, position: 'insideLeft' }} />
@@ -190,7 +188,7 @@ export function Dashboard() {
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4">Productos Más Vendidos (Unidades Vendidas)</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={topProducts}>
+          <BarChart data={topProductsData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="name" stroke="#6b7280" />
             <YAxis stroke="#6b7280" yAxisId="left" label={{ value: 'Cantidad Vendida', angle: -90, position: 'insideLeft' }} />
@@ -211,72 +209,51 @@ export function Dashboard() {
             <Badge variant="warning">{pedidosPendientes} pendientes</Badge>
           </div>
           <div className="space-y-3">
-            {mockTransactions
-              .filter(t => t.status === 'Procesando')
-              .slice(0, 5)
-              .map((transaction) => (
-                <div
-                  key={transaction.id}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-yellow-100 rounded-lg">
-                      <Clock className="h-4 w-4 text-yellow-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">{transaction.userName}</p>
-                      <p className="text-xs text-gray-600">
-                        Pedido #{transaction.id}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">${transaction.total.toLocaleString()}</p>
-                    <p className="text-xs text-yellow-600">Procesando</p>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </Card>
-
-        {/* Notificaciones recientes */}
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Notificaciones Recientes</h3>
-          <div className="space-y-3">
-            {mockNotifications.slice(0, 5).map((notification) => (
+            {pendingOrdersTable.map((order) => (
               <div
-                key={notification.id}
-                className={`p-3 rounded-lg border ${
-                  !notification.read ? 'bg-gray-50 border-gray-300' : 'border-gray-200'
-                }`}
+                key={order.id}
+                className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={`h-2 w-2 rounded-full mt-2 ${
-                      notification.type === 'success'
-                        ? 'bg-green-500'
-                        : notification.type === 'warning'
-                        ? 'bg-yellow-500'
-                        : notification.type === 'error'
-                        ? 'bg-red-500'
-                        : 'bg-blue-500'
-                    }`}
-                  />
-                  <div className="flex-1 space-y-1">
-                    <p className="text-sm font-medium">{notification.title}</p>
-                    <p className="text-xs text-gray-600">{notification.message}</p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(notification.createdAt).toLocaleDateString('es-ES', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-yellow-100 rounded-lg">
+                    <Clock className="h-4 w-4 text-yellow-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{order.clienteNombre}</p>
+                    <p className="text-xs text-gray-600">
+                      {order.productoNombre}
                     </p>
                   </div>
                 </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium">{formatCOP(order.monto)}</p>
+                  <p className="text-xs text-yellow-600">{order.estado}</p>
+                </div>
               </div>
             ))}
+          </div>
+        </Card>
+
+        {/* Resumen de información */}
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Resumen del Periodo</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b">
+              <span className="text-gray-600">Ventas procesadas</span>
+              <span className="font-semibold">{formatCOP(ventasDelMes)}</span>
+            </div>
+            <div className="flex justify-between items-center pb-3 border-b">
+              <span className="text-gray-600">Pedidos pendientes</span>
+              <span className="font-semibold">{pedidosPendientes}</span>
+            </div>
+            <div className="flex justify-between items-center pb-3 border-b">
+              <span className="text-gray-600">Clientes activos</span>
+              <span className="font-semibold">{clientesActivos}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Devoluciones este mes</span>
+              <span className="font-semibold">{devolucionesDelMes}</span>
+            </div>
           </div>
         </Card>
       </div>
@@ -285,12 +262,10 @@ export function Dashboard() {
       <Card className="p-6">
         <h3 className="text-lg font-semibold mb-4">Pedidos Recientes (Pendientes)</h3>
         <div className="space-y-3">
-          {mockTransactions
-            .filter(t => t.status === 'Procesando')
-            .slice(0, 5)
-            .map((transaction) => (
+          {pendingOrdersTable.length > 0 ? (
+            pendingOrdersTable.map((order) => (
               <div
-                key={transaction.id}
+                key={order.id}
                 className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center gap-4">
@@ -298,29 +273,22 @@ export function Dashboard() {
                     <Clock className="h-5 w-5 text-yellow-600" />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm font-medium">{transaction.userName}</p>
-                    <p className="text-xs text-gray-600">
-                      {new Date(transaction.date).toLocaleDateString('es-ES', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </p>
+                    <p className="text-sm font-medium">{order.clienteNombre}</p>
+                    <p className="text-xs text-gray-600">{order.productoNombre}</p>
                   </div>
                 </div>
                 <div className="text-right space-y-1">
-                  <p className="text-sm font-medium">${transaction.total.toLocaleString()} COP</p>
+                  <p className="text-sm font-medium">{formatCOP(order.monto)}</p>
                   <Badge variant="warning">
-                    {transaction.status}
+                    {order.estado}
                   </Badge>
                 </div>
               </div>
-            ))}
+            ))
+          ) : (
+            <p className="text-center text-gray-500 py-8">No hay pedidos pendientes</p>
+          )}
         </div>
-        {mockTransactions.filter(t => t.status === 'Procesando').length === 0 && (
-          <p className="text-center text-gray-500 py-8">No hay pedidos pendientes</p>
-        )}
-      </Card>
     </div>
   );
 }

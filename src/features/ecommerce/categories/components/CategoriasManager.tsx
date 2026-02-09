@@ -79,6 +79,8 @@ export default function CategoriasManager() {
       }
     };
 
+    
+
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [canViewCategorias, canCreateCategorias, canEditCategorias]);
@@ -181,6 +183,8 @@ const handleViewProducts = (category: any) => {
     }
     setShowModal(false);
   };
+
+  
 
   const toggleActive = (id: number) => {
     const category = categories.find((c: any) => c.id === id);
