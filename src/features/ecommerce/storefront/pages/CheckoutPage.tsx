@@ -2,6 +2,10 @@ import React, { useState, useContext, useMemo } from 'react';
 import { EcommerceContext } from '../../../../shared/contexts';
 import { Package, ChevronDown } from 'lucide-react';
 
+// ✅ CONFIGURACIÓN DE ENVÍO
+const MIN_SHIPPING_AMOUNT = 50000; // Monto mínimo para envío gratis
+const STANDARD_SHIPPING_COST = 8000; // Costo de envío estándar
+
 interface ShippingInfo {
   fullName: string;
   phone: string;
@@ -143,7 +147,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   }, [cart]);
 
-  const shippingCost = subtotal > 50000 ? 0 : 8000;
+  const shippingCost = subtotal > MIN_SHIPPING_AMOUNT ? 0 : STANDARD_SHIPPING_COST;
   const iva = (subtotal + shippingCost) * 0.19;
   const total = subtotal + shippingCost + iva;
 
@@ -373,7 +377,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                       onChange={(e) => handleCardChange('cardNumber', e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400"
                       placeholder="4532 1234 5678 9010"
-                      maxLength="19"
+                      maxLength={19}
                     />
                   </div>
 
@@ -386,7 +390,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                         onChange={(e) => handleCardChange('cardExpiry', e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400"
                         placeholder="MM/YY"
-                        maxLength="5"
+                      maxLength={5}
                       />
                     </div>
 
@@ -398,7 +402,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                         onChange={(e) => handleCardChange('cardCVC', e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400"
                         placeholder="123"
-                        maxLength="3"
+                      maxLength={3}
                       />
                     </div>
                   </div>
@@ -482,9 +486,28 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               </div>
 
               {/* Nota de envío gratis */}
-              {subtotal <= 50000 && shippingCost > 0 && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-gray-700">
-                  ℹ️ Envío gratis en compras mayores a $50.000
+              {shippingCost === 0 && subtotal > 0 && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="text-sm text-green-700 font-medium">
+                    ✅ ¡Envío GRATIS! Tu compra califica para envío sin costo.
+                  </div>
+                </div>
+              )}
+
+              {subtotal > 0 && subtotal <= MIN_SHIPPING_AMOUNT && shippingCost > 0 && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-xs text-gray-700 mb-2">
+                    ℹ️ Envío gratis en compras mayores a ${MIN_SHIPPING_AMOUNT.toLocaleString('es-CO')}
+                  </div>
+                  <div className="w-full bg-blue-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all"
+                      style={{ width: `${(subtotal / MIN_SHIPPING_AMOUNT) * 100}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-gray-600 mt-2">
+                    Te faltan ${(MIN_SHIPPING_AMOUNT - subtotal).toLocaleString('es-CO')} para envío gratis
+                  </div>
                 </div>
               )}
 

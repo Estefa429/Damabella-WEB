@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { Search, Heart, ShoppingCart, User } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
 
@@ -9,37 +9,7 @@ interface PremiumNavbarProps {
 }
 
 export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: PremiumNavbarProps) {
-  const { cart, favorites } = useEcommerce();
-  const [categories, setCategories] = useState<string[]>(['Vestidos Largos', 'Vestidos Cortos', 'Sets', 'Enterizos']);
-  const loadedCategoriesRef = useRef<string>('');
-
-  // Cargar categorías dinámicas desde localStorage con polling
-  useEffect(() => {
-    const loadCategories = () => {
-      const stored = localStorage.getItem('damabella_categorias');
-      
-      if (stored !== loadedCategoriesRef.current) {
-        loadedCategoriesRef.current = stored || '';
-        
-        if (stored) {
-          try {
-            const categorias = JSON.parse(stored);
-            const categoryNames = categorias.map((cat: any) => cat.name);
-            setCategories(categoryNames);
-            console.log('[PremiumNavbar] ✅ Categorías actualizadas:', categoryNames.join(', '));
-          } catch (error) {
-            console.error('[PremiumNavbar] Error cargando categorías:', error);
-          }
-        }
-      }
-    };
-
-    loadCategories();
-    
-    // Polling cada 500ms
-    const interval = setInterval(loadCategories, 500);
-    return () => clearInterval(interval);
-  }, []);
+  const { cart, favorites, categories } = useEcommerce();
 
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const favoritesCount = favorites.length;
@@ -66,11 +36,11 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
             </button>
             {categories.map((category) => (
               <button
-                key={category}
-                onClick={() => onNavigate('search', category)}
+                key={category.id}
+                onClick={() => onNavigate('search', category.name)}
                 className="text-gray-700 hover:text-pink-400 transition-colors"
               >
-                {category}
+                {category.name}
               </button>
             ))}
           </nav>

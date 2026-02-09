@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { sampleProducts } from '../utils/sampleData';
+import { toast } from 'sonner';
 
 // Tipos
 export interface ProductVariant {
@@ -56,7 +56,9 @@ interface EcommerceContextType {
   favorites: string[];
   recentlyViewed: string[];
   orders: Order[];
-  addToCart: (item: CartItem) => void;
+  categories: { id: number | string; name: string; description: string }[];
+  categoriesForHome: { id: number | string; name: string; description: string }[];
+  addToCart: (item: CartItem) => boolean;
   removeFromCart: (productId: string, color: string, size: string) => void;
   updateCartQuantity: (productId: string, color: string, size: string, quantity: number) => void;
   clearCart: () => void;
@@ -67,6 +69,7 @@ interface EcommerceContextType {
   deleteProduct: (productId: string) => void;
   addOrder: (order: Order) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  getProductStock: (productId: string, color: string, size: string) => number;
 }
 
 const EcommerceContext = createContext<EcommerceContextType | undefined>(undefined);
@@ -84,27 +87,77 @@ function getColorHex(color: string): string {
   return map[color] || '#000000';
 }
 
-// Convertir sampleProducts
-const convertSampleProducts = (): Product[] => {
-  return sampleProducts.map((p: any) => ({
-    id: `p${p.id}`,
-    name: p.nombre,
-    description: p.descripcion,
-    price: p.precioVenta,
-    image: p.imagen,
-    category: p.categoria,
-    featured: Math.random() > 0.5,
-    new: Math.random() > 0.7,
-    variants: p.variantes?.map((v: any) => ({
-      color: v.colores?.[0]?.color || v.color || 'Negro',
-      colorHex: getColorHex(v.colores?.[0]?.color || v.color || 'Negro'),
-      sizes: v.colores?.map((c: any) => ({ size: v.talla, stock: c.cantidad || 0 })) || [{ size: v.talla, stock: v.cantidad || 0 }]
-    })) || [{
-      color: 'Negro', colorHex: '#000000', sizes: [
-        { size: 'S', stock: 10 }, { size: 'M', stock: 15 }, { size: 'L', stock: 10 }
-      ]
-    }]
-  }));
+// Función para obtener categorías activas del admin para el NAVBAR
+// ✅ Mostrar TODAS las categorías activas, sin filtrar por stock
+const getActiveCategoriesForNavbar = (): { id: number | string; name: string; description: string }[] => {
+  const categoriesRaw = localStorage.getItem('damabella_categorias');
+  
+  const activeCategories: { id: number | string; name: string; description: string }[] = [];
+  
+  if (!categoriesRaw) return activeCategories;
+  
+  try {
+    const allCategories = JSON.parse(categoriesRaw);
+    
+    // Filtrar SOLO categorías que están activas
+    allCategories.forEach((cat: any) => {
+      if (cat.active === true) {
+        activeCategories.push({
+          id: cat.id,
+          name: cat.name || cat.nombre,
+          description: cat.description || cat.descripcion || ''
+        });
+      }
+    });
+    
+    console.log('[EcommerceContext] Categorías activas para Navbar:', activeCategories.length);
+    return activeCategories;
+  } catch (e) {
+    console.error('[EcommerceContext] Error al obtener categorías para navbar:', e);
+    return activeCategories;
+  }
+};
+
+// Función para obtener categorías activas del admin para el HOME
+// ✅ Mostrar SOLO categorías con al menos un producto activo y con stock
+const getActiveCategoriesForHome = (): { id: number | string; name: string; description: string }[] => {
+  const categoriesRaw = localStorage.getItem('damabella_categorias');
+  const productsRaw = localStorage.getItem('damabella_productos');
+  
+  const activeCategories: { id: number | string; name: string; description: string }[] = [];
+  
+  if (!categoriesRaw) return activeCategories;
+  
+  try {
+    const allCategories = JSON.parse(categoriesRaw);
+    const allProducts = productsRaw ? JSON.parse(productsRaw) : [];
+    
+    // Filtrar categorías que están activas
+    const activeOnlyCategories = allCategories.filter((cat: any) => cat.active === true);
+    
+    // Filtrar categorías que tengan al menos un producto activo con stock
+    activeOnlyCategories.forEach((cat: any) => {
+      const hasActiveProduct = allProducts.some((prod: any) => 
+        (prod.categoria === cat.name || prod.categoria === cat.id) &&
+        prod.activo !== false && // Mostrar si está activo o no definido
+        prod.stockTotal > 0
+      );
+      
+      if (hasActiveProduct) {
+        activeCategories.push({
+          id: cat.id,
+          name: cat.name || cat.nombre,
+          description: cat.description || cat.descripcion || ''
+        });
+      }
+    });
+    
+    console.log('[EcommerceContext] Categorías activas para Home:', activeCategories.length);
+    return activeCategories;
+  } catch (e) {
+    console.error('[EcommerceContext] Error al obtener categorías para home:', e);
+    return activeCategories;
+  }
 };
 
 // Función para convertir productos del admin al formato de ecommerce
@@ -121,9 +174,26 @@ const convertAdminProductsToDisplayFormat = (): Product[] => {
         // Mostrar estado de cada producto para debugging
         console.log(`[EcommerceContext] Producto ${index + 1}: ${p.nombre} | Categoría: ${p.categoria} | activo: ${p.activo}`);
         
+        // Calcular stock total del producto
+        let totalStock = 0;
+        if (p.variantes && Array.isArray(p.variantes)) {
+          p.variantes.forEach((variant: any) => {
+            if (variant.colores && Array.isArray(variant.colores)) {
+              variant.colores.forEach((color: any) => {
+                totalStock += color.cantidad || 0;
+              });
+            } else {
+              totalStock += variant.cantidad || 0;
+            }
+          });
+        }
+        
+        console.log(`[EcommerceContext] Stock total para ${p.nombre}: ${totalStock}`);
+        
         // ✅ CAMBIO: Mostrar productos activos O productos que no tengan el campo definido (null/undefined)
+        // AND que tengan stock disponible (totalStock > 0)
         // Esto es más tolerante con productos que no especifiquen explícitamente 'activo'
-        if (p.activo !== false) {
+        if (p.activo !== false && totalStock > 0) {
           const variants: ProductVariant[] = [];
           
           if (p.variantes && Array.isArray(p.variantes)) {
@@ -164,9 +234,13 @@ const convertAdminProductsToDisplayFormat = (): Product[] => {
             rating: 4.5
           });
           
-          console.log(`[EcommerceContext] ✅ Producto incluido: ${p.nombre}`);
+          console.log(`[EcommerceContext] ✅ Producto incluido: ${p.nombre} (Stock: ${totalStock})`);
         } else {
-          console.log(`[EcommerceContext] ❌ Producto excluido (inactivo): ${p.nombre}`);
+          if (p.activo === false) {
+            console.log(`[EcommerceContext] ❌ Producto excluido (inactivo): ${p.nombre}`);
+          } else {
+            console.log(`[EcommerceContext] ❌ Producto excluido (sin stock): ${p.nombre}`);
+          }
         }
       });
       
@@ -181,8 +255,78 @@ const convertAdminProductsToDisplayFormat = (): Product[] => {
   return adminProducts;
 };
 
+// Función auxiliar para obtener el stock disponible de un producto específico
+const getProductStock = (productId: string, color: string, size: string): number => {
+  // ✅ Validaciones defensivas
+  if (!productId || !color || !size) {
+    console.warn('[getProductStock] Parámetros inválidos:', { productId, color, size });
+    return 0;
+  }
+
+  const adminProductosRaw = localStorage.getItem('damabella_productos');
+  
+  if (!adminProductosRaw) {
+    console.warn('[getProductStock] No hay productos en localStorage');
+    return 0;
+  }
+  
+  try {
+    const adminProductos = JSON.parse(adminProductosRaw);
+    
+    if (!Array.isArray(adminProductos)) {
+      console.warn('[getProductStock] Productos no es un array');
+      return 0;
+    }
+
+    // Extraer el ID sin el prefijo "admin_"
+    const actualId = productId.replace('admin_', '');
+    const product = adminProductos.find((p: any) => p && p.id?.toString() === actualId);
+    
+    if (!product) {
+      console.warn('[getProductStock] Producto no encontrado:', actualId);
+      return 0;
+    }
+
+    if (product.activo === false) {
+      console.warn('[getProductStock] Producto inactivo:', productId);
+      return 0;
+    }
+    
+    if (!product.variantes || !Array.isArray(product.variantes)) {
+      console.warn('[getProductStock] Producto sin variantes:', productId);
+      return 0;
+    }
+
+    for (const variant of product.variantes) {
+      if (!variant || variant.talla !== size) continue;
+
+      if (variant.colores && Array.isArray(variant.colores)) {
+        for (const colorObj of variant.colores) {
+          if (colorObj && colorObj.color === color) {
+            const stock = colorObj.cantidad || 0;
+            console.log(`[getProductStock] Stock encontrado: ${productId} - ${color} - ${size} = ${stock}`);
+            return stock;
+          }
+        }
+      } else if (variant.color === color) {
+        const stock = variant.cantidad || 0;
+        console.log(`[getProductStock] Stock encontrado (alt): ${productId} - ${color} - ${size} = ${stock}`);
+        return stock;
+      }
+    }
+    
+    console.warn('[getProductStock] Combinación color/talla no encontrada:', { color, size });
+    return 0;
+  } catch (e) {
+    console.error('[getProductStock] Error obteniendo stock:', e);
+    return 0;
+  }
+};
+
 export function EcommerceProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<{ id: number | string; name: string; description: string }[]>([]);
+  const [categoriesForHome, setCategoriesForHome] = useState<{ id: number | string; name: string; description: string }[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
@@ -200,17 +344,26 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
     if (savedRecentlyViewed) setRecentlyViewed(JSON.parse(savedRecentlyViewed));
     if (savedOrders) setOrders(JSON.parse(savedOrders));
     
-    // Cargar productos del admin (damabella_productos)
+    // ✅ Cargar categorías: NavBar usa todas las activas, Home usa solo las comercializables
+    const navbarCategories = getActiveCategoriesForNavbar();
+    const homeCategories = getActiveCategoriesForHome();
+    setCategories(navbarCategories);
+    setCategoriesForHome(homeCategories);
+    
+    // ✅ Cargar SOLO productos del admin (damabella_productos) - fuente única de verdad
     const adminProducts = convertAdminProductsToDisplayFormat();
-    const sampleProds = convertSampleProducts();
-    setProducts([...adminProducts, ...sampleProds]);
+    setProducts(adminProducts);
 
-    // Listener para cambios en los productos del admin (desde otra pestaña)
+    // Listener para cambios en los productos y categorías del admin (desde otra pestaña)
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'damabella_productos' && e.newValue) {
+      if ((e.key === 'damabella_productos' || e.key === 'damabella_categorias') && e.newValue) {
         const adminProducts = convertAdminProductsToDisplayFormat();
-        const sampleProds = convertSampleProducts();
-        setProducts([...adminProducts, ...sampleProds]);
+        setProducts(adminProducts);
+        
+        const navbarCategories = getActiveCategoriesForNavbar();
+        const homeCategories = getActiveCategoriesForHome();
+        setCategories(navbarCategories);
+        setCategoriesForHome(homeCategories);
       }
     };
 
@@ -219,8 +372,12 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
     // Polling para sincronización en la misma pestaña (cada 1 segundo)
     const pollInterval = setInterval(() => {
       const adminProducts = convertAdminProductsToDisplayFormat();
-      const sampleProds = convertSampleProducts();
-      setProducts([...adminProducts, ...sampleProds]);
+      setProducts(adminProducts);
+      
+      const navbarCategories = getActiveCategoriesForNavbar();
+      const homeCategories = getActiveCategoriesForHome();
+      setCategories(navbarCategories);
+      setCategoriesForHome(homeCategories);
     }, 1000);
 
     return () => {
@@ -237,16 +394,81 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
   useEffect(() => { localStorage.setItem('damabella_orders', JSON.stringify(orders)); }, [orders]);
 
   // Funciones de carrito
-  const addToCart = (item: CartItem) => {
-    setCart(prev => {
-      const idx = prev.findIndex(i => i.productId === item.productId && i.color === item.color && i.size === item.size);
-      if (idx > -1) {
-        const copy = [...prev];
-        copy[idx].quantity += item.quantity;
-        return copy;
+  const addToCart = (item: CartItem): boolean => {
+    try {
+      // ✅ Validaciones defensivas exhaustivas
+      if (!item) {
+        console.error('[addToCart] Item es null/undefined');
+        toast.error('❌ Producto inválido');
+        return false;
       }
-      return [...prev, item];
-    });
+
+      if (!item.productId) {
+        console.error('[addToCart] Item sin productId:', item);
+        toast.error('❌ Producto sin identificador');
+        return false;
+      }
+
+      if (!item.productName) {
+        console.error('[addToCart] Item sin productName:', item);
+        toast.error('❌ Producto sin nombre');
+        return false;
+      }
+
+      if (item.price === undefined || item.price === null || item.price < 0) {
+        console.error('[addToCart] Precio inválido:', item.price);
+        toast.error('❌ Precio inválido');
+        return false;
+      }
+
+      if (!item.color) {
+        console.error('[addToCart] Item sin color:', item);
+        toast.error('❌ Color no especificado');
+        return false;
+      }
+
+      if (!item.size) {
+        console.error('[addToCart] Item sin size:', item);
+        toast.error('❌ Talla no especificada');
+        return false;
+      }
+
+      if (!item.quantity || item.quantity < 1) {
+        console.error('[addToCart] Cantidad inválida:', item.quantity);
+        toast.error('❌ Cantidad inválida');
+        return false;
+      }
+
+      // ✅ Validar stock disponible en el admin
+      const availableStock = getProductStock(item.productId, item.color, item.size);
+      if (availableStock < item.quantity) {
+        console.warn(`[addToCart] Stock insuficiente: solicitado ${item.quantity}, disponible ${availableStock}`);
+        toast.error(`❌ Stock insuficiente. Disponible: ${availableStock}`);
+        return false;
+      }
+
+      // ✅ Si todas las validaciones pasaron, agregar al carrito
+      setCart(prev => {
+        const idx = prev.findIndex(
+          i => i.productId === item.productId && i.color === item.color && i.size === item.size
+        );
+        if (idx > -1) {
+          const copy = [...prev];
+          copy[idx].quantity += item.quantity;
+          return copy;
+        }
+        return [...prev, item];
+      });
+
+      console.log('[addToCart] ✅ Producto agregado:', item.productName);
+      toast.success(`✅ ${item.productName} agregado al carrito`);
+      return true;
+
+    } catch (error) {
+      console.error('[addToCart] Error no controlado:', error);
+      toast.error('❌ Error al agregar el producto. Intenta de nuevo.');
+      return false;
+    }
   };
 
   const removeFromCart = (productId: string, color: string, size: string) => {
@@ -275,11 +497,11 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
 
   return (
     <EcommerceContext.Provider value={{
-      products, cart, favorites, recentlyViewed, orders,
+      products, categories, categoriesForHome, cart, favorites, recentlyViewed, orders,
       addToCart, removeFromCart, updateCartQuantity, clearCart,
       toggleFavorite, addToRecentlyViewed,
       addProduct, updateProduct, deleteProduct,
-      addOrder, updateOrderStatus
+      addOrder, updateOrderStatus, getProductStock
     }}>
       {children}
     </EcommerceContext.Provider>

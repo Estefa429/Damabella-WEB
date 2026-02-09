@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, Mail, Phone, MapPin, FileText, Save, X, Lock, Eye, EyeOff, Camera } from 'lucide-react';
-import { Button, Input, Modal } from '../../../shared/components/native';
+import { User, Mail, Phone, MapPin, FileText, Save, X, Lock, Eye, EyeOff, Camera, AlertCircle } from 'lucide-react';
+import { Button, Input, Modal, useToast } from '../../../shared/components/native';
 
 interface EditarPerfilPageProps {
   currentUser: any;
@@ -11,6 +11,9 @@ interface EditarPerfilPageProps {
 export default function EditarPerfilPage({ currentUser, onSave, onCancel }: EditarPerfilPageProps) {
   // Debug: Ver qué datos tiene currentUser
   console.log('🔍 [EditarPerfilPage] currentUser:', currentUser);
+
+  // Usar el toast global del contexto
+  const { showToast } = useToast();
 
   // Obtener usuario desde localStorage primero (datos más completos)
   const getUserData = () => {
@@ -63,10 +66,10 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     newPassword: '',
     confirmPassword: ''
   });
+  const [passwordErrors, setPasswordErrors] = useState<any>({});
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [toasts, setToasts] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sincronizar cuando currentUser cambia
@@ -91,11 +94,11 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     const file = e.target.files?.[0];
     if (file) {
       if (!['image/png','image/jpeg','image/jpg'].includes(file.type)) {
-        showToast('Solo se permiten imágenes PNG o JPG');
+        showToast('Solo se permiten imágenes PNG o JPG', 'error');
         return;
       }
       if (file.size > 2 * 1024 * 1024) {
-        showToast('El tamaño máximo permitido es 2MB');
+        showToast('El tamaño máximo permitido es 2MB', 'error');
         return;
       }
       const reader = new FileReader();
@@ -106,13 +109,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     }
   };
 
-  // Función para mostrar toast
-  const showToast = (message: string) => {
-    setToasts(prev => [...prev, message]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(msg => msg !== message));
-    }, 3000);
-  };
+  // Función para mostrar toast - REMOVIDA, ahora usamos el hook global
 
   // Validaciones más simples
   const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -144,6 +141,30 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     setErrors(newErrors);
   }, [formData]);
 
+  // Validar contraseñas en tiempo real
+  useEffect(() => {
+    const newPasswordErrors: any = {};
+    
+    if (passwordData.newPassword && passwordData.newPassword.length < 6) {
+      newPasswordErrors.newPassword = 'Mínimo 6 caracteres';
+    }
+    if (!passwordData.newPassword) {
+      newPasswordErrors.newPassword = 'La nueva contraseña es obligatoria';
+    }
+    
+    if (!passwordData.confirmPassword) {
+      newPasswordErrors.confirmPassword = 'Debe confirmar la contraseña';
+    } else if (passwordData.newPassword && passwordData.confirmPassword !== passwordData.newPassword) {
+      newPasswordErrors.confirmPassword = 'Las contraseñas no coinciden';
+    }
+    
+    if (passwordData.currentPassword && passwordData.currentPassword.length < 6) {
+      newPasswordErrors.currentPassword = 'Mínimo 6 caracteres';
+    }
+    
+    setPasswordErrors(newPasswordErrors);
+  }, [passwordData]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     console.log('💾 [handleSubmit] GUARDANDO CAMBIOS DEL PERFIL');
@@ -153,21 +174,21 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     
     // Validación simple: solo nombre y email son obligatorios
     if (!formData.nombre.trim()) {
-      showToast('❌ El nombre es obligatorio');
+      showToast('El nombre es obligatorio', 'error');
       return;
     }
     if (!formData.email.trim()) {
-      showToast('❌ El email es obligatorio');
+      showToast('El email es obligatorio', 'error');
       return;
     }
     if (!isValidEmail(formData.email)) {
-      showToast('❌ Email inválido');
+      showToast('Email inválido', 'error');
       return;
     }
     
     // Validar campos opcionales solo si tienen contenido
     if (formData.celular && formData.celular.trim() && !isValidCellNumber(formData.celular)) {
-      showToast('❌ Celular inválido');
+      showToast('Celular inválido', 'error');
       return;
     }
 
@@ -199,7 +220,8 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
       avatar: formData.avatar || currentUser?.avatar || null,
       role: currentUser?.role || currentUser?.rol || 'Cliente',  // Buscar en ambos campos
       rol: currentUser?.rol || currentUser?.role || 'Cliente',    // Guardar también en 'rol' para compatibilidad
-      password: userIndex !== -1 ? users[userIndex].password : undefined // Preservar contraseña existente
+      password: userIndex !== -1 ? users[userIndex].password : undefined, // Preservar contraseña existente
+      estado: userIndex !== -1 ? users[userIndex].estado : 'Activo' // Preservar estado actual
     };
     
     console.log('  📝 Usuario actualizado completo:', JSON.stringify(updatedUser, null, 2));
@@ -219,24 +241,19 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
     localStorage.setItem('damabella_users', JSON.stringify(users));
     localStorage.setItem('damabella_current_user', JSON.stringify(updatedUser));
     console.log('  ✅ Cambios guardados en localStorage');
-    onSave(updatedUser);
-    showToast('✅ Perfil guardado correctamente');
+    showToast('Perfil actualizado correctamente', 'success');
+    // Pequeño delay para asegurar que el toast se renderice antes de navegar
+    setTimeout(() => {
+      onSave(updatedUser);
+    }, 100);
   };
 
   const handleChangePassword = () => {
     console.log('🔐 [handleChangePassword] INICIANDO CAMBIO DE CONTRASEÑA');
     
-    // Validación simple - sin requerir contraseña actual
-    if (!passwordData.newPassword || !passwordData.confirmPassword) {
-      showToast('❌ Completa la nueva contraseña y confirmación');
-      return;
-    }
-    if (passwordData.newPassword.length < 6) {
-      showToast('❌ La contraseña debe tener mínimo 6 caracteres');
-      return;
-    }
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      showToast('❌ Las contraseñas no coinciden');
+    // Validar que no haya errores
+    if (Object.keys(passwordErrors).length > 0) {
+      showToast('Por favor, completa los campos correctamente', 'error');
       return;
     }
 
@@ -267,31 +284,20 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
         console.log('  ✅ Contraseña actualizada exitosamente');
         setShowPasswordModal(false);
         setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-        showToast('✅ Contraseña actualizada correctamente');
+        setPasswordErrors({});
+        showToast('Contraseña actualizada correctamente', 'success');
       } else {
         console.log('  ❌ Usuario no encontrado. Emails en BD:', users.map((u: any) => u.email));
-        showToast('❌ Usuario no encontrado en la base de datos');
+        showToast('Usuario no encontrado en la base de datos', 'error');
       }
     } catch (error) {
       console.error('❌ Error al cambiar contraseña:', error);
-      showToast('❌ Error al actualizar contraseña');
+      showToast('Error al actualizar contraseña', 'error');
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto relative">
-      {/* Contenedor de Toasts a la derecha */}
-      <div className="fixed top-5 right-5 flex flex-col gap-2 z-50">
-        {toasts.map((msg, index) => (
-          <div
-            key={index}
-            className="bg-green-600 text-white px-4 py-2 rounded shadow-lg animate-slide-in"
-          >
-            {msg}
-          </div>
-        ))}
-      </div>
-
+    <div className="max-w-2xl mx-auto">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="bg-gradient-to-r from-gray-600 to-gray-700 px-6 py-4">
           <div className="flex items-center gap-4">
@@ -341,8 +347,9 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^[a-zA-Z0-9\s]$/.test(char)).join('');
                   setFormData({ ...formData, nombre: value });
                 }}
+                className={errors.nombre ? "border-red-500 focus:ring-red-500" : ""}
               />
-              {errors.nombre && <p className="text-red-600 text-sm mt-1">{errors.nombre}</p>}
+              {errors.nombre && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.nombre}</p>}
             </div>
 
             {/* Email */}
@@ -355,8 +362,9 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 placeholder="correo@ejemplo.com"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className={errors.email ? "border-red-500 focus:ring-red-500" : ""}
               />
-              {errors.email && <p className="text-red-600 text-sm mt-1">{errors.email}</p>}
+              {errors.email && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.email}</p>}
             </div>
 
             {/* Tipo de Documento */}
@@ -389,8 +397,9 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^\d$/.test(char)).join('');
                   setFormData({ ...formData, numeroDoc: value });
                 }}
+                className={errors.numeroDoc ? "border-red-500 focus:ring-red-500" : ""}
               />
-              {errors.numeroDoc && <p className="text-red-600 text-sm mt-1">{errors.numeroDoc}</p>}
+              {errors.numeroDoc && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.numeroDoc}</p>}
             </div>
 
             {/* Celular */}
@@ -406,8 +415,9 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^\d$/.test(char)).join('');
                   setFormData({ ...formData, celular: value });
                 }}
+                className={errors.celular ? "border-red-500 focus:ring-red-500" : ""}
               />
-              {errors.celular && <p className="text-red-600 text-sm mt-1">{errors.celular}</p>}
+              {errors.celular && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.celular}</p>}
             </div>
 
             {/* Dirección */}
@@ -423,8 +433,9 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^[a-zA-Z0-9\s#\-.,]$/.test(char)).join('');
                   setFormData({ ...formData, direccion: value });
                 }}
+                className={errors.direccion ? "border-red-500 focus:ring-red-500" : ""}
               />
-              {errors.direccion && <p className="text-red-600 text-sm mt-1">{errors.direccion}</p>}
+              {errors.direccion && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.direccion}</p>}
             </div>
           </div>
 
@@ -472,6 +483,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 value={passwordData.currentPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                 placeholder="Ingresa tu contraseña actual"
+                className={passwordErrors.currentPassword ? "border-red-500 focus:ring-red-500" : ""}
               />
               <button
                 type="button"
@@ -481,6 +493,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 {showCurrentPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
+            {passwordErrors.currentPassword && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.currentPassword}</p>}
           </div>
 
           <div>
@@ -491,6 +504,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 value={passwordData.newPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                 placeholder="Ingresa tu nueva contraseña"
+                className={passwordErrors.newPassword ? "border-red-500 focus:ring-red-500" : ""}
               />
               <button
                 type="button"
@@ -500,7 +514,11 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 {showNewPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
-            <p className="text-gray-500 text-sm mt-1">Mínimo 6 caracteres</p>
+            {passwordErrors.newPassword ? (
+              <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.newPassword}</p>
+            ) : (
+              <p className="text-gray-500 text-sm mt-1">Mínimo 6 caracteres</p>
+            )}
           </div>
 
           <div>
@@ -511,6 +529,7 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 value={passwordData.confirmPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                 placeholder="Confirma tu nueva contraseña"
+                className={passwordErrors.confirmPassword ? "border-red-500 focus:ring-red-500" : ""}
               />
               <button
                 type="button"
@@ -520,18 +539,25 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
-            {passwordData.newPassword && passwordData.confirmPassword && (
-              <p className={`text-sm mt-1 ${passwordData.newPassword === passwordData.confirmPassword ? 'text-green-600' : 'text-red-600'}`}>
-                {passwordData.newPassword === passwordData.confirmPassword ? '✓ Las contraseñas coinciden' : '✗ Las contraseñas no coinciden'}
-              </p>
+            {passwordErrors.confirmPassword && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.confirmPassword}</p>}
+            {!passwordErrors.confirmPassword && passwordData.newPassword && passwordData.confirmPassword && (
+              <p className="text-green-600 text-sm mt-1">✓ Las contraseñas coinciden</p>
             )}
           </div>
 
           <div className="flex gap-3 justify-end pt-4 border-t">
-            <Button onClick={() => setShowPasswordModal(false)} variant="secondary">
+            <Button onClick={() => {
+              setShowPasswordModal(false);
+              setPasswordErrors({});
+            }} variant="secondary">
               Cancelar
             </Button>
-            <Button onClick={handleChangePassword} variant="primary">
+            <Button 
+              onClick={handleChangePassword} 
+              variant="primary"
+              disabled={Object.keys(passwordErrors).length > 0}
+              className={Object.keys(passwordErrors).length > 0 ? 'opacity-50 cursor-not-allowed' : ''}
+            >
               <Lock size={18} /> Cambiar Contraseña
             </Button>
           </div>
