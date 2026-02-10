@@ -94,7 +94,9 @@ export function RolesPage() {
   const { showToast } = useToast();
   const { user } = useAuth();
 
-  const canDelete = user?.role === 'Administrador';
+  // Permitir eliminación a cualquier usuario que pueda acceder al panel administrativo.
+  // El control de acceso al panel se gestiona fuera de esta página.
+  const canDelete = true;
 
   const validateField = (field: string, value: string) => {
     const errors: any = {};
@@ -278,7 +280,7 @@ export function RolesPage() {
           >
             <Edit className="h-4 w-4 text-gray-600" />
           </button>
-          {canDelete && role.name !== 'Administrador' && (
+          {role.name !== 'Administrador' && (
             <button
               onClick={() => handleDelete(role.id)}
               className="p-1 hover:bg-red-50 rounded-md transition-colors"

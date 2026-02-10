@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Card, Button, Input, Label, Textarea, Modal, DataTable, useToast } from '../../../shared/components/native';
+import { Card, Button, Input, Label, Textarea, Modal, useToast } from '../../../shared/components/native';
 import validateField from '../../../shared/utils/validation';
+import { Trash2, Edit2 } from 'lucide-react';
+import { DataTable } from '@/components/ui/DataTable';
 
 // Mock roles ya tipados correctamente
 interface Rol {
@@ -46,7 +48,31 @@ export const Roles: React.FC = () => {
     {
       key: 'permisos',
       label: 'Permisos',
-      render: (item: Rol) => item.permisos.join(', '),
+      render: (item: Rol) => (
+        <span className="text-sm text-gray-600">
+          {item.permisos.length} permisos
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      render: (item: Rol) => (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleEdit(item)}
+            className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+          >
+            <Edit2 className="h-4 w-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => handleDelete(item)}
+            className="p-1 hover:bg-red-50 rounded-md transition-colors"
+          >
+            <Trash2 className="h-4 w-4 text-red-600" />
+          </button>
+        </div>
+      ),
     },
   ];
 
@@ -122,7 +148,9 @@ export const Roles: React.FC = () => {
       <DataTable
         data={roles}
         columns={columns}
-        searchPlaceholder="Buscar rol..."
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        // searchPlaceholder="Buscar rol..."
       />
 
       <Modal
