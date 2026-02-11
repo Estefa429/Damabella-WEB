@@ -1,6 +1,7 @@
 import React from 'react';
 import { Heart, ShoppingCart } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
+import { useToast } from '../../../../shared/components/native';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
 
@@ -12,6 +13,7 @@ interface FavoritesPageProps {
 
 export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser = null }: FavoritesPageProps) {
   const { products, favorites, toggleFavorite, addToCart, getProductStock } = useEcommerce();
+  const { showToast } = useToast();
 
   const favoriteProducts = products.filter(p => favorites.includes(p.id));
 
@@ -74,7 +76,7 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
         size: firstSize.size,
         quantity: 1,
       });
-
+      try { showToast('Producto agregado al carrito', 'success'); } catch(e){ console.warn('[FavoritesPage] showToast failed', e); }
       if (!success) {
         console.warn('[FavoritesPage] addToCart retornó false para:', product.name);
       }

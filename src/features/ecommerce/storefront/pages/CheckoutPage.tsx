@@ -1,5 +1,6 @@
 import React, { useState, useContext, useMemo } from 'react';
 import { EcommerceContext } from '../../../../shared/contexts';
+import { generarNumeroVenta } from '../../../../services/saleService';
 import { Package, ChevronDown } from 'lucide-react';
 
 // ✅ CONFIGURACIÓN DE ENVÍO
@@ -192,6 +193,137 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
     const purchases = JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
     purchases.push(purchase);
     localStorage.setItem('purchaseHistory', JSON.stringify(purchases));
+
+    // Guardar como PEDIDO (key administrativa: 'damabella_pedidos')
+    try {
+      const PEDIDOS_KEY = 'damabella_pedidos';
+      const CLIENTES_KEY = 'damabella_clientes';
+      const VENTAS_KEY = 'damabella_ventas';
+
+      // 1) Asegurar cliente existe o crear uno nuevo (NO modificar clientes creados manualmente)
+      const clientesRaw = localStorage.getItem(CLIENTES_KEY) || '[]';
+      const clientes = JSON.parse(clientesRaw);
+
+      // Buscar por teléfono o por email (si existe currentUser)
+      const phone = shippingInfo.phone?.toString() || '';
+      const email = (currentUser?.email || '').toString().toLowerCase();
+
+      let cliente = clientes.find((c: any) => (c.telefono && c.telefono.toString() === phone) || (c.email && c.email.toString().toLowerCase() === email));
+
+      if (!cliente) {
+        // Crear cliente mínimo requerido por el admin
+        cliente = {
+          id: Date.now(),
+          nombre: shippingInfo.fullName || (currentUser?.nombre || 'Cliente sin nombre'),
+          tipoDoc: '',
+          numeroDoc: '',
+          telefono: phone,
+          email: currentUser?.email || '',
+          direccion: shippingInfo.address || '',
+          ciudad: shippingInfo.city || '',
+          activo: false,
+          createdAt: new Date().toISOString()
+        };
+        clientes.push(cliente);
+        try { localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientes)); } catch (e) { console.warn('[Checkout] No se pudo guardar cliente', e); }
+      }
+
+      // 2) Crear pedido en la key administrativa
+      const pedidosRaw = localStorage.getItem(PEDIDOS_KEY) || '[]';
+      const pedidos = JSON.parse(pedidosRaw);
+
+      const itemsPedido = cart.map((it: any, idx: number) => ({
+        id: `it-${Date.now()}-${idx}`,
+        productoId: it.productId,
+        productoNombre: it.productName || '',
+        talla: it.size || '',
+        color: it.color || '',
+        cantidad: it.quantity || 1,
+        precioUnitario: it.price || 0,
+        subtotal: (it.price || 0) * (it.quantity || 1)
+      }));
+
+      const nuevoPedido = {
+        id: Date.now(),
+        numeroPedido: `PED-${Date.now()}`,
+        tipo: 'Pedido',
+        clienteId: cliente.id,
+        clienteNombre: cliente.nombre,
+        fechaPedido: new Date().toISOString(),
+        estado: 'Pendiente',
+        items: itemsPedido,
+        productos: itemsPedido,
+        subtotal: Number(subtotal.toFixed(2)),
+        iva: Number(iva.toFixed(2)),
+        total: Number(total.toFixed(2)),
+        metodoPago: paymentMethod || 'unknown',
+        observaciones: '',
+        createdAt: new Date().toISOString(),
+        venta_id: null
+      };
+
+      pedidos.push(nuevoPedido);
+      try { localStorage.setItem(PEDIDOS_KEY, JSON.stringify(pedidos)); } catch (e) { console.warn('[Checkout] No se pudo guardar pedido', e); }
+
+      // 3) Crear una venta administrativa para que el cliente muestre Total Ventas
+      try {
+        const ventasRaw = localStorage.getItem(VENTAS_KEY) || '[]';
+        const ventas = JSON.parse(ventasRaw);
+
+        const nuevaVenta = {
+          id: Date.now(),
+          numeroVenta: generarNumeroVenta(),
+          clienteId: cliente.id,
+          clienteNombre: cliente.nombre,
+          fechaVenta: new Date().toISOString(),
+          estado: 'Completada',
+          items: itemsPedido.map((ip: any, i: number) => ({
+            id: `vitem-${Date.now()}-${i}`,
+            productoId: ip.productoId,
+            productoNombre: ip.productoNombre,
+            talla: ip.talla,
+            color: ip.color,
+            cantidad: ip.cantidad,
+            precioUnitario: ip.precioUnitario,
+            subtotal: ip.subtotal
+          })),
+          subtotal: Number(subtotal.toFixed(2)),
+          iva: Number(iva.toFixed(2)),
+          total: Number(total.toFixed(2)),
+          metodoPago: paymentMethod || 'unknown',
+          observaciones: '',
+          anulada: false,
+          createdAt: new Date().toISOString(),
+          pedido_id: nuevoPedido.id,
+          movimientosStock: {
+            salidaEjecutada: false,
+            devolucionEjecutada: false
+          }
+        };
+
+        ventas.push(nuevaVenta);
+        try { localStorage.setItem(VENTAS_KEY, JSON.stringify(ventas)); } catch (e) { console.warn('[Checkout] No se pudo guardar venta', e); }
+
+        // Vincular pedido con venta (venta_id)
+        try {
+          const pedidosActual = JSON.parse(localStorage.getItem(PEDIDOS_KEY) || '[]');
+          const idx = pedidosActual.findIndex((p: any) => p.id === nuevoPedido.id);
+          if (idx > -1) {
+            pedidosActual[idx].venta_id = nuevaVenta.id;
+            // opcional: marcar pedido como convertido
+            pedidosActual[idx].estado = 'Convertido a venta';
+            localStorage.setItem(PEDIDOS_KEY, JSON.stringify(pedidosActual));
+          }
+        } catch (e) {
+          console.warn('[Checkout] No se pudo vincular pedido con venta', e);
+        }
+      } catch (e) {
+        console.warn('[Checkout] Error creando venta administrativa', e);
+      }
+
+    } catch (e) {
+      console.error('[Checkout] Error al crear pedido/cliente/venta administrativa', e);
+    }
 
     console.log('✅ Compra creada:', purchase);
 

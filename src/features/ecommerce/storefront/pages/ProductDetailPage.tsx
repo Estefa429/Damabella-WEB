@@ -89,6 +89,12 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
   const isFavorite = favorites.includes(product.id);
 
   const handleAddToCart = () => {
+    console.log('[ProductDetailPage] handleAddToCart called', {
+      productId: product?.id,
+      selectedColor,
+      selectedSize,
+      quantity,
+    });
     // ✅ Validaciones defensivas
     if (!selectedColor || !selectedSize) {
       showToast('Selecciona color y talla', 'error');
@@ -105,21 +111,87 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
       return;
     }
 
-    // Validar stock disponible
-    const availableStock = getProductStock(product.id, selectedColor, selectedSize);
-    
-    if (availableStock === 0) {
-      showToast('❌ Este producto no tiene stock disponible', 'error');
-      return;
-    }
-
-    if (quantity > availableStock) {
-      showToast(`❌ Solo disponibles ${availableStock} unidades de este producto`, 'error');
+    // Validar stock disponible desde localStorage
+    const adminProducts = localStorage.getItem('damabella_productos');
+    console.log('[ProductDetailPage] damabella_productos raw:', adminProducts);
+    if (!adminProducts) {
+      showToast('No hay productos disponibles', 'error');
       return;
     }
 
     try {
-      // ✅ Llamar a addToCart y esperar resultado boolean
+      const prods = JSON.parse(adminProducts) as any[];
+      const prodIdRaw = (product.id || '').toString();
+      // extraer sólo los dígitos del id recibido (p.ej. 'admin_1' -> '1')
+      const prodDigitsMatch = prodIdRaw.match(/\d+/);
+      const prodDigits = prodDigitsMatch ? prodDigitsMatch[0] : prodIdRaw;
+      console.log('[ProductDetailPage] Normalizing product id for search', { prodIdRaw, prodDigits });
+      console.log('[ProductDetailPage] Stored products ids:', prods.map((p:any) => ({ id: p?.id, idStr: p?.id?.toString?.(), digits: (p?.id?.toString?.() || '').match(/\d+/)?.[0] })));
+
+      const adminProduct = prods.find((p: any) => {
+        const pid = p?.id;
+        const pidStr = pid !== undefined && pid !== null ? pid.toString() : '';
+        const pidDigitsMatch = pidStr.match(/\d+/);
+        const pidDigits = pidDigitsMatch ? pidDigitsMatch[0] : pidStr;
+
+        const matchesDirect = pidStr === prodIdRaw || pidDigits === prodDigits;
+        const matchesPrefixed = (`p${pidStr}` === prodIdRaw) || (`admin_${pidStr}` === prodIdRaw) || (`admin-${pidStr}` === prodIdRaw);
+
+        const matched = matchesDirect || matchesPrefixed;
+        if (matched) {
+          console.log('[ProductDetailPage] Matching storage product for search', { storageId: pid, pidStr, pidDigits, prodIdRaw, prodDigits });
+        }
+        return matched;
+      });
+      console.log('[ProductDetailPage] adminProduct found:', adminProduct);
+      if (!adminProduct) {
+        showToast('Producto no encontrado en inventario', 'error');
+        return;
+      }
+      // Calcular stock total del producto (todas las variantes/colores)
+      const totalStock = (adminProduct.variantes || []).reduce((sum: number, v: any) => {
+        const cols = v.colores || [];
+        return sum + cols.reduce((s: number, c: any) => s + (Number(c.cantidad) || 0), 0);
+      }, 0);
+      console.log('[ProductDetailPage] totalStock:', totalStock);
+
+      // Mostrar mensaje global de "sin stock" solo si el stock total es 0
+      if (totalStock === 0) {
+        showToast('❌ Este producto no tiene stock disponible', 'error');
+        return;
+      }
+
+      const variant = adminProduct.variantes?.find((v: any) => v.talla === selectedSize || (v.talla && v.talla.toString() === selectedSize));
+      console.log('[ProductDetailPage] matched variant:', variant);
+      if (!variant) {
+        showToast('Talla no disponible', 'error');
+        return;
+      }
+
+      const colorData = variant.colores?.find((c: any) => {
+        if (!c || c.color === undefined || c.color === null) return false;
+        return c.color.toString().trim().toLowerCase() === selectedColor.toString().trim().toLowerCase();
+      });
+      console.log('[ProductDetailPage] matched colorData:', colorData);
+
+      // Si la variante/color seleccionado no tiene stock, mostrar mensaje específico (no el mensaje global)
+      if (!colorData || (Number(colorData.cantidad) || 0) === 0) {
+        showToast('La variante/color seleccionado no tiene stock. Selecciona otra opción', 'error');
+        return;
+      }
+
+      if (quantity > (Number(colorData.cantidad) || 0)) {
+        showToast(`❌ Solo disponibles ${colorData.cantidad} unidades de este producto`, 'error');
+        return;
+      }
+
+      // Restar 1 unidad del stock del color/talla seleccionado (según requisito puntual)
+      colorData.cantidad = (Number(colorData.cantidad) || 0) - 1;
+      if (colorData.cantidad < 0) colorData.cantidad = 0;
+      localStorage.setItem('damabella_productos', JSON.stringify(prods));
+      setRealStock(colorData.cantidad);
+
+      // ✅ Agregar al carrito
       const success = addToCart({
         productId: product.id,
         productName: product.name || 'Producto sin nombre',
@@ -328,10 +400,6 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
 
             {/* Product Features */}
             <div className="space-y-3 pt-6 border-t border-gray-200">
-              <div className="flex items-center gap-3 text-gray-700">
-                <Truck size={20} className="text-pink-400" />
-                <span>Envío gratis en compras mayores a $150.000</span>
-              </div>
               <div className="flex items-center gap-3 text-gray-700">
                 <Shield size={20} className="text-pink-400" />
                 <span>Garantía de calidad</span>
