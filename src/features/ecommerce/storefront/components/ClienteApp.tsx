@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { EcommerceProvider } from '../../../../shared/contexts';
 import { ToastProvider } from '../../../../shared/components/native';
 import { PremiumHomePage } from '../pages/PremiumHomePage';
@@ -29,7 +29,9 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
     // Vistas que requieren autenticación
     const protectedViews = ['checkout', 'profile', 'orders'];
     
-    if (protectedViews.includes(view) && !isAuthenticated) {
+    // Permitir acceso a la vista 'detail' en modo lectura incluso si no está autenticado.
+    // Solo bloquear otras vistas protegidas.
+    if (protectedViews.includes(view) && view !== 'detail' && !isAuthenticated) {
       setCurrentView('login');
       return;
     }
@@ -44,8 +46,41 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
       setCurrentView(view);
       setSelectedProductId(null);
     }
+
+    // Push history state para habilitar retroceso/adelante del navegador
+    try {
+      const urlHash = `#${view}${param ? `/${param}` : ''}`;
+      window.history.pushState({ view, param }, '', urlHash);
+    } catch (e) {
+      // No bloquear si falla el history
+      console.warn('[ClienteApp] history.pushState failed', e);
+    }
+
     window.scrollTo(0, 0);
   };
+
+  // Escuchar eventos de navegación del navegador (back/forward)
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      const state: any = e.state;
+      if (!state) return;
+      const { view, param } = state;
+      if (view === 'detail') {
+        setSelectedProductId(param || null);
+        setCurrentView('detail');
+      } else if (view === 'search') {
+        setSearchCategory(param);
+        setCurrentView('search');
+      } else {
+        setCurrentView(view || 'home');
+        setSelectedProductId(null);
+      }
+      window.scrollTo(0, 0);
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const handleLoginSuccess = (user: any) => {
     onLogin(user);

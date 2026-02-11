@@ -70,7 +70,7 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
     }
 
     // ✅ Llamar a addToCart y esperar resultado boolean
-    try {
+      try {
       const success = addToCart({
         productId: product.id,
         productName: product.name || 'Producto sin nombre',
@@ -81,9 +81,6 @@ export function PremiumHomePage({ onNavigate, onLoginRequired, isAuthenticated, 
         size: firstSize.size,
         quantity: 1,
       });
-
-      // Si addToCart retorna true, el toast de éxito ya se mostró en el contexto
-      // Si retorna false, el toast de error ya se mostró en el contexto
       if (!success) {
         console.warn('[PremiumHomePage] addToCart retornó false para:', product.name);
       }
