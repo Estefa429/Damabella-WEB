@@ -165,6 +165,52 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
     setCurrentPage('dashboard');
   };
 
+  // ===== Activar historial de navegación (pushState + popstate)
+  // Comportamiento mínimo: cada cambio de `currentPage` empuja un estado al history
+  // y escuchamos `popstate` para restaurar la página al usar back/forward del navegador.
+  useEffect(() => {
+    // Inicializar desde history.state si existe, o desde hash si viene de enlace externo
+    try {
+      const st: any = window.history.state;
+      if (st && st.page && typeof st.page === 'string') {
+        setCurrentPage(st.page);
+      } else if (window.location.hash && window.location.hash.startsWith('#admin-')) {
+        const fromHash = window.location.hash.replace('#admin-', '');
+        if (fromHash) setCurrentPage(fromHash);
+      }
+    } catch (err) {
+      // no bloquear si el acceso al history falla
+    }
+
+    const onPop = (ev: PopStateEvent) => {
+      try {
+        const p = (ev.state && (ev.state as any).page) || null;
+        if (p && typeof p === 'string') {
+          setCurrentPage(p);
+        } else if (window.location.hash && window.location.hash.startsWith('#admin-')) {
+          const fromHash = window.location.hash.replace('#admin-', '');
+          if (fromHash) setCurrentPage(fromHash);
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    try {
+      // push a history entry con la página actual y actualizar hash para visibilidad
+      const state = { page: currentPage };
+      const urlHash = `#admin-${currentPage}`;
+      window.history.pushState(state, '', urlHash);
+    } catch (err) {
+      // no interrumpir la app si falla
+    }
+  }, [currentPage]);
+
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
     setShowSearchResults(e.target.value.length > 0);
