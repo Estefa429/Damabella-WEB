@@ -12,6 +12,7 @@ import { ProfilePage } from '../pages/ProfilePage';
 import { OrdersPage } from '../../orders/pages/OrdersPage';
 import { ContactPage } from '../pages/ContactPage';
 import { LoginModal } from '../components/LoginModal';
+import { Modal } from '../../../../shared/components/native';
 
 interface ClienteAppProps {
   currentUser: any;
@@ -24,6 +25,7 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
   const [currentView, setCurrentView] = useState<string>('home');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchCategory, setSearchCategory] = useState<string | undefined>(undefined);
+  const [isOrdersOpen, setIsOrdersOpen] = useState<boolean>(false);
 
   const handleNavigate = (view: string, param?: string) => {
     // Vistas que requieren autenticación
@@ -42,6 +44,10 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
     } else if (view === 'search') {
       setSearchCategory(param);
       setCurrentView('search');
+    } else if (view === 'orders') {
+      // abrir orders como modal en la app del cliente
+      setCurrentView('orders');
+      setIsOrdersOpen(true);
     } else {
       setCurrentView(view);
       setSelectedProductId(null);
@@ -130,7 +136,9 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
       
       case 'orders':
         return isAuthenticated ? (
-          <OrdersPage onNavigate={handleNavigate} currentUser={currentUser} />
+          <Modal isOpen={isOrdersOpen} onClose={() => { setIsOrdersOpen(false); setCurrentView('profile'); }} title="Mis Pedidos" size="lg">
+            <OrdersPage onNavigate={handleNavigate} currentUser={currentUser} />
+          </Modal>
         ) : (
           <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => setCurrentView('login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
         );

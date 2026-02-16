@@ -62,6 +62,8 @@ export function PedidosPage() {
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'create' | 'view'>('create');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
   const [formData, setFormData] = useState({
     
     clientName: '',
@@ -307,11 +309,117 @@ export function PedidosPage() {
       </div>
 
       <Card className="p-6">
-        <DataTable
-          data={orders}
-          columns={columns}
-          searchPlaceholder="Buscar pedidos..."
-        />
+        <div className="space-y-4">
+          <div className="overflow-x-auto border border-gray-200 rounded-lg">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left py-3 px-4 whitespace-nowrap">Pedido</th>
+                  <th className="text-left py-3 px-4 whitespace-nowrap">Fecha</th>
+                  <th className="text-left py-3 px-4 whitespace-nowrap">Cliente</th>
+                  <th className="text-left py-3 px-4 whitespace-nowrap">Productos</th>
+                  <th className="text-left py-3 px-4 whitespace-nowrap">Total</th>
+                  <th className="text-left py-3 px-4 whitespace-nowrap">Pago</th>
+                  <th className="text-center py-3 px-4 whitespace-nowrap">Estado</th>
+                  <th className="text-center py-3 px-4 whitespace-nowrap">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {(() => {
+                  const totalPages = Math.ceil(orders.length / itemsPerPage);
+                  const startIndex = (currentPage - 1) * itemsPerPage;
+                  const endIndex = startIndex + itemsPerPage;
+                  const paginatedOrders = orders.slice(startIndex, endIndex);
+
+                  if (paginatedOrders.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={8} className="py-12 text-center text-gray-500">
+                          <Package className="mx-auto mb-2 text-gray-300" size={40} />
+                          <p>No hay pedidos</p>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return paginatedOrders.map((order) => (
+                    <tr key={order.id} className="hover:bg-gray-50">
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4 text-gray-600" />
+                          <span className="font-medium">{order.id}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap text-sm">{new Date(order.date).toLocaleDateString('es-ES')}</td>
+                      <td className="py-3 px-4 whitespace-nowrap text-sm">{order.clientName}</td>
+                      <td className="py-3 px-4 whitespace-nowrap text-sm">{order.items.length} producto{order.items.length > 1 ? 's' : ''}</td>
+                      <td className="py-3 px-4 whitespace-nowrap text-sm font-medium">${order.total.toLocaleString()}</td>
+                      <td className="py-3 px-4 whitespace-nowrap text-sm">{order.paymentMethod}</td>
+                      <td className="py-3 px-4 whitespace-nowrap text-center">
+                        <Badge variant="warning">Pendiente</Badge>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => handleViewOrder(order)}
+                            className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+                            title="Ver detalle"
+                          >
+                            <Eye className="h-4 w-4 text-gray-600" />
+                          </button>
+                          <button
+                            onClick={() => handleConvertToSale(order)}
+                            className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm flex items-center gap-1"
+                            title="Convertir a venta"
+                          >
+                            <ArrowRight className="h-3 w-3" />
+                            Convertir
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+          <div className="bg-gray-50 border-t border-gray-200 px-4 py-3 flex items-center justify-between">
+            <div className="text-sm text-gray-600">
+              Mostrando <span className="font-medium">{Math.min((currentPage - 1) * itemsPerPage + 1, orders.length)}</span> a <span className="font-medium">{Math.min(currentPage * itemsPerPage, orders.length)}</span> de <span className="font-medium">{orders.length}</span> pedidos
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Anterior
+              </button>
+              <div className="flex items-center gap-2">
+                {Array.from({ length: Math.ceil(orders.length / itemsPerPage) }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-2 rounded-lg transition-colors ${
+                      currentPage === page
+                        ? 'bg-gray-900 text-white'
+                        : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(orders.length / itemsPerPage)))}
+                disabled={currentPage === Math.ceil(orders.length / itemsPerPage) || orders.length === 0}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        </div>
       </Card>
 
       {/* Modal Ver/Crear Pedido */}

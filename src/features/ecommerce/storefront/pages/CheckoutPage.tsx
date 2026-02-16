@@ -1,6 +1,6 @@
 import React, { useState, useContext, useMemo } from 'react';
 import { EcommerceContext } from '../../../../shared/contexts';
-import { generarNumeroVenta } from '../../../../services/saleService';
+import { PremiumNavbar } from '../components/PremiumNavbar';
 import { Package, ChevronDown } from 'lucide-react';
 
 // ✅ CONFIGURACIÓN DE ENVÍO
@@ -265,61 +265,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
       pedidos.push(nuevoPedido);
       try { localStorage.setItem(PEDIDOS_KEY, JSON.stringify(pedidos)); } catch (e) { console.warn('[Checkout] No se pudo guardar pedido', e); }
 
-      // 3) Crear una venta administrativa para que el cliente muestre Total Ventas
-      try {
-        const ventasRaw = localStorage.getItem(VENTAS_KEY) || '[]';
-        const ventas = JSON.parse(ventasRaw);
-
-        const nuevaVenta = {
-          id: Date.now(),
-          numeroVenta: generarNumeroVenta(),
-          clienteId: cliente.id,
-          clienteNombre: cliente.nombre,
-          fechaVenta: new Date().toISOString(),
-          estado: 'Completada',
-          items: itemsPedido.map((ip: any, i: number) => ({
-            id: `vitem-${Date.now()}-${i}`,
-            productoId: ip.productoId,
-            productoNombre: ip.productoNombre,
-            talla: ip.talla,
-            color: ip.color,
-            cantidad: ip.cantidad,
-            precioUnitario: ip.precioUnitario,
-            subtotal: ip.subtotal
-          })),
-          subtotal: Number(subtotal.toFixed(2)),
-          iva: Number(iva.toFixed(2)),
-          total: Number(total.toFixed(2)),
-          metodoPago: paymentMethod || 'unknown',
-          observaciones: '',
-          anulada: false,
-          createdAt: new Date().toISOString(),
-          pedido_id: nuevoPedido.id,
-          movimientosStock: {
-            salidaEjecutada: false,
-            devolucionEjecutada: false
-          }
-        };
-
-        ventas.push(nuevaVenta);
-        try { localStorage.setItem(VENTAS_KEY, JSON.stringify(ventas)); } catch (e) { console.warn('[Checkout] No se pudo guardar venta', e); }
-
-        // Vincular pedido con venta (venta_id)
-        try {
-          const pedidosActual = JSON.parse(localStorage.getItem(PEDIDOS_KEY) || '[]');
-          const idx = pedidosActual.findIndex((p: any) => p.id === nuevoPedido.id);
-          if (idx > -1) {
-            pedidosActual[idx].venta_id = nuevaVenta.id;
-            // opcional: marcar pedido como convertido
-            pedidosActual[idx].estado = 'Convertido a venta';
-            localStorage.setItem(PEDIDOS_KEY, JSON.stringify(pedidosActual));
-          }
-        } catch (e) {
-          console.warn('[Checkout] No se pudo vincular pedido con venta', e);
-        }
-      } catch (e) {
-        console.warn('[Checkout] Error creando venta administrativa', e);
-      }
+      // Nota: no crear venta desde el checkout. El flujo correcto es:
+      // - El checkout crea únicamente el pedido con estado 'Pendiente'.
+      // - El admin (PedidosManager) debe cambiar el estado a 'Completada'/'Pagado',
+      //   momento en el cual la lógica centralizada convertirá el pedido en venta
+      //   (creando la entrada en `damabella_ventas` y descontando stock).
 
     } catch (e) {
       console.error('[Checkout] Error al crear pedido/cliente/venta administrativa', e);
@@ -336,7 +286,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
 
   if (cart.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white py-8">
+      <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white pt-0 pb-8">
+        <PremiumNavbar onNavigate={onNavigate} isAuthenticated={Boolean(currentUser)} currentUser={currentUser} />
         <div className="max-w-4xl mx-auto px-4">
           <div className="text-center py-12">
             <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
@@ -355,9 +306,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white py-8">
+    <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white pt-0 pb-8">
+      <PremiumNavbar onNavigate={onNavigate} isAuthenticated={Boolean(currentUser)} currentUser={currentUser} />
       <div className="max-w-6xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Checkout</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-8">Datos del pedido</h1>
 
         <div className="grid md:grid-cols-3 gap-8">
           {/* Formulario */}
@@ -544,7 +496,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {paymentMethod === 'nequi' && (
                 <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-gray-700">
-                    📲 Recibirás un código en tu app Nequi para confirmar la compra después de hacer clic en "Confirmar Compra"
+                    📲 Simulación: recibirás instrucciones en tu app Nequi para completar el pago. No se realiza ninguna redirección ni pago real desde esta interfaz.
                   </p>
                 </div>
               )}
@@ -552,7 +504,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {paymentMethod === 'bancolombia' && (
                 <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm text-gray-700">
-                    🏦 Serás redirigido a Bancolombia para completar tu transacción de manera segura
+                    🏦 Simulación: se mostrará información para completar el pago por Banco. No se realizará ninguna redirección ni pago real.
                   </p>
                 </div>
               )}
@@ -560,7 +512,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {paymentMethod === 'delivery' && (
                 <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-sm text-gray-700">
-                    🚚 Pagarás el total al recibir tu pedido en la dirección indicada
+                    🚚 Pagarás el total al recibir tu pedido en la dirección indicada (Pago contra entrega). Este flujo es solo visual.
                   </p>
                 </div>
               )}
@@ -653,7 +605,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                {isFormValid ? 'Confirmar Compra' : 'Completa el formulario'}
+                {isFormValid ? 'Generar Pedido' : 'Completa el formulario'}
               </button>
 
               {/* Botón de volver */}

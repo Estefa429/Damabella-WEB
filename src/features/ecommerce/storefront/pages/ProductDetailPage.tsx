@@ -26,25 +26,16 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
 
   useEffect(() => {
     if (product && selectedColor && selectedSize) {
-      const adminProducts = localStorage.getItem('damabella_productos');
-      if (adminProducts) {
-        const products = JSON.parse(adminProducts);
-        const adminProduct = products.find((p: any) => p.id.toString() === product.id);
-        
-        if (adminProduct) {
-          const variantWithSize = adminProduct.variantes?.find((v: any) => v.talla === selectedSize);
-          if (variantWithSize) {
-            const colorData = variantWithSize.colores?.find((c: any) => c.color === selectedColor);
-            if (colorData) {
-              setRealStock(colorData.cantidad || 0);
-              return;
-            }
-          }
-        }
+      try {
+        const stock = getProductStock(product.id, selectedColor, selectedSize);
+        setRealStock(Number(stock) || 0);
+        return;
+      } catch (e) {
+        console.warn('[ProductDetailPage] getProductStock failed', e);
       }
-      setRealStock(0);
     }
-  }, [product, selectedColor, selectedSize]);
+    setRealStock(0);
+  }, [product, selectedColor, selectedSize, getProductStock]);
 
   useEffect(() => {
     if (product) {
@@ -185,12 +176,6 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
         return;
       }
 
-      // Restar 1 unidad del stock del color/talla seleccionado (según requisito puntual)
-      colorData.cantidad = (Number(colorData.cantidad) || 0) - 1;
-      if (colorData.cantidad < 0) colorData.cantidad = 0;
-      localStorage.setItem('damabella_productos', JSON.stringify(prods));
-      setRealStock(colorData.cantidad);
-
       // ✅ Agregar al carrito
       const success = addToCart({
         productId: product.id,
@@ -202,9 +187,32 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
         size: selectedSize,
         quantity,
       });
-
-      if (!success) {
-        console.warn('[ProductDetailPage] addToCart retornó false para:', product.name);
+      // Sólo después de agregar con éxito al carrito, ajustar el stock en el storage administrativo
+      try {
+        // Encontrar nuevamente el producto en storage por si cambió
+        const prods2 = JSON.parse(localStorage.getItem('damabella_productos') || '[]') as any[];
+        const adminProduct2 = prods2.find((p: any) => {
+          const pid = p?.id;
+          const pidStr = pid !== undefined && pid !== null ? pid.toString() : '';
+          const pidDigitsMatch = pidStr.match(/\d+/);
+          const pidDigits = pidDigitsMatch ? pidDigitsMatch[0] : pidStr;
+          const matchesDirect = pidStr === prodIdRaw || pidDigits === prodDigits;
+          const matchesPrefixed = (`p${pidStr}` === prodIdRaw) || (`admin_${pidStr}` === prodIdRaw) || (`admin-${pidStr}` === prodIdRaw);
+          return matchesDirect || matchesPrefixed;
+        });
+        if (adminProduct2) {
+          const variant2 = adminProduct2.variantes?.find((v: any) => v.talla === selectedSize || (v.talla && v.talla.toString() === selectedSize));
+          if (variant2) {
+            const colorObj = variant2.colores?.find((c: any) => c.color && c.color.toString().trim().toLowerCase() === selectedColor.toString().trim().toLowerCase());
+            if (colorObj) {
+              colorObj.cantidad = Math.max(0, (Number(colorObj.cantidad) || 0) - Number(quantity || 0));
+              localStorage.setItem('damabella_productos', JSON.stringify(prods2));
+              setRealStock(colorObj.cantidad);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[ProductDetailPage] No se pudo actualizar stock en storage después de agregar al carrito', e);
       }
     } catch (error) {
       console.error('[ProductDetailPage] Error al agregar al carrito:', error);
@@ -364,28 +372,42 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
 
             {/* Quantity */}
             <div className="mb-6">
-              <h3 className="text-lg text-gray-900 mb-3">Cantidad</h3>
+              <h3 className="text-lg text-gray-900 mb-3">Cantidad {realStock > 0 ? `(Stock: ${realStock})` : ''}</h3>
               <div className="flex items-center gap-4">
-                <div className="flex items-center border-2 border-gray-300 rounded-lg">
+                <div className="flex items-center border-2 border-gray-300 rounded-lg px-2">
                   <button
                     onClick={() => setQuantity(Math.max(1, quantity - 1))}
                     className="p-3 hover:bg-gray-100 transition-colors"
+                    aria-label="Disminuir cantidad"
                   >
                     <Minus size={20} />
                   </button>
-                  <span className="px-6 text-xl">{quantity}</span>
+
+                  <input
+                    type="number"
+                    min={1}
+                    max={realStock}
+                    value={quantity}
+                    placeholder={`Stock disponible: ${realStock}`}
+                    onChange={(e) => {
+                      const v = Number(e.target.value || 0);
+                      if (isNaN(v)) return setQuantity(1);
+                      const stockMax = Number(realStock || maxStock || 99);
+                      const newQ = Math.max(1, Math.min(stockMax, Math.floor(v)));
+                      setQuantity(newQ);
+                    }}
+                    className="w-28 text-center text-xl px-2 outline-none bg-transparent"
+                  />
+
                   <button
-                    onClick={() => setQuantity(Math.min(maxStock || 99, quantity + 1))}
+                    onClick={() => setQuantity(Math.min(Math.max(1, realStock || maxStock || 99), quantity + 1))}
                     className="p-3 hover:bg-gray-100 transition-colors"
+                    aria-label="Aumentar cantidad"
                   >
                     <Plus size={20} />
                   </button>
                 </div>
-                {realStock > 0 && (
-                  <p className="text-sm text-gray-600">
-                    {realStock} unidades disponibles
-                  </p>
-                )}
+                <p className="text-sm text-gray-600">Stock del producto: {realStock}</p>
               </div>
             </div>
 

@@ -288,6 +288,7 @@ export default function ComprasPage() {
           data={purchases}
           columns={columns}
           searchPlaceholder="Buscar compras..."
+          itemsPerPage={5}
         />
       </Card>
 

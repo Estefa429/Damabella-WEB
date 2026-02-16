@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Pencil, Ban, ShoppingCart, Repeat } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { validateField } from '../../../../shared/utils/validation';
@@ -47,6 +47,8 @@ interface Pedido {
   total: number;
   metodoPago: string;
   observaciones: string;
+  direccionEnvio?: string;
+  personaRecibe?: string;
   createdAt: string;
   venta_id?: string | null;
 }
@@ -176,7 +178,9 @@ export default function PedidosManager() {
     fechaPedido: new Date().toISOString().split('T')[0],
     metodoPago: 'Efectivo',
     observaciones: '',
-    items: [] as ItemPedido[]
+    items: [] as ItemPedido[],
+    direccionEnvio: '',
+    personaRecibe: ''
   });
 
   const [nuevoCliente, setNuevoCliente] = useState({
@@ -349,7 +353,9 @@ export default function PedidosManager() {
       fechaPedido: new Date().toISOString().split('T')[0],
       metodoPago: 'Efectivo',
       observaciones: '',
-      items: []
+      items: [],
+      direccionEnvio: '',
+      personaRecibe: ''
     });
     setNuevoItem({
       productoId: '',
@@ -383,6 +389,8 @@ export default function PedidosManager() {
       fechaPedido: pedido.fechaPedido,
       metodoPago: pedido.metodoPago,
       observaciones: pedido.observaciones,
+      direccionEnvio: (pedido as any).direccionEnvio || '',
+      personaRecibe: (pedido as any).personaRecibe || '',
       items: pedido.items
     });
 
@@ -609,6 +617,8 @@ export default function PedidosManager() {
       total: totales.total,
       metodoPago: formData.metodoPago,
       observaciones: formData.observaciones,
+      direccionEnvio: (formData as any).direccionEnvio || '',
+      personaRecibe: (formData as any).personaRecibe || '',
       createdAt: editingPedido?.createdAt || new Date().toISOString()
     };
 
@@ -806,6 +816,8 @@ ${pedido.numeroPedido}
 Fecha: ${new Date(pedido.fechaPedido).toLocaleDateString()}
 Cliente: ${pedido.clienteNombre}
 Estado: ${pedido.estado}
+  Dirección de Envío: ${pedido.direccionEnvio || '-'}
+  Persona que recibe: ${pedido.personaRecibe || '-'}
 
 ---------------------------------
 PRODUCTOS
@@ -842,6 +854,8 @@ DAMABELLA - Moda Femenina
   };
 
   const filteredPedidos = pedidos.filter(p => {
+    // Mostrar SOLO pedidos pendientes en el módulo de Pedidos
+    if (p.estado !== 'Pendiente') return false;
     const searchLower = searchTerm.toLowerCase();
     const matchPedido = (p.numeroPedido?.toLowerCase() ?? '').includes(searchLower);
     const matchCliente = (p.clienteNombre?.toLowerCase() ?? '').includes(searchLower);
@@ -860,6 +874,18 @@ DAMABELLA - Moda Femenina
     });
     return matchPedido || matchCliente || matchEstado || matchFecha || matchTotal || matchProducto;
   });
+
+  // PAGINACIÓN: mostrar 5 pedidos por página (useMemo + useState)
+  const ITEMS_PER_PAGE = 5;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.ceil(filteredPedidos.length / ITEMS_PER_PAGE);
+
+  const paginatedPedidos = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredPedidos.slice(start, end);
+  }, [filteredPedidos, currentPage]);
 
   const filteredClientes = clientes.filter((c: any) =>
     (c.nombre?.toLowerCase() ?? '').includes(clienteSearch.toLowerCase()) ||
@@ -913,27 +939,30 @@ DAMABELLA - Moda Femenina
         'IVA (19%)': `$${p.iva.toLocaleString()}`,
         'Total': `$${p.total.toLocaleString()}`,
         'Estado': p.estado,
-        'Método Pago': p.metodoPago
+        'Método Pago': p.metodoPago,
+        'Dirección Envío': p.direccionEnvio || '',
+        'Persona recibe': p.personaRecibe || ''
       }));
-      // Crear contenido CSV (alternativa simple sin librerías externas)
+      // Crear contenido TSV para exportar a Excel (archivo .xlsx con tab-separado)
       const headers = Object.keys(datosExcel[0] || {});
-      const csvContent = [
-        headers.join(','),
+      const tsvContent = [
+        headers.join('\t'),
         ...datosExcel.map(row =>
           headers.map(header => {
             const valor = row[header as keyof typeof row];
             const valorStr = String(valor || '');
-            // Escapar comillas y envolver en comillas si contiene comas
-            return valorStr.includes(',') ? `"${valorStr.replace(/"/g, '""')}"` : valorStr;
-          }).join(',')
+            // Escapar tabs y nuevas líneas reemplazándolas por espacios simples
+            return valorStr.replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
+          }).join('\t')
         )
       ].join('\n');
-      // Crear blob y descargar
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+      // Crear blob y descargar con extensión .xlsx (contenido tab-separado)
+      const blob = new Blob([tsvContent], { type: 'text/plain;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `pedidos_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+      link.setAttribute('download', `pedidos_${new Date().toLocaleDateString().replace(/\//g, '-')}.xlsx`);
       link.click();
       URL.revokeObjectURL(url);
       setNotificationMessage('Pedidos exportados correctamente');
@@ -1008,7 +1037,7 @@ DAMABELLA - Moda Femenina
                   </td>
                 </tr>
               ) : (
-                filteredPedidos.map((pedido) => (
+                paginatedPedidos.map((pedido) => (
                   <tr key={pedido.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="text-gray-900">{pedido.numeroPedido}</div>
@@ -1104,6 +1133,49 @@ DAMABELLA - Moda Femenina
             </tbody>
           </table>
         </div>
+
+        {/* Paginador */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
+            {/* Texto informativo */}
+            <span className="text-sm text-gray-500">
+              {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredPedidos.length || 0)} a ${Math.min(currentPage * ITEMS_PER_PAGE, filteredPedidos.length)} de ${filteredPedidos.length} pedidos`}
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Anterior
+              </button>
+
+              {Array.from({ length: totalPages }).map((_, index) => {
+                const page = index + 1;
+                const isActive = currentPage === page;
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={isActive ? 'px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-semibold' : 'px-3 py-1.5 rounded-md border text-sm text-gray-700 hover:bg-gray-100 transition'}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* Modal Crear/Editar */}
@@ -1112,10 +1184,10 @@ DAMABELLA - Moda Femenina
         onClose={() => setShowModal(false)}
         title={editingPedido ? `Editar Pedido` : 'Nuevo Pedido'}
       >
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="space-y-0 p-0 -mt-4">
           {/* Cliente */}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1">
               <label className="block text-gray-700">Cliente *</label>
               <button
                 onClick={() => setShowClienteModal(true)}
@@ -1154,7 +1226,7 @@ DAMABELLA - Moda Femenina
               />
 
               {showClienteDropdown && (
-                <div className="absolute z-[9999] mt-2 w-full max-h-56 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                <div className="absolute z-[9999] mt-1 w-full max-h-[40vh] bg-white border border-gray-200 rounded-lg shadow-lg">
                   {clientesFiltradosSelect.length === 0 ? (
                     <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
                   ) : (
@@ -1189,27 +1261,25 @@ DAMABELLA - Moda Femenina
             {formErrors.clienteId && <p className="text-red-500 text-sm mt-1">{formErrors.clienteId}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-4 gap-2">
             <div>
-              <label className="block text-gray-700 mb-2">Fecha *</label>
+              <label className="block text-gray-700 mb-1">Fecha *</label>
               <Input
                 type="date"
                 value={formData.fechaPedido}
                 onChange={(e) => handleFieldChange('fechaPedido', e.target.value)}
                 required
+                disabled={!!editingPedido}
               />
               {formErrors.fechaPedido && <p className="text-red-500 text-sm mt-1">{formErrors.fechaPedido}</p>}
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-2">Método de Pago *</label>
+              <label className="block text-gray-700 mb-1">Método de Pago *</label>
               {saldoDisponible > 0 && formData.clienteId && (
-                <div className="mb-3 rounded-lg border border-green-300 bg-green-50 p-3">
+                <div className="mb-2 rounded-lg border border-green-300 bg-green-50 p-2 text-sm">
                   <div className="text-green-800 font-semibold">
                     ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
-                  </div>
-                  <div className="text-sm text-green-900 mt-1">
-                    (Se aplicará cuando conviertas este pedido en venta, si decides usarlo allá)
                   </div>
                 </div>
               )}
@@ -1217,7 +1287,7 @@ DAMABELLA - Moda Femenina
               <select
                 value={formData.metodoPago}
                 onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                 required
               >
                 <option value="Efectivo">Efectivo</option>
@@ -1227,15 +1297,33 @@ DAMABELLA - Moda Femenina
                 <option value="Daviplata">Daviplata</option>
               </select>
             </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Dirección de Envío</label>
+              <Input
+                value={(formData as any).direccionEnvio}
+                onChange={(e) => handleFieldChange('direccionEnvio', e.target.value)}
+                placeholder="Dirección de envío (opcional)"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Persona que recibe</label>
+              <Input
+                value={(formData as any).personaRecibe}
+                onChange={(e) => handleFieldChange('personaRecibe', e.target.value)}
+                placeholder="Nombre de la persona que recibe (opcional)"
+              />
+            </div>
           </div>
 
           {/* Productos */}
-          <div className="border-t pt-4">
-            <h4 className="text-gray-900 mb-3">Agregar Productos</h4>
+          <div className="border-t pt-1">
+            <h4 className="text-gray-900 mb-1">Agregar Productos</h4>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-4 space-y-3">
+            <div className="bg-gray-50 rounded-lg p-1 mb-1 space-y-1">
               <div>
-                <label className="block text-gray-700 mb-2 text-sm">Producto</label>
+                <label className="block text-gray-700 mb-1 text-sm">Producto</label>
 
                 <div className="relative" onClick={(e) => e.stopPropagation()}>
                   <Input
@@ -1254,7 +1342,7 @@ DAMABELLA - Moda Femenina
                   />
 
                   {showProductoDropdown && (
-                    <div className="absolute z-[9999] mt-2 w-full max-h-56 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                    <div className="absolute z-[9999] mt-1 w-full max-h-[40vh] bg-white border border-gray-200 rounded-lg shadow-lg">
                       {productosFiltradosSelect.length === 0 ? (
                         <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
                       ) : (
@@ -1286,10 +1374,10 @@ DAMABELLA - Moda Femenina
 
               {nuevoItem.productoId && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-1">
+                    <div className="grid grid-cols-2 gap-1">
                       <div>
-                        <label className="block text-gray-700 mb-2 text-sm">Talla</label>
+                        <label className="block text-gray-700 mb-1 text-sm">Talla</label>
                         <select
                           value={nuevoItem.talla}
                           onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
@@ -1303,7 +1391,7 @@ DAMABELLA - Moda Femenina
                       </div>
 
                       <div>
-                        <label className="block text-gray-700 mb-2 text-sm">Color</label>
+                        <label className="block text-gray-700 mb-1 text-sm">Color</label>
                         <select
                           value={nuevoItem.color}
                           onChange={(e) => handleNuevoItemChange('color', e.target.value)}
@@ -1340,7 +1428,7 @@ DAMABELLA - Moda Femenina
                   )}
 
                   <div>
-                    <label className="block text-gray-700 mb-2 text-sm">Cantidad</label>
+                    <label className="block text-gray-700 mb-1 text-sm">Cantidad</label>
                     <Input
                       type="number"
                       min="1"
@@ -1363,9 +1451,9 @@ DAMABELLA - Moda Femenina
 
             {/* Lista de items */}
             {formData.items.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {formData.items.map((item) => (
-                  <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-white flex items-center justify-between">
+                  <div key={item.id} className="border border-gray-200 rounded-lg p-1 bg-white flex items-center justify-between text-sm">
                     <div className="flex-1">
                       <div className="text-gray-900">{item.productoNombre}</div>
                       <div className="text-sm text-gray-600">
@@ -1389,8 +1477,8 @@ DAMABELLA - Moda Femenina
 
           {/* Totales */}
           {formData.items.length > 0 && (
-            <div className="border-t pt-4 bg-gray-50 rounded-lg p-4">
-              <div className="space-y-2">
+            <div className="border-t pt-2 bg-gray-50 rounded-lg p-2">
+              <div className="space-y-1">
                 <div className="flex justify-between text-gray-600">
                   <span>Subtotal:</span>
                   <span>${totales.subtotal.toLocaleString()}</span>
@@ -1399,7 +1487,7 @@ DAMABELLA - Moda Femenina
                   <span>IVA (19%):</span>
                   <span>${totales.iva.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 pt-2 border-t">
+                <div className="flex justify-between text-gray-900 pt-1 border-t">
                   <span>Total:</span>
                   <span>${totales.total.toLocaleString()}</span>
                 </div>
@@ -1409,17 +1497,17 @@ DAMABELLA - Moda Femenina
 
           {/* Observaciones */}
           <div>
-            <label className="block text-gray-700 mb-2">Observaciones</label>
+            <label className="block text-gray-700 mb-1">Observaciones</label>
             <textarea
               value={formData.observaciones}
               onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+              rows={2}
               placeholder="Notas adicionales..."
             />
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t">
+          <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowModal(false)} variant="secondary">
               Cancelar
             </Button>
@@ -1437,8 +1525,8 @@ DAMABELLA - Moda Femenina
           onClose={() => setShowDetailModal(false)}
           title={`Detalle ${viewingPedido.tipo} ${viewingPedido.numeroPedido}`}
         >
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="space-y-0 p-0 -mt-4">
+            <div className="grid grid-cols-2 gap-1 p-1 bg-gray-50 rounded-lg">
               <div>
                 <div className="text-sm text-gray-600 mb-1">Cliente</div>
                 <div className="text-gray-900">{viewingPedido.clienteNombre}</div>
@@ -1459,13 +1547,21 @@ DAMABELLA - Moda Femenina
                 <div className="text-sm text-gray-600 mb-1">Método de Pago</div>
                 <div className="text-gray-900">{viewingPedido.metodoPago}</div>
               </div>
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Dirección de Envío</div>
+                <div className="text-gray-900">{viewingPedido.direccionEnvio || '-'}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Persona que recibe</div>
+                <div className="text-gray-900">{viewingPedido.personaRecibe || '-'}</div>
+              </div>
             </div>
 
             <div>
-              <h4 className="text-gray-900 mb-3">Productos</h4>
-              <div className="space-y-2">
+              <h4 className="text-gray-900 mb-1">Productos</h4>
+              <div className="grid grid-cols-2 gap-1">
                 {viewingPedido.items.map((item, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-3">
+                  <div key={index} className="border border-gray-200 rounded-lg p-1 text-sm">
                     <div className="flex justify-between mb-1">
                       <div className="text-gray-900">{item.productoNombre}</div>
                       <div className="text-gray-900">${item.subtotal.toLocaleString()}</div>
@@ -1478,8 +1574,8 @@ DAMABELLA - Moda Femenina
               </div>
             </div>
 
-            <div className="border-t pt-4 bg-gray-50 rounded-lg p-4">
-              <div className="space-y-2">
+            <div className="border-t pt-2 bg-gray-50 rounded-lg p-2">
+              <div className="space-y-1">
                 <div className="flex justify-between text-gray-600">
                   <span>Subtotal:</span>
                   <span>${viewingPedido.subtotal.toLocaleString()}</span>
@@ -1488,7 +1584,7 @@ DAMABELLA - Moda Femenina
                   <span>IVA (19%):</span>
                   <span>${viewingPedido.iva.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 pt-2 border-t">
+                <div className="flex justify-between text-gray-900 pt-1 border-t">
                   <span>Total:</span>
                   <span>${viewingPedido.total.toLocaleString()}</span>
                 </div>
@@ -1498,14 +1594,14 @@ DAMABELLA - Moda Femenina
             {viewingPedido.observaciones && (
               <div>
                 <div className="text-sm text-gray-600 mb-1">Observaciones</div>
-                <div className="text-gray-900 bg-gray-50 p-3 rounded-lg">
+                <div className="text-gray-900 bg-gray-50 p-2 rounded-lg">
                   {viewingPedido.observaciones}
                 </div>
               </div>
             )}
 
-            <div className="border-t pt-4">
-              <div className="text-sm text-gray-600 mb-2">Estado Actual</div>
+            <div className="border-t pt-2">
+              <div className="text-sm text-gray-600 mb-1">Estado Actual</div>
               <div className="flex items-center gap-2">
                 <span className={`px-4 py-2 rounded-lg text-sm font-medium ${obtenerClaseEstado(viewingPedido.estado)}`}>
                   {obtenerDescripcionEstado(viewingPedido.estado)}
@@ -1527,7 +1623,7 @@ DAMABELLA - Moda Femenina
           {/* ✅ DOCUMENTO PRIMERO */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
+              <label className="block text-gray-700 mb-1">Tipo de Documento *</label>
               <select
                 value={nuevoCliente.tipoDoc}
                 onChange={(e) => setNuevoCliente({ ...nuevoCliente, tipoDoc: e.target.value })}
@@ -1541,7 +1637,7 @@ DAMABELLA - Moda Femenina
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-2">Número de Documento *</label>
+              <label className="block text-gray-700 mb-1">Número de Documento *</label>
               <Input
                 value={nuevoCliente.numeroDoc}
                 onChange={(e) => handleNuevoClienteChange('numeroDoc', e.target.value)}
@@ -1558,7 +1654,7 @@ DAMABELLA - Moda Femenina
 
           {/* ✅ NOMBRE DESPUÉS */}
           <div>
-            <label className="block text-gray-700 mb-2">Nombre Completo *</label>
+            <label className="block text-gray-700 mb-1">Nombre Completo *</label>
             <Input
               value={nuevoCliente.nombre}
               onChange={(e) => handleNuevoClienteChange('nombre', e.target.value)}
@@ -1574,7 +1670,7 @@ DAMABELLA - Moda Femenina
 
           {/* RESTO IGUAL */}
           <div>
-            <label className="block text-gray-700 mb-2">Teléfono *</label>
+            <label className="block text-gray-700 mb-1">Teléfono *</label>
             <Input
               value={nuevoCliente.telefono}
               onChange={(e) =>
@@ -1591,7 +1687,7 @@ DAMABELLA - Moda Femenina
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Correo Electrónico</label>
+            <label className="block text-gray-700 mb-1">Correo Electrónico</label>
             <Input
               type="email"
               value={nuevoCliente.email}
@@ -1606,7 +1702,7 @@ DAMABELLA - Moda Femenina
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Dirección</label>
+            <label className="block text-gray-700 mb-1">Dirección</label>
             <Input
               value={nuevoCliente.direccion}
               onChange={(e) => handleNuevoClienteChange('direccion', e.target.value)}
@@ -1614,7 +1710,7 @@ DAMABELLA - Moda Femenina
             />
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t">
+          <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowClienteModal(false)} variant="secondary">
               Cancelar
             </Button>
@@ -1645,7 +1741,7 @@ DAMABELLA - Moda Femenina
             )}
             <p className="text-gray-700 text-base">{notificationMessage}</p>
           </div>
-          <div className="flex justify-end pt-4 border-t">
+          <div className="flex justify-end pt-2 border-t">
             <Button onClick={() => setShowNotificationModal(false)} variant="primary">
               Aceptar
             </Button>
@@ -1664,7 +1760,7 @@ DAMABELLA - Moda Femenina
             <AlertCircle className="text-yellow-600 flex-shrink-0 mt-1" size={24} />
             <p className="text-gray-700 text-base">{confirmMessage}</p>
           </div>
-          <div className="flex gap-3 justify-end pt-4 border-t">
+          <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowConfirmModal(false)} variant="secondary">
               Cancelar
             </Button>

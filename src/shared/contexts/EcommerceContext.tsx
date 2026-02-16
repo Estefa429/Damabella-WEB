@@ -231,20 +231,40 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
 
   // Funciones de carrito
   const addToCart = (item: CartItem) => {
-    setCart(prev => {
-      const idx = prev.findIndex(i => i.productId === item.productId && i.color === item.color && i.size === item.size);
-      if (idx > -1) {
-        const copy = [...prev];
-        copy[idx].quantity += item.quantity;
-        return copy;
-      }
-      return [...prev, item];
-    });
+    // Asegurar que la cantidad no supere el stock real
     try {
-      showToast('Producto agregado al carrito', 'success');
+      const available = getProductStock(item.productId, item.color, item.size);
+      const qtyToAdd = Math.max(0, Number(item.quantity || 0));
+
+      setCart(prev => {
+        const idx = prev.findIndex(i => i.productId === item.productId && i.color === item.color && i.size === item.size);
+        if (idx > -1) {
+          const copy = [...prev];
+          const newQty = Math.min(copy[idx].quantity + qtyToAdd, available);
+          copy[idx].quantity = newQty;
+          return copy;
+        }
+        const initialQty = Math.min(qtyToAdd, available);
+        return [...prev, { ...item, quantity: initialQty }];
+      });
+
+      if (qtyToAdd > available) {
+        try { showToast('Cantidad ajustada al stock disponible', 'info'); } catch (e) {}
+      } else {
+        try { showToast('Producto agregado al carrito', 'success'); } catch (e) {}
+      }
     } catch (e) {
-      // Si por alguna razón showToast no está disponible, evitar romper la app
-      // No hacemos nada más aquí para respetar la petición de cambios mínimos
+      // En caso de error al consultar stock, proceder como antes pero evitando romper la app
+      setCart(prev => {
+        const idx = prev.findIndex(i => i.productId === item.productId && i.color === item.color && i.size === item.size);
+        if (idx > -1) {
+          const copy = [...prev];
+          copy[idx].quantity += item.quantity;
+          return copy;
+        }
+        return [...prev, item];
+      });
+      try { showToast('Producto agregado al carrito', 'success'); } catch (e) {}
     }
   };
 
@@ -254,7 +274,30 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
 
   const updateCartQuantity = (productId: string, color: string, size: string, quantity: number) => {
     if (quantity <= 0) return removeFromCart(productId, color, size);
-    setCart(prev => prev.map(i => i.productId === productId && i.color === color && i.size === size ? { ...i, quantity } : i));
+    try {
+      const available = getProductStock(productId, color, size);
+      const finalQty = Math.min(quantity, Math.max(0, available));
+
+      if (finalQty <= 0) {
+        // No eliminar el producto si ya existe en el carrito; mantener la cantidad actual
+        setCart(prev => {
+          const existing = prev.find(i => i.productId === productId && i.color === color && i.size === size);
+          if (!existing) return prev;
+          try { showToast('Este producto ya no tiene stock disponible', 'error'); } catch (e) {}
+          return prev;
+        });
+        return;
+      }
+
+      if (finalQty !== quantity) {
+        try { showToast('Cantidad ajustada al stock disponible', 'info'); } catch (e) {}
+      }
+
+      setCart(prev => prev.map(i => i.productId === productId && i.color === color && i.size === size ? { ...i, quantity: finalQty } : i));
+    } catch (e) {
+      // Fallback: si falla la verificación de stock, aplicar el cambio simple
+      setCart(prev => prev.map(i => i.productId === productId && i.color === color && i.size === size ? { ...i, quantity } : i));
+    }
   };
 
   const clearCart = () => setCart([]);
