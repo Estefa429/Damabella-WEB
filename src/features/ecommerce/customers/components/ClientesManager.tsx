@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Eye, Search, Phone, Mail, AlertTriangle, TrendingUp, DollarSign, BarChart3, Users } from 'lucide-react';
+import { Plus, Edit2, Eye, Search, Phone, Mail, Trash2, TrendingUp, DollarSign, BarChart3, Users } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import validateField from '../../../../shared/utils/validation';
 
@@ -37,6 +37,11 @@ export default function ClientesManager() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
+  const [clienteToDelete, setClienteToDelete] = useState<Cliente | null>(null);
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   const [formData, setFormData] = useState({
     nombre: '',
@@ -47,6 +52,32 @@ export default function ClientesManager() {
     direccion: '',
     ciudad: ''
   });
+
+  // Auto-cerrar modal de notificación después de acción (ms)
+  const notificationAutoCloseMs = 2000;
+  const notificationTimerRef = React.useRef<number | null>(null);
+
+  useEffect(() => {
+    if (showNotificationModal) {
+      if (notificationTimerRef.current) window.clearTimeout(notificationTimerRef.current);
+      notificationTimerRef.current = window.setTimeout(() => {
+        setShowNotificationModal(false);
+        notificationTimerRef.current = null;
+      }, notificationAutoCloseMs);
+    } else {
+      if (notificationTimerRef.current) {
+        window.clearTimeout(notificationTimerRef.current);
+        notificationTimerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (notificationTimerRef.current) {
+        window.clearTimeout(notificationTimerRef.current);
+        notificationTimerRef.current = null;
+      }
+    };
+  }, [showNotificationModal]);
 
   // 🔒 LÓGICA DE ESTADO AUTOMÁTICO DEL CLIENTE
   // Determina si un cliente debe estar ACTIVO basado en sus ventas
@@ -83,7 +114,7 @@ export default function ClientesManager() {
   const handleToggleCliente = (cliente: Cliente) => {
     const clienteActualizado = { ...cliente, activo: !cliente.activo };
     const clientesActualizados = clientes.map(c => 
-      c.id === cliente.id ? clienteActualizado : c
+      (c.id?.toString() === cliente.id?.toString()) ? clienteActualizado : c
     );
     setClientes(clientesActualizados);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(clientesActualizados));
@@ -279,6 +310,19 @@ export default function ClientesManager() {
     setShowModal(false);
   };
 
+  // Confirmar y ejecutar eliminación del cliente (sin ventas asociadas)
+  const confirmDeleteCliente = () => {
+    if (!clienteToDelete) return;
+    const nuevos = clientes.filter(c => c.id?.toString() !== clienteToDelete.id?.toString());
+    setClientes(nuevos);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos));
+    setShowConfirmModal(false);
+    setClienteToDelete(null);
+    setNotificationMessage('Cliente eliminado correctamente');
+    setNotificationType('success');
+    setShowNotificationModal(true);
+  };
+
   const filteredClientes = clientes.filter(c => {
     const searchLower = searchTerm.toLowerCase();
     return (
@@ -291,6 +335,21 @@ export default function ClientesManager() {
       (c.direccion?.toLowerCase() ?? '').includes(searchLower)
     );
   });
+
+  // Paginar resultados filtrados
+  const totalItems = filteredClientes.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const paginatedClientes = filteredClientes.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  useEffect(() => {
+    // Reset página cuando cambia búsqueda
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    // Asegurar que currentPage esté dentro de rango si cambia totalPages
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages]);
 
   // 📊 FUNCIONES DE CÁLCULO COMERCIAL (Read-only)
   const calcularDatosComerciales = (clienteId: number) => {
@@ -430,21 +489,22 @@ export default function ClientesManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Contacto</th>
                 <th className="text-left py-4 px-6 text-gray-600">Ciudad</th>
-                <th className="text-left py-4 px-6 text-gray-600">Resumen Comercial</th>
+                {/* Resumen Comercial eliminado según requerimiento */}
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredClientes.length === 0 ? (
+              {paginatedClientes.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                  <td colSpan={6} className="py-12 text-center text-gray-500">
                     <Users className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron clientes</p>
                   </td>
                 </tr>
               ) : (
-                filteredClientes.map((cliente) => {
+                paginatedClientes.map((cliente) => {
+                  // calculos siguen disponibles pero no mostramos resumen comercial
                   const datos = calcularDatosComerciales(cliente.id);
                   return (
                   <tr key={cliente.id} className="hover:bg-gray-50 transition-colors">
@@ -480,34 +540,7 @@ export default function ClientesManager() {
                     </td>
                     <td className="py-4 px-6 text-gray-600">{cliente.ciudad || 'N/A'}</td>
                     
-                    {/* 🔒 RESUMEN COMERCIAL: Mini card vertical */}
-                    <td className="py-4 px-6">
-                      <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200 shadow-sm">
-                        <div className="flex flex-col gap-3">
-                          {/* Total Ventas */}
-                          <div className="flex justify-between items-baseline border-b border-blue-200 pb-2">
-                            <span className="text-xs font-medium text-gray-600">Total Ventas</span>
-                            <span className="text-sm font-bold text-gray-900">${datos.totalVentas.toLocaleString()}</span>
-                          </div>
-                          
-                          {/* Devoluciones */}
-                          <div className="flex justify-between items-baseline border-b border-blue-200 pb-2">
-                            <span className="text-xs font-medium text-gray-600">Devoluciones</span>
-                            <span className={`text-sm font-bold ${datos.totalDevoluciones > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                              ${datos.totalDevoluciones.toLocaleString()}
-                            </span>
-                          </div>
-                          
-                          {/* Saldo a Favor - Destacado */}
-                          <div className="flex justify-between items-baseline pt-1">
-                            <span className="text-xs font-bold text-green-700">Saldo a Favor</span>
-                            <span className={`text-base font-bold ${datos.saldoAFavor > 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                              ${datos.saldoAFavor.toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </td>
+                    {/* Resumen Comercial eliminado según requerimiento (columna removida) */}
                     
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
@@ -548,17 +581,52 @@ export default function ClientesManager() {
                           <Edit2 size={18} />
                         </button>
                         <button
-                          onClick={() => handleToggleCliente(cliente)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            cliente.activo
-                              ? 'hover:bg-red-50 text-red-600'
-                              : 'hover:bg-green-50 text-green-600'
-                          }`}
-                          title={cliente.activo ? 'Desactivar cliente' : 'Activar cliente'}
+                          onClick={() => {
+                            // intento de eliminar: verificar ventas asociadas
+                            const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+                            const tieneVentas = ventas.some((v: any) => v.clienteId === cliente.id || v.clienteId?.toString() === cliente.id.toString());
+                            if (tieneVentas) {
+                              setClienteToDelete(cliente);
+                              setShowCannotDeleteModal(true);
+                              return;
+                            }
+                            setClienteToDelete(cliente);
+                            setConfirmMessage(`¿Deseas eliminar al cliente \"${cliente.nombre}\"? Esta acción no se puede deshacer.`);
+                            setConfirmAction(() => () => confirmDeleteCliente());
+                            setShowConfirmModal(true);
+                          }}
+                          className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
+                          title="Eliminar cliente"
                         >
-                          <div className="flex items-center justify-center w-5 h-5 text-xs font-bold">
-                            {cliente.activo ? '✕' : '✓'}
-                          </div>
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </button>
+                        {/* Toggle estándar: activar inmediato / confirmar para desactivar */}
+                        <button
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            if (cliente.activo === false) {
+                              // activar inmediatamente
+                              handleToggleCliente(cliente);
+                            } else {
+                              // antes de permitir desactivar, verificar ventas asociadas
+                              const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+                              const tieneVentas = ventas.some((v: any) => v.clienteId === cliente.id || v.clienteId?.toString() === cliente.id.toString());
+                              if (tieneVentas) {
+                                setClienteToDelete(cliente);
+                                setShowCannotDeleteModal(true);
+                                return;
+                              }
+                              // confirmar desactivación
+                              setConfirmMessage(`¿Deseas desactivar al cliente \"${cliente.nombre}\"?`);
+                              setConfirmAction(() => () => handleToggleCliente(cliente));
+                              setShowConfirmModal(true);
+                            }
+                          }}
+                          aria-pressed={cliente.activo !== false}
+                          className={`relative w-12 h-6 rounded-full transition-colors ${cliente.activo !== false ? 'bg-green-500' : 'bg-gray-400'}`}
+                          title={cliente.activo === false ? 'Activar cliente' : 'Inactivar cliente'}
+                        >
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${cliente.activo !== false ? 'translate-x-6' : 'translate-x-0'}`} />
                         </button>
                       </div>
                     </td>
@@ -732,8 +800,11 @@ export default function ClientesManager() {
             >
               Cancelar
             </Button>
-            <Button 
-              onClick={() => confirmAction && confirmAction()} 
+            <Button
+              onClick={() => {
+                setShowConfirmModal(false);
+                if (confirmAction) confirmAction();
+              }}
               variant="primary"
             >
               Confirmar
@@ -741,6 +812,49 @@ export default function ClientesManager() {
           </div>
         </div>
       </Modal>
+
+      {/* Modal No se puede eliminar / desactivar */}
+      <Modal
+        isOpen={showCannotDeleteModal}
+        onClose={() => setShowCannotDeleteModal(false)}
+        title="No se puede completar la acción"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">No puedes eliminar ni desactivar este cliente porque tiene ventas asociadas. Si necesitas ayuda, contacta al administrador.</p>
+          <div className="flex gap-3 justify-end">
+            <Button onClick={() => setShowCannotDeleteModal(false)} variant="secondary">Cerrar</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Paginación */}
+      <div className="flex items-center justify-between mt-4">
+        <div className="text-sm text-gray-600">Mostrando {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)} - {Math.min(currentPage * itemsPerPage, totalItems)} de {totalItems} clientes</div>
+        <div className="flex items-center gap-2">
+          <button
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            className="px-3 py-1 border rounded disabled:opacity-40"
+          >Anterior</button>
+          {[...Array(totalPages)].map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentPage(i + 1)}
+              className={`px-3 py-1 border rounded ${currentPage === i + 1 ? 'bg-gray-100' : ''}`}
+            >{i + 1}</button>
+          ))}
+          <button
+            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            className="px-3 py-1 border rounded disabled:opacity-40"
+          >Siguiente</button>
+          <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="ml-2 border rounded px-2 py-1">
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+          </select>
+        </div>
+      </div>
     </div>
   );
 }

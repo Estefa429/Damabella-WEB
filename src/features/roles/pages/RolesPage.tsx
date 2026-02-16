@@ -17,6 +17,7 @@ interface Role {
   description: string;
   permissions: Permission[];
   userCount: number;
+  active?: boolean;
 }
 
 const STORAGE_KEY = 'damabella_roles';
@@ -43,6 +44,7 @@ const DEFAULT_ROLES: Role[] = [
     name: 'Administrador',
     description: 'Acceso completo al sistema',
     userCount: 2,
+    active: true,
     permissions: availableModules.map(module => ({
       module,
       canView: true,
@@ -56,6 +58,7 @@ const DEFAULT_ROLES: Role[] = [
     name: 'Empleado',
     description: 'Puede gestionar ventas y pedidos',
     userCount: 5,
+    active: true,
     permissions: availableModules.map(module => ({
       module,
       canView: true,
@@ -69,6 +72,7 @@ const DEFAULT_ROLES: Role[] = [
     name: 'Cliente',
     description: 'Acceso limitado a su perfil',
     userCount: 150,
+    active: true,
     permissions: [
       { module: 'Pedidos', canView: true, canCreate: true, canEdit: false, canDelete: false },
       { module: 'Productos', canView: true, canCreate: false, canEdit: false, canDelete: false },
@@ -94,6 +98,7 @@ export function RolesPage() {
             description: r.description || r.descripcion,
             permissions: r.permissions || [],
             userCount: r.userCount || 0,
+            active: typeof r.active === 'boolean' ? r.active : true,
           }));
         }
       } catch (e) {
@@ -108,8 +113,10 @@ export function RolesPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
+  const [roleToToggle, setRoleToToggle] = useState<Role | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -138,7 +145,7 @@ export function RolesPage() {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored !== lastStoredData) {
         lastStoredData = stored;
-        if (stored) {
+          if (stored) {
           try {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
@@ -149,6 +156,7 @@ export function RolesPage() {
                 description: r.description || r.descripcion,
                 permissions: r.permissions || [],
                 userCount: r.userCount || 0,
+                active: typeof r.active === 'boolean' ? r.active : true,
               })));
             }
           } catch (e) {
@@ -303,6 +311,7 @@ export function RolesPage() {
         id: Date.now().toString(),
         ...formData,
         userCount: 0,
+        active: true,
       };
       setRoles([...roles, newRole]);
       showToast('Rol creado correctamente', 'success');
@@ -330,6 +339,23 @@ export function RolesPage() {
       showToast(`Rol "${roleToDelete.name}" eliminado correctamente`, 'success');
       setIsDeleteModalOpen(false);
       setRoleToDelete(null);
+    }
+  };
+
+  const confirmToggle = () => {
+    if (roleToToggle) {
+      const updatedRoles = roles.map(r => r.id === roleToToggle.id ? { ...r, active: !(r.active ?? true) } : r);
+      setRoles(updatedRoles);
+      try {
+        // Escribir inmediatamente para evitar reversiones por sincronizadores/intervals
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRoles));
+      } catch (e) {
+        console.warn('[RolesPage] No se pudo escribir roles en localStorage inmediatamente', e);
+      }
+      const newState = (roleToToggle.active ?? true) ? 'inactivado' : 'activado';
+      showToast(`Rol "${roleToToggle.name}" ${newState} correctamente`, 'success');
+      setIsStatusModalOpen(false);
+      setRoleToToggle(null);
     }
   };
 
@@ -366,6 +392,29 @@ export function RolesPage() {
       label: 'Acciones',
       render: (role: Role) => (
         <div className="flex items-center gap-2 justify-end">
+          {/* Toggle active/inactive */}
+          <button
+            onMouseDown={(e) => e.preventDefault()} /* evitar efecto :active visual */
+            onClick={() => {
+              if (role.active === false) {
+                // activar inmediatamente
+                const updated = roles.map(r => r.id === role.id ? { ...r, active: true } : r);
+                setRoles(updated);
+                try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch (e) {}
+                showToast(`Rol "${role.name}" activado`, 'success');
+              } else {
+                // Abrir modal de confirmación para inactivar
+                setRoleToToggle(role);
+                setIsStatusModalOpen(true);
+              }
+            }}
+            aria-pressed={role.active !== false}
+            className={`relative w-12 h-6 rounded-full transition-colors ${role.active !== false ? 'bg-green-500' : 'bg-gray-400'}`}
+            title={role.active === false ? 'Activar rol' : 'Inactivar rol'}
+          >
+            <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${role.active !== false ? 'translate-x-6' : 'translate-x-0'}`} />
+          </button>
+
           <button
             onClick={() => handleOpenModal(role)}
             className="p-1.5 hover:bg-gray-100 rounded-md transition-colors"
@@ -539,6 +588,41 @@ export function RolesPage() {
           </div>
         </form>
       </Modal>
+
+        <Modal
+          isOpen={isStatusModalOpen}
+          onClose={() => { setIsStatusModalOpen(false); setRoleToToggle(null); }}
+          title="Confirmar cambio de estado"
+        >
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-gray-900 font-medium">¿Estás seguro de que deseas inactivar este rol?</p>
+                <p className="text-gray-600 text-sm mt-2">
+                  Esta acción deshabilitará el rol <strong>{roleToToggle?.name}</strong> y puede afectar permisos de usuarios asignados.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-4">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => { setIsStatusModalOpen(false); setRoleToToggle(null); }}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                type="button" 
+                className="bg-orange-600 hover:bg-orange-700"
+                onClick={confirmToggle}
+              >
+                <X className="w-4 h-4 mr-2" />
+                Inactivar
+              </Button>
+            </div>
+          </div>
+        </Modal>
 
       <Modal
         isOpen={isDeleteModalOpen}

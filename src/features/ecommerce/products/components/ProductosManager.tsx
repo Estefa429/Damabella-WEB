@@ -595,11 +595,7 @@ export default function ProductosManager() {
         <div className="flex gap-2">
           <Button onClick={exportToExcel} variant="secondary">
             <Download size={20} />
-            Exportar Excel
-          </Button>
-          <Button onClick={handleCreate} variant="primary" disabled title="Los productos se crean desde el módulo Compras">
-            <Plus size={20} />
-            Nuevo Producto (desde Compras)
+            Descargar Excel
           </Button>
         </div>
       </div>
@@ -642,14 +638,12 @@ export default function ProductosManager() {
                 )}
                 <div className="absolute top-2 right-2">
                   <button
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => toggleActive(producto.id)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      producto.activo 
-                        ? 'bg-green-500 text-white' 
-                        : 'bg-gray-300 text-gray-700'
-                    }`}
-                  >
-                    {producto.activo ? 'Activo' : 'Inactivo'}
+                    aria-pressed={producto.activo}
+                    title={producto.activo ? 'Inactivar producto' : 'Activar producto'}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${producto.activo ? 'bg-green-500' : 'bg-gray-400'}`}>
+                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${producto.activo ? 'translate-x-6' : 'translate-x-0'}`} />
                   </button>
                 </div>
               </div>
@@ -891,21 +885,7 @@ export default function ProductosManager() {
               </select>
               {formErrors.categoria && <p className="text-red-600 text-sm mt-1">{formErrors.categoria}</p>}
             </div>
-            <div>
-              <label className="block text-gray-700 mb-2">Proveedor *</label>
-              <select
-                value={formData.proveedor}
-                onChange={(e) => handleFieldChange('proveedor', e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                required
-              >
-                <option value="">Seleccionar...</option>
-                {proveedores.map((prov: any) => (
-                  <option key={prov.id} value={prov.nombre}>{prov.nombre}</option>
-                ))}
-              </select>
-              {formErrors.proveedor && <p className="text-red-600 text-sm mt-1">{formErrors.proveedor}</p>}
-            </div>
+            {/* El campo proveedor se ha eliminado del modal de edición: el proveedor no es editable desde aquí */}
           </div>
 
           {/* Imagen */}

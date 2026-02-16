@@ -8,9 +8,14 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  /**
+   * When true, modal will not force an internal scroll. Use sparingly for
+   * specific modals that must display all content without inner scroll.
+   */
+  noScroll?: boolean;
 }
 
-export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, size = 'md', noScroll = false }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -20,7 +25,10 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
 
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
+      // If this modal opts out of internal scrolling, allow page scrolling
+      // so the user can view all content. For regular modals, keep body
+      // overflow hidden to prevent background scroll.
+      document.body.style.overflow = noScroll ? 'auto' : 'hidden';
     }
 
     return () => {
@@ -49,7 +57,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
       {/* Modal */}
       <div
         ref={modalRef}
-        className={`relative bg-gray-50 rounded-lg shadow-xl w-full ${sizes[size]} max-h-[90vh] flex flex-col`}
+        className={`relative bg-gray-50 rounded-lg shadow-xl w-full ${sizes[size]} ${noScroll ? '' : 'max-h-[90vh]'} flex flex-col`}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
@@ -63,7 +71,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 bg-white">
+        <div className={`flex-1 ${noScroll ? 'overflow-visible' : 'overflow-y-auto'} p-4 bg-white`}>
           {children}
         </div>
       </div>

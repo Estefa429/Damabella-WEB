@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { TrendingUp, TrendingDown, Users, ShoppingBag, Package, RotateCcw, Truck, DollarSign } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -177,6 +177,18 @@ export default function DashboardMain() {
 
   const pendingOrders = recentOrders.filter((order) => order.status === 'Pendiente');
 
+  // PAGINACIÓN (duplicada desde PedidosManager): mostrar 5 pedidos por página (useMemo + useState)
+  const ITEMS_PER_PAGE = 5;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.ceil(pendingOrders.length / ITEMS_PER_PAGE);
+
+  const paginatedPendingOrders = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return pendingOrders.slice(start, end);
+  }, [pendingOrders, currentPage]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -307,7 +319,7 @@ export default function DashboardMain() {
               </tr>
             </thead>
             <tbody>
-              {pendingOrders.map((order) => (
+              {paginatedPendingOrders.map((order) => (
                 <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4 text-gray-900">{order.id}</td>
                   <td className="py-3 px-4 text-gray-600">{order.customer}</td>
@@ -328,6 +340,47 @@ export default function DashboardMain() {
             </tbody>
           </table>
         </div>
+        {/* Paginador */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
+            {/* Texto informativo */}
+            <span className="text-sm text-gray-500">
+              {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, pendingOrders.length || 0)} a ${Math.min(currentPage * ITEMS_PER_PAGE, pendingOrders.length)} de ${pendingOrders.length} pedidos`}
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Anterior
+              </button>
+
+              {Array.from({ length: totalPages }).map((_, index) => {
+                const page = index + 1;
+                const isActive = currentPage === page;
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={isActive ? 'px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-semibold' : 'px-3 py-1.5 rounded-md border text-sm text-gray-700 hover:bg-gray-100 transition'}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Truck, Eye, X, Ban, AlertTriangle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
+import ImageUploader from '../../../shared/components/native/image-uploader';
+import { ProveedoresManager } from '../../suppliers/components/ProveedoresManager';
 
 const STORAGE_KEY = 'damabella_compras';
 const PROVEEDORES_KEY = 'damabella_proveedores';
@@ -58,43 +60,26 @@ const normalizarNombreProducto = (nombre: string): string => {
 // 🆕 FUNCIÓN PARA UNIFICAR PRODUCTOS DUPLICADOS
 function unificarProductosDuplicados(productosActuales: any[]): any[] {
   const productosMap = new Map();
-  
-  // Agrupar productos por nombre normalizado
   productosActuales.forEach((producto: any) => {
     const nombreNormalizado = normalizarNombreProducto(producto.nombre);
-    
     if (!productosMap.has(nombreNormalizado)) {
-      productosMap.set(nombreNormalizado, {
-        base: producto,
-        duplicados: []
-      });
+      productosMap.set(nombreNormalizado, { base: producto, duplicados: [] });
     } else {
       productosMap.get(nombreNormalizado).duplicados.push(producto);
     }
   });
-  
-  // Unificar: tomar el primero como base y agregar todas las variantes
+
   const productosUnificados: any[] = [];
-  
   productosMap.forEach((grupo: any) => {
     const { base, duplicados } = grupo;
     let variantesMerged = [...(base.variantes || [])];
-    
-    // Migrar variantes de los duplicados
     duplicados.forEach((dup: any) => {
       if (dup.variantes && dup.variantes.length > 0) {
         dup.variantes.forEach((varianteDup: any) => {
-          const varianteExistente = variantesMerged.find(
-            (v: any) => v.talla === varianteDup.talla
-          );
-          
+          const varianteExistente = variantesMerged.find((v: any) => v.talla === varianteDup.talla);
           if (varianteExistente) {
-            // Merge de colores
             varianteDup.colores.forEach((colorDup: any) => {
-              const colorExistente = varianteExistente.colores.find(
-                (c: any) => c.color === colorDup.color
-              );
-              
+              const colorExistente = varianteExistente.colores.find((c: any) => c.color === colorDup.color);
               if (colorExistente) {
                 colorExistente.cantidad += colorDup.cantidad;
               } else {
@@ -107,13 +92,7 @@ function unificarProductosDuplicados(productosActuales: any[]): any[] {
         });
       }
     });
-    
-    console.log(`🔗 [unificarProductosDuplicados] Unificado "${base.nombre}":`, {
-      variantesBase: base.variantes?.length || 0,
-      variantesAñadidas: duplicados.length,
-      variantesFinal: variantesMerged.length
-    });
-    
+
     productosUnificados.push({
       ...base,
       variantes: variantesMerged,
@@ -121,7 +100,7 @@ function unificarProductosDuplicados(productosActuales: any[]): any[] {
       lastUpdatedFrom: 'Unificación de duplicados'
     });
   });
-  
+
   return productosUnificados;
 }
 
@@ -384,6 +363,7 @@ export function ComprasManager() {
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [viewingCompra, setViewingCompra] = useState<Compra | null>(null);
+  const [showProveedorModal, setShowProveedorModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [proveedorSearchTerm, setProveedorSearchTerm] = useState('');
   const [productoSearchTerm, setProductoSearchTerm] = useState('');
@@ -504,6 +484,34 @@ export function ComprasManager() {
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(interval);
     };
+  }, []);
+
+  // Escuchar creación de proveedor desde el módulo Proveedores y seleccionarlo automáticamente
+  useEffect(() => {
+    const handleProveedorCreado = (e: any) => {
+      try {
+        const proveedor = e.detail?.proveedor;
+        if (proveedor) {
+          // Actualizar lista local por si aún no se sincronizó
+          const stored = localStorage.getItem(PROVEEDORES_KEY);
+          if (stored) {
+            try { setProveedores(JSON.parse(stored)); } catch {}
+          }
+
+          // Seleccionar el proveedor recién creado en el formulario de compra
+          setFormData(prev => ({ ...prev, proveedorId: String(proveedor.id), proveedorNombre: proveedor.nombre || '' }));
+          setProveedorSearchTerm(proveedor.nombre || '');
+          setShowProveedorDropdown(false);
+          // Si estuvimos mostrando el ProveedoresManager embebido, cerrarlo
+          try { setShowProveedorModal(false); } catch {}
+        }
+      } catch (err) {
+        console.warn('Error manejando proveedor:creado', err);
+      }
+    };
+
+    window.addEventListener('proveedor:creado', handleProveedorCreado as EventListener);
+    return () => window.removeEventListener('proveedor:creado', handleProveedorCreado as EventListener);
   }, []);
 
   // Sincronizar productos desde localStorage
@@ -766,10 +774,15 @@ export function ComprasManager() {
       productoId,
       productoNombre,
       referencia: producto?.referencia || '',
-      categoriaId: categoriaIdFinal,
-      categoriaNombre: categoriaNombreFinal,
-      talla: '',
-      color: ''
+        categoriaId: categoriaIdFinal,
+        categoriaNombre: categoriaNombreFinal,
+        // Copiar datos relevantes del producto seleccionado (excluir cantidad)
+        precioCompra: producto?.precioCompra ? String(producto.precioCompra) : nuevoItem.precioCompra || '',
+        precioVenta: producto?.precioVenta ? String(producto.precioVenta) : nuevoItem.precioVenta || '',
+        imagen: producto?.imagen || nuevoItem.imagen || '',
+        // Preseleccionar la primera talla/color disponible si existen, pero permitir edición
+        talla: (producto?.tallas && producto.tallas.length > 0) ? producto.tallas[0] : nuevoItem.talla || '',
+        color: (producto?.colores && producto.colores.length > 0) ? producto.colores[0] : nuevoItem.color || ''
     });
     setProductoSearchTerm(productoNombre);
     setShowProductoDropdown(false);
@@ -781,6 +794,21 @@ export function ComprasManager() {
       console.log(`📏 Tallas disponibles: ${producto.tallas?.join(', ') || 'No especificadas'}`);
       console.log(`🎨 Colores disponibles: ${producto.colores?.join(', ') || 'No especificados'}`);
       console.log(`📂 Categoría ID: ${categoriaIdFinal || 'SIN ASIGNAR'}`);
+    }
+
+    // Si el producto tiene un proveedor asociado (nombre), buscar su id y asignarlo
+    try {
+      const proveedorNameFromProduct = (producto as any)?.proveedor || '';
+      if (producto && proveedorNameFromProduct) {
+        const proveedorMatch = proveedores.find((p: any) => String(p.nombre).toLowerCase() === String(proveedorNameFromProduct).toLowerCase());
+        if (proveedorMatch) {
+          setFormData({ ...formData, proveedorId: proveedorMatch.id, proveedorNombre: proveedorMatch.nombre });
+          setProveedorSearchTerm(proveedorMatch.nombre);
+          console.log(`✅ [ComprasManager] Proveedor preseleccionado desde producto: ${proveedorMatch.nombre} (id=${proveedorMatch.id})`);
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [ComprasManager] No se pudo preseleccionar proveedor desde producto:', e);
     }
   };
 
@@ -1415,7 +1443,7 @@ export function ComprasManager() {
         </div>
 
         {proveedorSeleccionadoHistorial && (() => {
-          const comprasProveedor = filtrarComprasPorProveedor(proveedorSeleccionadoHistorial);
+          const comprasProveedor = filtrarComprasPorProveedor(proveedorSeleccionadoHistorial); 
           const comprasOrdenadas = ordenarComprasPorFecha(comprasProveedor);
           const proveedorNombre = proveedores.find((p) => p.id === proveedorSeleccionadoHistorial)?.nombre || '';
           const totalCompras = contarCompras(comprasProveedor);
@@ -1595,15 +1623,23 @@ export function ComprasManager() {
                         >
                           <Eye size={18} />
                         </button>
-                        {compra.estado !== 'Anulada' && (
-                          <button
-                            onClick={() => anularCompra(compra.id)}
-                            className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                            title="Anular compra"
-                          >
-                            <Ban size={18} />
-                          </button>
-                        )}
+                        {
+                          // Mostrar siempre el botón de anular, pero deshabilitado cuando ya está anulada
+                        }
+                        {(() => {
+                          const isAnulada = compra.estado === 'Anulada';
+                          return (
+                            <button
+                              onClick={() => { if (!isAnulada) anularCompra(compra.id); }}
+                              className={`p-2 rounded-lg transition-colors ${isAnulada ? 'text-red-400 opacity-50 cursor-not-allowed' : 'hover:bg-red-50 text-red-600'}`}
+                              title="Anular compra"
+                              disabled={isAnulada}
+                              aria-disabled={isAnulada}
+                            >
+                              <Ban size={18} />
+                            </button>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>
@@ -1627,30 +1663,51 @@ export function ComprasManager() {
             <div>
               <label className="block text-gray-700 mb-2">Proveedor *</label>
               <select
-                value={formData.proveedorId}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const sel = proveedores.find((p: any) => String(p.id) === String(val));
-                  const nombre = sel ? sel.nombre : '';
-                  if (nombre) {
-                    setFormData({ ...formData, proveedorId: val, proveedorNombre: nombre });
-                    setProveedorSearchTerm(nombre);
-                  }
-                  setFormErrors({ ...formErrors, proveedorId: undefined });
-                }}
-                className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
-              >
+                  value={formData.proveedorId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const sel = proveedores.find((p: any) => String(p.id) === String(val));
+                    const nombre = sel ? sel.nombre : '';
+                    if (nombre) {
+                      setFormData({ ...formData, proveedorId: val, proveedorNombre: nombre });
+                      setProveedorSearchTerm(nombre);
+                    }
+                    setFormErrors({ ...formErrors, proveedorId: undefined });
+                  }}
+                  disabled={!!nuevoItem.productoId}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
+                >
                 <option value="">Seleccionar proveedor...</option>
+                          {/* Opción para añadir proveedor ahora via botón debajo */}
+                {/** Si el proveedor fue prellenado pero no está en la lista, mostrarlo como opción fallback */}
+                {formData.proveedorId && !proveedores.some((p: any) => String(p.id) === String(formData.proveedorId)) && (
+                  <option value={String(formData.proveedorId)}>{formData.proveedorNombre || formData.proveedorId}</option>
+                )}
                 {proveedores
                   .filter((p: any) => p.activo && p.nombre)
                   .map((p: any) => (
                     <option key={p.id} value={String(p.id)}>{p.nombre}</option>
                   ))}
               </select>
+              {/* Botón pequeño para abrir el modal de Proveedores y agregar uno nuevo */}
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowProveedorModal(true)}
+                  className="text-sm text-gray-700"
+                >
+                  o agregar nuevo proveedor📦
+                </button>
+              </div>
               {formErrors.proveedorId && (
                 <p className="text-red-600 text-xs mt-1">{formErrors.proveedorId}</p>
               )}
             </div>
+
+            {/* Montar ProveedoresManager solo cuando el estado lo pida. Se usa onlyModal para mostrar únicamente el modal existente */}
+            {showProveedorModal && (
+              <ProveedoresManager onlyModal openOnMount />
+            )}
 
             <div>
               <label className="block text-gray-700 mb-2">Fecha de Compra *</label>
@@ -1660,6 +1717,7 @@ export function ComprasManager() {
                 onChange={(e) => handleFieldChange('fechaCompra', e.target.value)}
                 className={formErrors.fechaCompra ? 'border-red-500' : ''}
                 required
+                readOnly
               />
               {formErrors.fechaCompra && (
                 <p className="text-red-600 text-xs mt-1">{formErrors.fechaCompra}</p>
@@ -1709,7 +1767,7 @@ export function ComprasManager() {
                       O selecciona uno existente:
                       <select
                         value={nuevoItem.productoId}
-                        onChange={(e) => {
+                          onChange={(e) => {
                           const val = e.target.value;
                           const sel = productos.find((p:any) => String(p.id) === String(val));
                           if (sel) {
@@ -1720,21 +1778,101 @@ export function ComprasManager() {
                               const catFound = categorias.find(c => String(c.id) === String(categoriaIdFinal));
                               categoriaNombreFinal = catFound?.name || '';
                             }
-                            
+
+                            // Autocompletar precios e imagen si existen en historial o en el producto
+                            let precioCompraStr = '';
+                            let precioVentaStr = '';
+                            let imagenUrl = sel.imagen || sel.image || sel.imagenUrl || '';
+
+                            try {
+                              // Buscar la última compra que contenga este producto (orden descendente por createdAt/fechaRegistro)
+                              const comprasOrdenadas = compras.slice().sort((a:any,b:any) => {
+                                const ta = new Date(a.createdAt || a.fechaRegistro || 0).getTime();
+                                const tb = new Date(b.createdAt || b.fechaRegistro || 0).getTime();
+                                return tb - ta;
+                              });
+
+                              let tallaFound = '';
+                              let colorFound = '';
+                              let proveedorIdFound = '';
+                              let proveedorNombreFound = '';
+
+                              for (const c of comprasOrdenadas) {
+                                const found = (c.items || []).find((i:any) => String(i.productoId) === String(val) || normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(sel.nombre));
+                                if (found) {
+                                  // Capturar talla/color y proveedor de la compra más reciente que contenga el producto
+                                  if (!tallaFound && found.talla) tallaFound = found.talla;
+                                  if (!colorFound && found.color) colorFound = found.color;
+                                  if (!proveedorIdFound) {
+                                    proveedorIdFound = c.proveedorId || '';
+                                    proveedorNombreFound = c.proveedorNombre || (proveedores.find((p:any) => String(p.id) === String(c.proveedorId))?.nombre) || '';
+                                  }
+
+                                  if (found.precioCompra && !precioCompraStr) {
+                                    precioCompraStr = String(found.precioCompra);
+                                    // preferir precio del primer match con precio
+                                    break;
+                                  }
+                                }
+                              }
+
+                              // Si no se encontró precio en compras previas, calcular promedio
+                              if (!precioCompraStr) {
+                                const precios = compras.flatMap((c:any) => (c.items || [])
+                                  .filter((i:any) => String(i.productoId) === String(val) || normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(sel.nombre))
+                                  .map((i:any) => Number(i.precioCompra) || 0)
+                                ).filter((p:number) => p > 0);
+
+                                if (precios.length > 0) {
+                                  const avg = precios.reduce((s:number,x:number) => s + x, 0) / precios.length;
+                                  precioCompraStr = String(Math.round(avg * 100) / 100);
+                                }
+                              }
+
+                              // Precio compra fallback desde el propio producto
+                              if (!precioCompraStr && sel.precioCompra) precioCompraStr = String(sel.precioCompra);
+
+                              // Precio venta: preferir precio del producto si existe
+                              if (sel.precioVenta) precioVentaStr = String(sel.precioVenta);
+                              else if (sel.precio) precioVentaStr = String(sel.precio);
+                            } catch (err) {
+                              console.warn('Error calculando precios previos para producto seleccionado', err);
+                            }
+
                             console.log('✅ [select-onChange] Producto seleccionado:', {
                               nombre: sel.nombre,
                               categoryId: categoriaIdFinal,
-                              categoriaNombre: categoriaNombreFinal
+                              categoriaNombre: categoriaNombreFinal,
+                              precioCompra: precioCompraStr,
+                              precioVenta: precioVentaStr,
+                              imagen: imagenUrl
                             });
-                            
-                            setNuevoItem({ 
-                              ...nuevoItem, 
+
+                            // Si encontramos proveedor/talla/color desde compras previas, sincronizarlos
+                            // NOTA: solo prellenamos; los campos siguen editables según reglas (pero se bloquearán cuando corresponda)
+                            let updatedNuevo = {
+                              ...nuevoItem,
                               productoId: val,
                               productoNombre: sel.nombre,
                               categoriaId: categoriaIdFinal,
                               categoriaNombre: categoriaNombreFinal,
-                              referencia: sel.referencia || ''
-                            });
+                              referencia: sel.referencia || '',
+                              precioCompra: precioCompraStr,
+                              precioVenta: precioVentaStr,
+                              imagen: imagenUrl || ''
+                            } as any;
+
+                            // Si existieron talla/color/proveedor en compras previas, usarlos
+                            if (typeof tallaFound !== 'undefined' && tallaFound) updatedNuevo.talla = tallaFound;
+                            if (typeof colorFound !== 'undefined' && colorFound) updatedNuevo.color = colorFound;
+
+                            setNuevoItem(updatedNuevo);
+
+                            // Si encontramos proveedor en compras previas, prellenar formData.proveedorId/proveedorNombre
+                            if (typeof proveedorIdFound !== 'undefined' && proveedorIdFound) {
+                              setFormData({ ...formData, proveedorId: proveedorIdFound, proveedorNombre: proveedorNombreFound });
+                              setProveedorSearchTerm(proveedorNombreFound || '');
+                            }
                           }
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 mt-2"
@@ -1753,10 +1891,10 @@ export function ComprasManager() {
                 <div>
                   <label className="block text-gray-700 mb-2 text-sm">Talla *</label>
                   <div className="flex gap-2">
-                    <select
-                      value={nuevoItem.talla}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value })}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                      <select
+                        value={nuevoItem.talla}
+                        onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value })}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                     >
                       <option value="">Seleccionar talla...</option>
                       {tallas.map(talla => (
@@ -1895,6 +2033,7 @@ export function ComprasManager() {
                     value={nuevoItem.precioCompra}
                     onChange={(e) => setNuevoItem({ ...nuevoItem, precioCompra: e.target.value })}
                     placeholder="0"
+                    readOnly={!!nuevoItem.productoId}
                   />
                 </div>
 
@@ -1942,13 +2081,10 @@ export function ComprasManager() {
 
                 <div>
                   <label className="block text-gray-700 mb-2 text-sm">Imagen del Producto</label>
-                  <Input
-                    type="text"
-                    value={nuevoItem.imagen}
-                    onChange={(e) => setNuevoItem({ ...nuevoItem, imagen: e.target.value })}
-                    placeholder="URL de imagen o ruta"
-                    className="text-sm"
-                  />
+                  <ImageUploader
+                      value={nuevoItem.imagen}
+                      onChange={(b64) => setNuevoItem({ ...nuevoItem, imagen: b64 })}
+                    />
                   <p className="text-xs text-gray-500 mt-1">URL o ruta de la imagen del producto</p>
                 </div>
               </div>
