@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Search, RotateCcw, Eye, Download, AlertCircle, CheckCircle, Trash2, Plus } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, RotateCcw, Eye, Download, AlertCircle, CheckCircle, Ban, Plus } from 'lucide-react';
 import { Input, Modal, Button } from '../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_devoluciones';
@@ -146,7 +146,7 @@ export function DevolucionesManager() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedVenta, setSelectedVenta] = useState<any>(null);
   const [formMotivo, setFormMotivo] = useState<'Defectuoso' | 'Talla incorrecta' | 'Color incorrecto' | 'Producto equivocado' | 'Otro'>('Defectuoso');
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [itemsDevueltos, setItemsDevueltos] = useState<{ itemId: string; cantidad: number }[]>([]);
   const [formFecha, setFormFecha] = useState(new Date().toISOString().split('T')[0]);
   type MedioPago = 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
 
@@ -176,6 +176,25 @@ export function DevolucionesManager() {
     }
     return producto.colores || [];
   };
+
+  const handleToggleItemDevolucion = (itemId: string, cantidad: number) => {
+    setItemsDevueltos((prev) => {
+      const idx = prev.findIndex((i) => i.itemId === itemId);
+
+      if (cantidad <= 0) {
+        return prev.filter((i) => i.itemId !== itemId);
+      }
+
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { itemId, cantidad };
+        return copy;
+      }
+
+      return [...prev, { itemId, cantidad }];
+    });
+  };
+
 
 
 
@@ -290,7 +309,7 @@ DAMABELLA - Moda Femenina
       normalize(d.productoNuevoColor).includes(q);
 
     // ✅ 3) Buscar por Total (100000 o $100.000)
-    const totalDigits = onlyDigits(d.total);
+    const totalDigits = onlyDigits(String(d.total ?? ''));
     const matchTotal = qDigits.length > 0 ? totalDigits.includes(qDigits) : false;
 
     return (
@@ -386,12 +405,12 @@ DAMABELLA - Moda Femenina
 
 
   const crearDevolucion = () => {
-    if (!selectedVenta || selectedItems.length === 0) {
+    if (!selectedVenta || itemsDevueltos.length === 0) {
       setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar una venta y al menos un producto');
+      setNotificationMessage('Debes seleccionar una venta y al menos un producto con cantidad > 0');
       setNotificationType('error');
       return;
-    };
+    }
 
     if (!productoNuevoId) {
       setShowNotificationModal(true);
@@ -412,23 +431,36 @@ DAMABELLA - Moda Femenina
 
     
     // Obtener items seleccionados de la venta
-    const itemsDevolucion = selectedVenta.items
-    .filter((item: any) => selectedItems.includes(String(item.id)))
-    .map((item: any) => {
-      const cantidad = Number(item.cantidad ?? 0);
-      const precioUnitario = Number(item.precioUnitario ?? 0);
-      const subtotal = Number(item.subtotal ?? (cantidad * precioUnitario));
+    const itemsDevolucion = itemsDevueltos
+      .map((sel) => {
+        const item = selectedVenta.items.find((i: any) => String(i.id) === String(sel.itemId));
+        if (!item) return null;
 
-      return {
-        id: String(item.id),
-        productoNombre: item.productoNombre,
-        talla: item.talla,
-        color: item.color,
-        cantidad,
-        precioUnitario,
-        subtotal,
-      };
-    });
+        const cantidadVendida = Number(item.cantidad || 0);
+        const cantidad = Math.max(0, Math.min(cantidadVendida, Number(sel.cantidad || 0)));
+        if (cantidad <= 0) return null;
+
+        const precioUnitario = Number(item.precioUnitario ?? 0);
+        const subtotal = cantidad * precioUnitario;
+
+        return {
+          id: String(item.id),
+          productoNombre: item.productoNombre,
+          talla: item.talla,
+          color: item.color,
+          cantidad,
+          precioUnitario,
+          subtotal,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    if (itemsDevolucion.length === 0) {
+      setShowNotificationModal(true);
+      setNotificationMessage('Debes ingresar una cantidad mayor a 0 en al menos un producto');
+      setNotificationType('error');
+      return;
+    }
 
 
     // Calcular total
@@ -471,7 +503,7 @@ DAMABELLA - Moda Femenina
       items: itemsDevolucion,
       total: totalDevolucion,
       createdAt: new Date().toISOString(),
-      estadoGestion: 'Pendiente',
+      estadoGestion: 'Cambiado',
       productoNuevo: {
         id: productoNuevo.id,
         nombre: productoNuevo.nombre,
@@ -494,7 +526,7 @@ DAMABELLA - Moda Femenina
     // Cerrar modal y mostrar notificación
     setShowCreateModal(false);
     setSelectedVenta(null);
-    setSelectedItems([]);
+    setItemsDevueltos([]);
     setFormMotivo('Defectuoso');
     setFormFecha(new Date().toISOString().split('T')[0]);
     setProductoNuevoId('');
@@ -506,6 +538,25 @@ DAMABELLA - Moda Femenina
     setShowNotificationModal(true);
     setNotificationMessage(`Devolución ${nuevoNumero} creada correctamente`);
     setNotificationType('success');
+  };
+
+
+  const ITEMS_PER_PAGE = 5; // Cambiado a 5 devoluciones por página
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const paginatedDevoluciones = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredDevoluciones.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [currentPage, filteredDevoluciones]);
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(filteredDevoluciones.length / ITEMS_PER_PAGE);
+  }, [filteredDevoluciones]);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
   };
 
 
@@ -583,7 +634,7 @@ DAMABELLA - Moda Femenina
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredDevoluciones.length === 0 ? (
+              {paginatedDevoluciones.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-gray-500">
                     <RotateCcw className="mx-auto mb-4 text-gray-300" size={48} />
@@ -592,7 +643,7 @@ DAMABELLA - Moda Femenina
                   </td>
                 </tr>
               ) : (
-                filteredDevoluciones.map((devolucion) => (
+                paginatedDevoluciones.map((devolucion) => (
                   <tr key={devolucion.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-2">
@@ -659,12 +710,14 @@ DAMABELLA - Moda Femenina
                             onClick={() => { 
                               setConfirmMessage(`¿Anular devolución ${devolucion.numeroDevolucion}?`); 
                               setConfirmAction(() => anularDevolucion(devolucion.id)); 
-                              setShowConfirmModal(true); }}
+                              setShowConfirmModal(true); 
+                            }}
                             className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
                             title="Anular devolución"
                           >
-                            <Trash2 size={18} />
+                            <Ban size={18} />
                           </button>
+
                         )}
                       </div>
                     </td>
@@ -675,6 +728,32 @@ DAMABELLA - Moda Femenina
           </table>
         </div>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex justify-center items-center gap-2 mt-4">
+          <button
+            onClick={() => handlePageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+            className="px-4 py-2 bg-gray-200 text-gray-600 rounded disabled:opacity-50"
+          >
+            Anterior
+          </button>
+          <span>Página {currentPage} de {totalPages}</span>
+          <button
+            onClick={() => handlePageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className="px-4 py-2 bg-gray-200 text-gray-600 rounded disabled:opacity-50"
+          >
+            Siguiente
+          </button>
+        </div>
+      )}
+
+      {/* Texto informativo */}
+      <span className="text-sm text-gray-500">
+        {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredDevoluciones.length || 0)} a ${Math.min(currentPage * ITEMS_PER_PAGE, filteredDevoluciones.length)} de ${filteredDevoluciones.length} devoluciones`}
+      </span>
 
       {/* Modal Detalle */}
       {viewingDevolucion && (
@@ -896,7 +975,7 @@ DAMABELLA - Moda Femenina
           onClose={() => {
             setShowCreateModal(false);
             setSelectedVenta(null);
-            setSelectedItems([]);
+            setItemsDevueltos([]);
             setProductoNuevoId('');
             setProductoNuevoTalla('');
             setProductoNuevoColor('');
@@ -916,8 +995,9 @@ DAMABELLA - Moda Femenina
                   const ventaId = e.target.value;
                   const venta = ventas.find((v: any) => v.id === parseInt(ventaId));
                   setSelectedVenta(venta || null);
-                  setSelectedItems([]);
+                  setItemsDevueltos([]);
                 }}
+
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <option value="">-- Selecciona una venta --</option>
@@ -936,39 +1016,70 @@ DAMABELLA - Moda Femenina
                   Seleccionar Productos
                 </label>
 
-                {/* 1) Lista de productos (checkboxes) */}
-                <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                {/* 1) Lista de productos (cantidad a devolver por item) */}
+                <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-60 overflow-y-auto">
                   {selectedVenta.items && selectedVenta.items.length > 0 ? (
-                    selectedVenta.items.map((item: any) => (
-                      <label key={item.id} className="flex items-start gap-2 p-2 hover:bg-gray-50 rounded">
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(item.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, item.id]);
-                            } else {
-                              setSelectedItems(selectedItems.filter(id => id !== item.id));
-                            }
-                          }}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-gray-900">{item.productoNombre}</div>
-                          <div className="text-xs text-gray-600">
-                            Talla: {item.talla} | Color: {item.color} | Cantidad: {item.cantidad} x ${item.precioUnitario.toLocaleString()}
+                    selectedVenta.items.map((item: any) => {
+                      const found = itemsDevueltos.find((i) => i.itemId === String(item.id));
+                      const cantidadDevuelta = found?.cantidad || 0;
+
+                      return (
+                        <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-white">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex-1">
+                              <div className="text-sm font-medium text-gray-900">{item.productoNombre}</div>
+                              <div className="text-xs text-gray-600">
+                                Talla: {item.talla} | Color: {item.color}
+                              </div>
+                              <div className="text-xs text-gray-600">
+                                Precio: ${Number(item.precioUnitario || 0).toLocaleString()}
+                              </div>
+                            </div>
+
+                            <div className="text-sm font-semibold text-gray-900">
+                              ${Number(item.subtotal || (item.cantidad * item.precioUnitario)).toLocaleString()}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <label className="text-xs text-gray-700">Cantidad a devolver:</label>
+
+                            <input
+                              type="number"
+                              min="0"
+                              max={Number(item.cantidad || 0)}
+                              value={cantidadDevuelta}
+                              onChange={(e) => {
+                                const max = Number(item.cantidad || 0);
+                                const val = parseInt(e.target.value, 10) || 0;
+                                const safe = Math.max(0, Math.min(max, val));
+                                handleToggleItemDevolucion(String(item.id), safe);
+                              }}
+                              className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+
+                            <span className="text-xs text-gray-600">de {item.cantidad}</span>
+
+                            {cantidadDevuelta > 0 && (
+                              <span className="ml-auto text-xs text-green-700 font-medium">
+                                Devolución: $
+                                {(cantidadDevuelta * Number(item.precioUnitario || 0)).toLocaleString()}
+                              </span>
+                            )}
                           </div>
                         </div>
-                      </label>
-                    ))
-                  ) : (
-                    <p className="text-sm text-gray-500">No hay productos en esta venta</p>
-                  )}
-                </div>
+                      );
+                })
+              ) : (
+                <p className="text-sm text-gray-500">No hay productos en esta venta</p>
+              )}
+</div>
+
 
                 {/* 2) Producto por el que se cambia */}
-                {selectedItems.length > 0 && (
+                {itemsDevueltos.length > 0 && (
                   <div className="border-t pt-4 mt-4">
+
                     <label className="text-sm font-medium text-gray-700 mb-2 block">
                       ¿Por cuál referencia se hará el cambio? *
                     </label>
@@ -1031,14 +1142,15 @@ DAMABELLA - Moda Femenina
                 )}
 
                 {/* 3) Balance del cambio */}
-                {selectedItems.length > 0 && productoNuevoId && (() => {
-                  const itemsDevolucion = selectedVenta.items
-                    .filter((item: any) => selectedItems.includes(item.id));
+                {itemsDevueltos.length > 0 && productoNuevoId && (() => {
+                  const totalDevuelto = itemsDevueltos.reduce((sum: number, sel) => {
+                    const item = selectedVenta.items.find((i: any) => String(i.id) === String(sel.itemId));
+                    if (!item) return sum;
 
-                  const totalDevuelto = itemsDevolucion.reduce(
-                    (sum: number, item: any) => sum + (item.subtotal || (item.cantidad * item.precioUnitario)),
-                    0
-                  );
+                    const cantidadVendida = Number(item.cantidad || 0);
+                    const cantidad = Math.max(0, Math.min(cantidadVendida, Number(sel.cantidad || 0)));
+                    return sum + (cantidad * Number(item.precioUnitario || 0));
+                  }, 0);
 
                   const prodNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
                   const precioProductoNuevo = prodNuevo ? Number(prodNuevo.precioVenta || 0) : 0;
@@ -1106,12 +1218,9 @@ DAMABELLA - Moda Femenina
                     </div>
                   );
                 })()}
+
               </div>
             )}
-
-
-            
-
 
             {/* Motivo de Devolución */}
             <div>
@@ -1150,7 +1259,7 @@ DAMABELLA - Moda Femenina
                 onClick={() => {
                   setShowCreateModal(false);
                   setSelectedVenta(null);
-                  setSelectedItems([]);
+                  setItemsDevueltos([]);
                 }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
               >
@@ -1169,7 +1278,3 @@ DAMABELLA - Moda Femenina
     </div>
   );
 }
-
-
-
-

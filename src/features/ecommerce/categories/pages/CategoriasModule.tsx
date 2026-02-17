@@ -146,15 +146,93 @@ export function Categorias({ user }: CategoriasProps) {
         />
       </div>
 
-      <DataTable
-        data={filteredCategorias}
-        columns={columns}
-        onEdit={handleEdit}
-        onDelete={canDelete ? (categoria) => {
-          setCategorias(categorias.filter(c => c.id !== categoria.id));
-          toast.success('Categoría eliminada');
-        } : undefined}
-      />
+      {/* Grid view of categories (cards) with actions incl. Delete */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {filteredCategorias.map((categoria) => (
+          <div key={categoria.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
+            <div className="p-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center text-gray-600">
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 7h18M3 12h18M3 17h18" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </div>
+                  <div>
+                    <div className="font-medium text-gray-900">{categoria.name}</div>
+                  </div>
+                </div>
+                <div>
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      // toggle status: activate immediately if inactive, otherwise confirm
+                      if (categoria.status === 'Inactivo') {
+                        setCategorias(prev => prev.map(c => c.id === categoria.id ? { ...c, status: 'Activo' } : c));
+                        toast.success('Categoría activada');
+                        try { localStorage.setItem('damabella_categorias', JSON.stringify(categorias.map(c => c.id === categoria.id ? { ...c, status: 'Activo' } : c))); } catch(e){}
+                      } else {
+                        // open browser confirm to keep changes minimal
+                        const ok = confirm(`¿Estás seguro de inactivar la categoría "${categoria.name}"?`);
+                        if (ok) {
+                          setCategorias(prev => prev.map(c => c.id === categoria.id ? { ...c, status: 'Inactivo' } : c));
+                          toast.success('Categoría inactivada');
+                          try { localStorage.setItem('damabella_categorias', JSON.stringify(categorias.map(c => c.id === categoria.id ? { ...c, status: 'Inactivo' } : c))); } catch(e){}
+                        }
+                      }
+                    }}
+                    aria-pressed={categoria.status !== 'Inactivo'}
+                    title={categoria.status === 'Inactivo' ? 'Activar categoría' : 'Inactivar categoría'}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${categoria.status === 'Activo' ? 'bg-green-500' : 'bg-gray-400'}`}>
+                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${categoria.status === 'Activo' ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <div className="text-sm text-gray-500">Productos</div>
+                <div className="mt-2 inline-flex items-center gap-2">
+                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-50 text-blue-600">{categoria.productCount}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100 p-3 flex items-center justify-between">
+              <div className={`text-sm ${categoria.status === 'Activo' ? 'text-green-600' : 'text-gray-600'}`}>{categoria.status === 'Activo' ? 'Activa' : 'Inactiva'}</div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleEdit(categoria)} className="p-2 hover:bg-gray-100 rounded text-gray-600" title="Editar">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                {canDelete && (
+                  <button
+                    onClick={() => {
+                      try {
+                        const productosRaw = localStorage.getItem('damabella_productos');
+                        const productos = productosRaw ? JSON.parse(productosRaw) : [];
+                        const hasProducts = productos.some((p: any) => String(p.categoria) === String(categoria.name));
+                        if (hasProducts) {
+                          toast.error('No se puede eliminar la categoría porque tiene productos asociados');
+                          return;
+                        }
+                        if (confirm(`¿Estás seguro de eliminar la categoría "${categoria.name}"?`)) {
+                          setCategorias(prev => prev.filter(c => c.id !== categoria.id));
+                          try { localStorage.setItem('damabella_categorias', JSON.stringify(categorias.filter(c => c.id !== categoria.id))); } catch(e){}
+                          toast.success('Categoría eliminada');
+                        }
+                      } catch (e) {
+                        console.error('Error comprobando productos asociados:', e);
+                        toast.error('Error comprobando productos asociados');
+                      }
+                    }}
+                    className="p-2 hover:bg-red-50 rounded text-red-600"
+                    title="Eliminar"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M10 11v6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M14 11v6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

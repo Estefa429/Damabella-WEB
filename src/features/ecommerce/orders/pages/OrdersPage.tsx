@@ -12,35 +12,148 @@ export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
   const [allOrders, setAllOrders] = useState<any[]>([]);
 
   useEffect(() => {
-    // Cargar compras del localStorage
-    const purchaseHistory = JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
-    
-    // Combinar órdenes del contexto con las compras del localStorage
-    const combinedOrders = [...orders];
-    
-    // Agregar compras del localStorage si no están ya en el contexto
-    purchaseHistory.forEach((purchase: any) => {
-      if (!combinedOrders.find(o => o.id === purchase.id)) {
-        combinedOrders.push({
-          id: purchase.id,
-          items: purchase.items,
-          subtotal: purchase.subtotal,
-          iva: purchase.iva,
-          total: purchase.total,
-          paymentMethod: purchase.paymentMethod,
-          clientName: purchase.shippingInfo?.fullName || 'Cliente',
-          clientEmail: currentUser?.email || '',
-          clientPhone: purchase.shippingInfo?.phone || '',
-          clientAddress: purchase.shippingInfo?.address || '',
-          date: purchase.date,
-          status: 'Pendiente',
-          createdAt: new Date(purchase.timestamp).toISOString(),
-        });
-      }
-    });
+    // Indicar montaje del componente (log inicial)
+    try { console.log('[OrdersPage] useEffect start - component mounted'); } catch (e) {}
+    // Leer usuario desde localStorage (priorizar 'damabella_current_user' según petición)
+    const currentUserRaw = localStorage.getItem('damabella_current_user');
+    const fallbackUserRaw = localStorage.getItem('damabella_user');
 
-    setAllOrders(combinedOrders);
-  }, [orders, currentUser]);
+    try { console.log('[OrdersPage] localStorage.getItem("damabella_current_user") =>', currentUserRaw === null ? 'NULL' : currentUserRaw); } catch (e) {}
+    try { console.log('[OrdersPage] localStorage.getItem("damabella_user") =>', fallbackUserRaw === null ? 'NULL' : fallbackUserRaw); } catch (e) {}
+
+    const storedUserRaw = currentUserRaw || fallbackUserRaw;
+    if (!storedUserRaw) {
+      try { console.log('[OrdersPage] no damabella_current_user or damabella_user found; aborting filter'); } catch (e) {}
+      setAllOrders([]);
+      return;
+    }
+
+    let storedUser: any = null;
+    try {
+      storedUser = JSON.parse(storedUserRaw);
+    } catch (e) {
+      try { console.log('[OrdersPage] error parsing stored user (current_user or user)', e); } catch (e2) {}
+      setAllOrders([]);
+      return;
+    }
+
+    // Extraer id intentando varios campos comunes
+    const userIdRaw = storedUser?.id ?? storedUser?.userId ?? storedUser?.clienteId ?? storedUser?.cliente?.id ?? storedUser?.data?.id ?? null;
+    try { console.log('[OrdersPage] resolved storedUser id candidates ->', { id: storedUser?.id, userId: storedUser?.userId, clienteId: storedUser?.clienteId }); } catch (e) {}
+
+    if (userIdRaw === undefined || userIdRaw === null) {
+      try { console.log('[OrdersPage] stored user has no identifiable id; aborting filter'); } catch (e) {}
+      setAllOrders([]);
+      return;
+    }
+
+    const userIdStr = String(userIdRaw);
+
+    // --- LOGS DE DEPURACIÓN (se muestran en la consola del navegador) ---
+    try {
+      console.log('[OrdersPage] mounted - clientId (from damabella_user):', userIdStr);
+
+      const ordersRawKey = localStorage.getItem('orders');
+      const salesRawKey = localStorage.getItem('sales');
+      const damabellaOrdersRaw = localStorage.getItem('damabella_orders');
+      const damabellaVentasRaw = localStorage.getItem('damabella_ventas');
+
+      console.log('[OrdersPage] localStorage.getItem("orders") =>', ordersRawKey === null ? 'NULL' : ordersRawKey);
+      console.log('[OrdersPage] localStorage.getItem("sales") =>', salesRawKey === null ? 'NULL' : salesRawKey);
+      console.log('[OrdersPage] localStorage.getItem("damabella_orders") =>', damabellaOrdersRaw === null ? 'NULL' : damabellaOrdersRaw);
+      console.log('[OrdersPage] localStorage.getItem("damabella_ventas") =>', damabellaVentasRaw === null ? 'NULL' : damabellaVentasRaw);
+
+      const parsedOrdersRaw = ordersRawKey ? JSON.parse(ordersRawKey) : [];
+      const parsedSalesRaw = salesRawKey ? JSON.parse(salesRawKey) : [];
+      const parsedDamabellaOrders = damabellaOrdersRaw ? JSON.parse(damabellaOrdersRaw) : [];
+      const parsedDamabellaVentas = damabellaVentasRaw ? JSON.parse(damabellaVentasRaw) : [];
+
+      console.log('[OrdersPage] parsed - orders (key "orders"):', Array.isArray(parsedOrdersRaw) && parsedOrdersRaw.length ? parsedOrdersRaw : 'EMPTY_OR_NOT_ARRAY');
+      console.log('[OrdersPage] parsed - sales (key "sales"):', Array.isArray(parsedSalesRaw) && parsedSalesRaw.length ? parsedSalesRaw : 'EMPTY_OR_NOT_ARRAY');
+      console.log('[OrdersPage] parsed - damabella_orders:', Array.isArray(parsedDamabellaOrders) && parsedDamabellaOrders.length ? parsedDamabellaOrders : 'EMPTY_OR_NOT_ARRAY');
+      console.log('[OrdersPage] parsed - damabella_ventas:', Array.isArray(parsedDamabellaVentas) && parsedDamabellaVentas.length ? parsedDamabellaVentas : 'EMPTY_OR_NOT_ARRAY');
+    } catch (logErr) {
+      console.error('[OrdersPage] error logging localStorage contents', logErr);
+    }
+
+    // Cargar datos administrativos: pedidos y ventas
+    const pedidosRaw = localStorage.getItem('damabella_pedidos');
+    const ventasRaw = localStorage.getItem('damabella_ventas');
+
+    try { console.log('[OrdersPage] localStorage.getItem("damabella_pedidos") =>', pedidosRaw === null ? 'NULL' : pedidosRaw); } catch (e) {}
+    try { console.log('[OrdersPage] localStorage.getItem("damabella_ventas") =>', ventasRaw === null ? 'NULL' : ventasRaw); } catch (e) {}
+
+    const parsedPedidos = pedidosRaw ? JSON.parse(pedidosRaw) : [];
+    const parsedVentas = ventasRaw ? JSON.parse(ventasRaw) : [];
+
+    // Helper: comparar ids tolerante (extrae dígitos si es necesario)
+    const idMatches = (userId: string, candidate: any) => {
+      try {
+        if (candidate == null) return false;
+        const candStr = String(candidate);
+        const userDigits = (userId.match(/\d+/) || [userId])[0];
+        const candDigits = (candStr.match(/\d+/) || [candStr])[0];
+        return userDigits === candDigits || candStr.includes(userDigits) || String(userId).includes(candDigits);
+      } catch (e) {
+        return false;
+      }
+    };
+
+    // Filtrar pedidos y ventas por cliente
+    const pedidosFiltrados = Array.isArray(parsedPedidos) ? parsedPedidos.filter((p: any) => idMatches(userIdStr, p.clienteId ?? p.cliente_id ?? p.clientId ?? p.client ?? p.cliente)) : [];
+    const ventasFiltradas = Array.isArray(parsedVentas) ? parsedVentas.filter((v: any) => idMatches(userIdStr, v.clienteId ?? v.cliente_id ?? v.clientId ?? v.client ?? v.cliente)) : [];
+
+    try { console.log('[OrdersPage] pedidosFiltrados ->', pedidosFiltrados.length ? pedidosFiltrados : 'EMPTY'); } catch (e) {}
+    try { console.log('[OrdersPage] ventasFiltradas ->', ventasFiltradas.length ? ventasFiltradas : 'EMPTY'); } catch (e) {}
+
+    // Mapear entradas a la forma esperada por la UI
+    const mapItems = (items: any[]) => (items || []).map((it: any) => ({
+      productName: it.productoNombre || it.productName || it.name || '',
+      color: it.color || it.colorName || '',
+      size: it.talla || it.size || it.sizeName || '',
+      quantity: it.cantidad || it.quantity || 1,
+      price: it.precioUnitario || it.price || 0
+    }));
+
+    const pedidosUI = pedidosFiltrados.map((p: any) => ({
+      id: String(p.id || p.numeroPedido || Date.now()),
+      origin: 'pedido',
+      items: mapItems(p.items || p.productos || p.productosPedido || []),
+      subtotal: p.subtotal || 0,
+      iva: p.iva || 0,
+      total: p.total || p.subtotal || 0,
+      paymentMethod: p.metodoPago || p.paymentMethod || 'unknown',
+      clientName: p.clienteNombre || p.clientName || '',
+      clientEmail: p.clienteEmail || p.email || '',
+      clientPhone: p.clienteTelefono || p.telefono || '',
+      clientAddress: p.direccion || p.clientAddress || '',
+      date: p.fechaPedido || p.date || p.createdAt || new Date().toISOString(),
+      status: p.estado || p.status || 'Pendiente',
+      createdAt: p.createdAt || new Date().toISOString()
+    }));
+
+    const ventasUI = ventasFiltradas.map((v: any) => ({
+      id: String(v.id || v.numeroVenta || Date.now()),
+      origin: 'venta',
+      items: mapItems(v.items || []),
+      subtotal: v.subtotal || 0,
+      iva: v.iva || 0,
+      total: v.total || v.subtotal || 0,
+      paymentMethod: v.metodoPago || v.paymentMethod || 'unknown',
+      clientName: v.clienteNombre || v.clientName || '',
+      clientEmail: v.clienteEmail || v.email || '',
+      clientPhone: v.clienteTelefono || v.telefono || '',
+      clientAddress: v.direccion || v.clientAddress || '',
+      date: v.fechaVenta || v.date || v.createdAt || new Date().toISOString(),
+      status: v.estado || v.status || 'Completada',
+      createdAt: v.createdAt || new Date().toISOString()
+    }));
+
+    // Combinar: mostrar primero pedidos, luego ventas
+    const combined = [...pedidosUI, ...ventasUI];
+    setAllOrders(combined);
+  }, [orders]);
+
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -50,6 +163,13 @@ export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
       case 'Cancelado': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  // Determina si el status representa una compra completada
+  const isCompletedStatus = (status: string | undefined) => {
+    if (!status) return false;
+    const s = status.toString().toLowerCase();
+    return s === 'completado' || s === 'entregado' || s === 'pagado' || s === 'confirmado';
   };
 
   return (
@@ -75,7 +195,7 @@ export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
       ) : (
         <div className="p-4 space-y-3">
           {allOrders.map((order) => (
-            <div key={order.id} className="bg-white rounded-xl p-4 shadow-sm">
+            <div key={`${order.origin}-${order.id}`} className="bg-white rounded-xl p-4 shadow-sm">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <p className="font-bold text-lg">{order.id}</p>
@@ -87,9 +207,12 @@ export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
                     })}
                   </p>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(order.status)}`}>
-                  {order.status}
-                </span>
+                <div className="flex flex-col items-end">
+                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${isCompletedStatus(order.status) ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    {isCompletedStatus(order.status) ? 'Compra completada' : 'Pedido'}
+                  </span>
+                  <span className="text-xs text-gray-600 mt-1">{order.status}</span>
+                </div>
               </div>
 
               <div className="space-y-2 mb-3">

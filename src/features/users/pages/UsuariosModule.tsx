@@ -84,7 +84,7 @@ export default function UsuariosModule() {
       try {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          console.log(`✅ Roles cargados desde localStorage: ${parsed.map((r: any) => r.nombre).join(', ')}`);
+          console.log(`✅ Roles cargados desde localStorage:`, parsed.map((r: any) => r.name || r.nombre).join(', '));
           return parsed;
         }
       } catch (e) {
@@ -94,9 +94,57 @@ export default function UsuariosModule() {
     // Roles por defecto si no existen en localStorage
     console.log('ℹ️ Usando roles por defecto');
     const defaultRoles = [
-      { id: '1', nombre: 'Administrador', descripcion: 'Acceso completo al sistema', usuariosAsociados: 1, permisos: [] },
-      { id: '2', nombre: 'Empleado', descripcion: 'Gestión de ventas y productos', usuariosAsociados: 1, permisos: [] },
-      { id: '3', nombre: 'Cliente', descripcion: 'Acceso limitado para compras', usuariosAsociados: 3, permisos: [] }
+      { 
+        id: '1', 
+        name: 'Administrador', 
+        nombre: 'Administrador',
+        description: 'Acceso completo al sistema', 
+        descripcion: 'Acceso completo al sistema',
+        userCount: 1, 
+        usuariosAsociados: 1, 
+        permissions: [
+          { module: 'Usuarios', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Roles', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Categorias', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Productos', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Clientes', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Proveedores', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Tallas', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Colores', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Pedidos', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Ventas', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Compras', canView: true, canCreate: true, canEdit: true, canDelete: true },
+          { module: 'Devoluciones', canView: true, canCreate: true, canEdit: true, canDelete: true },
+        ],
+        permisos: [] 
+      },
+      { 
+        id: '2', 
+        name: 'Empleado', 
+        nombre: 'Empleado',
+        description: 'Gestión de ventas y productos', 
+        descripcion: 'Gestión de ventas y productos',
+        userCount: 1, 
+        usuariosAsociados: 1, 
+        permissions: [
+          { module: 'Usuarios', canView: true, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Roles', canView: false, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Categorias', canView: true, canCreate: false, canEdit: false, canDelete: false },
+          { module: 'Productos', canView: true, canCreate: false, canEdit: false, canDelete: false },
+        ],
+        permisos: [] 
+      },
+      { 
+        id: '3', 
+        name: 'Cliente', 
+        nombre: 'Cliente',
+        description: 'Acceso limitado para compras', 
+        descripcion: 'Acceso limitado para compras',
+        userCount: 3, 
+        usuariosAsociados: 3, 
+        permissions: [],
+        permisos: [] 
+      }
     ];
     // Guardar los roles por defecto en localStorage para que persistan
     console.log(`   💾 Guardando roles por defecto en localStorage`);
@@ -258,7 +306,7 @@ export default function UsuariosModule() {
 
   // Escuchar cambios en roles desde otros módulos (Gestión de Roles)
   useEffect(() => {
-    console.log(`🔔 [UsuariosModule] useEffect iniciado - Roles actuales:`, roles.map((r: any) => r.nombre));
+    console.log(`🔔 [UsuariosModule] useEffect iniciado - Roles actuales:`, roles.map((r: any) => r.name || r.nombre));
     let lastStoredRoles: string | null = null;
 
     const checkForChanges = () => {
@@ -272,7 +320,7 @@ export default function UsuariosModule() {
           try {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
-              console.log(`🔄 [UsuariosModule] Roles actualizados:`, parsed.map((r: any) => r.nombre));
+              console.log(`🔄 [UsuariosModule] Roles actualizados:`, parsed.map((r: any) => r.name || r.nombre));
               setRoles(parsed);
             }
           } catch (e) {
@@ -302,6 +350,44 @@ export default function UsuariosModule() {
     };
   }, []);
 
+  // 🔄 ACTUALIZAR CONTADORES DE USUARIOS EN ROLES
+  useEffect(() => {
+    const updateUserCountsInRoles = () => {
+      try {
+        const rolesStored = localStorage.getItem('damabella_roles');
+        if (rolesStored) {
+          const rolesData = JSON.parse(rolesStored);
+          
+          // Contar usuarios por rol
+          const userCountByRole: Record<string, number> = {};
+          usuarios.forEach(usuario => {
+            const roleName = usuario.rol;
+            userCountByRole[roleName] = (userCountByRole[roleName] || 0) + 1;
+          });
+          
+          // Actualizar contadores en roles
+          const updatedRoles = rolesData.map((role: any) => ({
+            ...role,
+            userCount: userCountByRole[role.name || role.nombre] || 0,
+          }));
+          
+          localStorage.setItem('damabella_roles', JSON.stringify(updatedRoles));
+          console.log('📊 [UsuariosModule] Contadores de usuarios actualizados en roles:', userCountByRole);
+          
+          // Actualizar estado local también
+          setRoles(updatedRoles);
+        }
+      } catch (error) {
+        console.error('❌ [UsuariosModule] Error actualizando contadores:', error);
+      }
+    };
+
+    // Actualizar después de cualquier cambio en usuarios
+    if (usuarios && usuarios.length >= 0) {
+      updateUserCountsInRoles();
+    }
+  }, [usuarios]);
+
   // Estadísticas
   const totalUsuarios = usuarios.length;
   const usuariosActivos = usuarios.filter(u => u.estado === 'Activo').length;
@@ -310,26 +396,19 @@ export default function UsuariosModule() {
 
   const filteredUsers = usuarios.filter(u => {
     const searchLower = searchTerm.toLowerCase();
-    
-    // Busca en TODOS los campos de la tabla
-    const matchesSearch = 
+
+    // Busca únicamente por nombre, documento o email (requerimiento)
+    const matchesSearch =
       u.nombre.toLowerCase().includes(searchLower) ||
       u.documento.toLowerCase().includes(searchLower) ||
-      u.email.toLowerCase().includes(searchLower) ||
-      u.rol.toLowerCase().includes(searchLower) ||
-      u.estado.toLowerCase().includes(searchLower) ||
-      u.fechaCreacion.toLowerCase().includes(searchLower) ||
-      u.creadoPor.toLowerCase().includes(searchLower);
-    
-    const matchesRol = filterRol === 'todos' || u.rol === filterRol;
-    const matchesEstado = filterEstado === 'todos' || u.estado === filterEstado;
-    
-    return matchesSearch && matchesRol && matchesEstado;
+      u.email.toLowerCase().includes(searchLower);
+
+    return matchesSearch;
   });
 
   const handleAdd = () => {
     setSelectedUser(null);
-    setFormData({ nombre: '', tipoDoc: 'CC', email: '', documento: '', celular: '', direccion: '', rol: 'Cliente', estado: 'Activo', password: '', confirmPassword: '' });
+    setFormData({ nombre: '', tipoDoc: 'CC', email: '', documento: '', celular: '', direccion: '', rol: '', estado: 'Activo', password: '', confirmPassword: '' });
     setFormErrors({});
     setShowPassword(false);
     setShowConfirmPassword(false);
@@ -390,6 +469,21 @@ export default function UsuariosModule() {
   };
 
   const handleToggleState = (usuario: Usuario) => {
+    // Seguir patrón estándar: si está Inactivo -> activar inmediatamente;
+    // si está Activo -> abrir modal para confirmar inactivación (como en Categorías/Roles)
+    if (usuario.estado === 'Inactivo') {
+      try {
+        const updatedUsers = usuarios.map(u => u.id === usuario.id ? { ...u, estado: 'Activo' } : u);
+        setUsuarios(updatedUsers);
+        localStorage.setItem('damabella_users', JSON.stringify(updatedUsers));
+        showToast(`Usuario "${usuario.nombre}" activado correctamente`, 'success');
+      } catch (error) {
+        console.error('Error al activar usuario:', error);
+        showToast('Error al activar el usuario', 'error');
+      }
+      return;
+    }
+
     setSelectedUser(usuario);
     setToggleStateDialogOpen(true);
   };
@@ -426,28 +520,20 @@ export default function UsuariosModule() {
       Estado: u.estado,
       'Fecha de Creación': u.fechaCreacion
     }));
-
-    // Convertir a CSV y descargar como Excel
+    // Crear un Excel compatible (SpreadsheetML / XML) y descargar como .xlsx
     const headers = ['ID', 'Nombre', 'Email', 'Rol', 'Estado', 'Fecha de Creación'];
-    const csvContent = [
-      headers.join(','),
-      ...data.map(row => [
-        row.ID,
-        `"${row.Nombre}"`,
-        row.Email,
-        row.Rol,
-        row.Estado,
-        row['Fecha de Creación']
-      ].join(','))
-    ].join('\n');
 
-    // Agregar BOM para UTF-8
-    const bom = '\ufeff';
-    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const xmlRows = data.map(row => {
+      return `  <Row>\n${headers.map(h => `    <Cell><Data ss:Type="String">${String((row as any)[h]).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Data></Cell>`).join('\n')}\n  </Row>`;
+    }).join('\n');
+
+    const xml = `<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n  <Worksheet ss:Name="Usuarios">\n    <Table>\n      <Row>\n${headers.map(h => `        <Cell><Data ss:Type="String">${h}</Data></Cell>`).join('\n')}\n      </Row>\n${xmlRows}\n    </Table>\n  </Worksheet>\n</Workbook>`;
+
+    const blob = new Blob([xml], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `reporte_usuarios_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `reporte_usuarios_${new Date().toISOString().split('T')[0]}.xlsx`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -627,7 +713,7 @@ export default function UsuariosModule() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 p-2">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-gray-900">Gestión de Usuarios</h1>
@@ -659,26 +745,11 @@ export default function UsuariosModule() {
         />
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-4">
-        <Select value={filterRol} onChange={(e) => setFilterRol(e.target.value)}>
-          <option value="todos">Todos</option>
-          {roles.map((rol: any) => (
-            <option key={rol.id} value={rol.nombre}>
-              {rol.nombre}
-            </option>
-          ))}
-        </Select>
-        <Select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)}>
-          <option value="todos">Todos</option>
-          <option value="Activo">Activo</option>
-          <option value="Inactivo">Inactivo</option>
-        </Select>
-      </div>
+      {/* Filters removed — only the search bar is used for filtering now */}
 
       {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-6">
+        <Card className="p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600 mb-1">Total Usuarios</p>
@@ -689,7 +760,7 @@ export default function UsuariosModule() {
             </div>
           </div>
         </Card>
-        <Card className="p-6">
+        <Card className="p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600 mb-1">Activos</p>
@@ -700,7 +771,7 @@ export default function UsuariosModule() {
             </div>
           </div>
         </Card>
-        <Card className="p-6">
+        <Card className="p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600 mb-1">Inactivos</p>
@@ -711,7 +782,7 @@ export default function UsuariosModule() {
             </div>
           </div>
         </Card>
-        <Card className="p-6">
+        <Card className="p-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600 mb-1">Administradores</p>
@@ -736,7 +807,6 @@ export default function UsuariosModule() {
                 <th className="text-left py-3 px-4 whitespace-nowrap">Rol</th>
                 <th className="text-left py-3 px-4 whitespace-nowrap">Estado</th>
                 <th className="text-left py-3 px-4 whitespace-nowrap">Fecha Creación</th>
-                <th className="text-left py-3 px-4 whitespace-nowrap">Creado por</th>
                 <th className="text-center py-3 px-4 whitespace-nowrap">Acciones</th>
               </tr>
             </thead>
@@ -750,7 +820,7 @@ export default function UsuariosModule() {
                 if (paginatedUsers.length === 0) {
                   return (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-gray-500">
+                      <td colSpan={7} className="py-12 text-center text-gray-500">
                         <Users className="mx-auto mb-2 text-gray-300" size={40} />
                         <p>No se encontraron usuarios</p>
                       </td>
@@ -774,7 +844,6 @@ export default function UsuariosModule() {
                     </Badge>
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap text-sm text-gray-600">{usuario.fechaCreacion}</td>
-                  <td className="py-3 px-4 whitespace-nowrap text-sm text-gray-600">{usuario.creadoPor}</td>
                   <td className="py-3 px-4">
                     <div className="flex justify-center gap-1">
                       <button onClick={() => handleView(usuario)} className="p-1 hover:bg-gray-100 rounded" title="Ver">
@@ -808,7 +877,7 @@ export default function UsuariosModule() {
         </div>
 
         {/* Pagination Controls */}
-        <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="bg-gray-50 border-t border-gray-200 px-4 py-3 flex items-center justify-between">
           <div className="text-sm text-gray-600">
             Mostrando <span className="font-medium">{Math.min((currentPage - 1) * itemsPerPage + 1, filteredUsers.length)}</span> a <span className="font-medium">{Math.min(currentPage * itemsPerPage, filteredUsers.length)}</span> de <span className="font-medium">{filteredUsers.length}</span> usuarios
           </div>
@@ -852,7 +921,7 @@ export default function UsuariosModule() {
         onClose={() => setDialogOpen(false)}
         title={selectedUser ? 'Editar Usuario' : 'Nuevo Usuario'}
       >
-        <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto">
           <div className="space-y-2">
             <Label htmlFor="nombre">Nombre completo</Label>
             <Input
@@ -927,8 +996,8 @@ export default function UsuariosModule() {
               >
                 <option value="">Seleccione un rol</option>
                 {roles.map((rol: any) => (
-                  <option key={rol.id} value={rol.nombre}>
-                    {rol.nombre}
+                  <option key={rol.id} value={rol.name || rol.nombre}>
+                    {rol.name || rol.nombre}
                   </option>
                 ))}
               </Select>

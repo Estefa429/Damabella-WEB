@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Settings,
@@ -59,24 +59,35 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   // Obtener permisos del rol del usuario
   const getUserPermissions = () => {
     const roles = JSON.parse(localStorage.getItem('damabella_roles') || '[]');
-    const userRole = roles.find((r: any) => r.id === user.roleId || r.nombre === user.role);
+    const userRole = roles.find((r: any) => 
+      r.id === user.roleId || 
+      r.nombre === user.role ||
+      r.name === user.role
+    );
     
     // Si encontramos el rol y tiene permisos definidos, usarlos
-    if (userRole && userRole.permisos && Array.isArray(userRole.permisos)) {
+    if (userRole && (userRole.permissions || userRole.permisos) && Array.isArray(userRole.permissions || userRole.permisos)) {
+      const permArray = userRole.permissions || userRole.permisos;
       const permisosMap: any = {};
-      userRole.permisos.forEach((p: any) => {
-        permisosMap[p.modulo.toLowerCase()] = {
-          ver: p.ver,
-          crear: p.crear,
-          editar: p.editar,
-          eliminar: p.eliminar
+      
+      permArray.forEach((p: any) => {
+        const moduleName = (p.module || p.modulo || '').toLowerCase();
+        permisosMap[moduleName] = {
+          ver: p.canView ?? p.ver ?? false,
+          crear: p.canCreate ?? p.crear ?? false,
+          editar: p.canEdit ?? p.editar ?? false,
+          eliminar: p.canDelete ?? p.eliminar ?? false
         };
       });
+      
+      console.log(`✅ [getUserPermissions] Permisos dinámicos encontrados para ${user.role}:`, permisosMap);
       return permisosMap;
     }
     
     // Fallback a permisos por rol si no están definidos dinámicamente
-    if (!userRole || !userRole.permisos) {
+    if (!userRole || (!userRole.permissions && !userRole.permisos)) {
+      console.log(`⚠️ [getUserPermissions] No se encontraron permisos dinámicos para ${user.role}, usando fallback`);
+      
       // Si es Administrador y no tiene permisos definidos, dar acceso total
       if (user.role === 'Administrador') {
         return {
@@ -95,7 +106,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
         };
       }
       
-      // Empleado: acceso a ventas y compras, no puede eliminar
+      // Empleado: acceso limitado (sin permisos dinámicos)
       if (user.role === 'Empleado') {
         return {
           dashboard: { ver: true },
@@ -115,10 +126,28 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
 
   const permisos = getUserPermissions();
 
+  // Normalizar nombre de módulo (remover acentos y convertir a minúsculas)
+  const normalizeModuleName = (name: string): string => {
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''); // Remover acentos
+  };
+
   const hasPermission = (modulo: string, accion: string = 'ver') => {
-    const moduloKey = modulo.toLowerCase();
-    if (!permisos[moduloKey]) return false;
-    return permisos[moduloKey][accion] === true;
+    const moduloKey = normalizeModuleName(modulo);
+    
+    // Buscar en permisos normalizados
+    let hasAccess = false;
+    for (const [key, value] of Object.entries(permisos)) {
+      if (normalizeModuleName(key) === moduloKey) {
+        hasAccess = (value as any)?.[accion] === true;
+        break;
+      }
+    }
+    
+    console.log(`🔍 [hasPermission] Módulo: "${modulo}" (${moduloKey}), Acción: ${accion}, Acceso: ${hasAccess}`);
+    return hasAccess;
   };
 
   const toggleMenu = (menuId: string) => {
@@ -135,6 +164,52 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
     localStorage.setItem('damabella_current_user', JSON.stringify(updatedUser));
     setCurrentPage('dashboard');
   };
+
+  // ===== Activar historial de navegación (pushState + popstate)
+  // Comportamiento mínimo: cada cambio de `currentPage` empuja un estado al history
+  // y escuchamos `popstate` para restaurar la página al usar back/forward del navegador.
+  useEffect(() => {
+    // Inicializar desde history.state si existe, o desde hash si viene de enlace externo
+    try {
+      const st: any = window.history.state;
+      if (st && st.page && typeof st.page === 'string') {
+        setCurrentPage(st.page);
+      } else if (window.location.hash && window.location.hash.startsWith('#admin-')) {
+        const fromHash = window.location.hash.replace('#admin-', '');
+        if (fromHash) setCurrentPage(fromHash);
+      }
+    } catch (err) {
+      // no bloquear si el acceso al history falla
+    }
+
+    const onPop = (ev: PopStateEvent) => {
+      try {
+        const p = (ev.state && (ev.state as any).page) || null;
+        if (p && typeof p === 'string') {
+          setCurrentPage(p);
+        } else if (window.location.hash && window.location.hash.startsWith('#admin-')) {
+          const fromHash = window.location.hash.replace('#admin-', '');
+          if (fromHash) setCurrentPage(fromHash);
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    try {
+      // push a history entry con la página actual y actualizar hash para visibilidad
+      const state = { page: currentPage };
+      const urlHash = `#admin-${currentPage}`;
+      window.history.pushState(state, '', urlHash);
+    } catch (err) {
+      // no interrumpir la app si falla
+    }
+  }, [currentPage]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);

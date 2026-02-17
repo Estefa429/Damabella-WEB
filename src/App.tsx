@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import AppLayout from "./features/dashboard/components/AppLayout";
 import ClienteApp from "./features/ecommerce/storefront/components/ClienteApp";
 import { initializeAdminStorage, addSuperAdmin } from "./shared/utils/initializeStorage";
+import { ErrorBoundary } from "./shared/components/ErrorBoundary";
+import { migrateLocalStorageData } from "./migrations/localStorageMigration";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -24,6 +26,10 @@ export default function App() {
     
     // Agregar super admin si no existe (sin tocar nada)
     addSuperAdmin();
+    
+    // 🔄 EJECUTAR MIGRACIÓN SILENCIOSA DE DATOS
+    console.log('\n🔄 [App] Ejecutando migraciones de datos...');
+    migrateLocalStorageData();
     
     setIsInitialized(true);
   }, []);
@@ -91,18 +97,22 @@ export default function App() {
   if (isAuthenticated && (currentUser?.role === "Administrador" || currentUser?.role === "Empleado")) {
     console.log(`✅ [App.render] Renderizando: DASHBOARD ADMINISTRATIVO\n`);
     return (
-      <AppLayout currentUser={currentUser} onLogout={handleLogout} />
+      <ErrorBoundary>
+        <AppLayout currentUser={currentUser} onLogout={handleLogout} />
+      </ErrorBoundary>
     );
   }
 
   // Para todos los demás (incluyendo no autenticados y clientes)
   console.log(`✅ [App.render] Renderizando: MÓDULO DE CLIENTE\n`);
   return (
-    <ClienteApp
-      currentUser={currentUser}
-      isAuthenticated={isAuthenticated}
-      onLogin={handleLogin}
-      onLogout={handleLogout}
-    />
+    <ErrorBoundary>
+      <ClienteApp
+        currentUser={currentUser}
+        isAuthenticated={isAuthenticated}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
+      />
+    </ErrorBoundary>
   );
 }

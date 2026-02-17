@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Plus,
   Search,
@@ -13,6 +13,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
+import { jsPDF } from 'jspdf';
 
 const STORAGE_KEY = 'damabella_ventas';
 const CLIENTES_KEY = 'damabella_clientes';
@@ -484,6 +485,32 @@ export default function VentasManager() {
     return producto.colores || [];
   };
 
+  // Helper: obtener stock actual para un item de venta (por talla/color si aplica)
+  const getAvailableStockForItem = (ventaItem: ItemVenta) => {
+    try {
+      const prod = productos.find((p: any) => String(p.id) === String(ventaItem.productoId));
+      if (!prod) return Number(ventaItem.cantidad || 0);
+
+      // Variantes con colores que guardan cantidad
+      if (Array.isArray(prod.variantes)) {
+        const variante = prod.variantes.find((v: any) => String(v.talla) === String(ventaItem.talla));
+        if (variante && Array.isArray(variante.colores)) {
+          const colorObj = variante.colores.find((c: any) => String(c.color) === String(ventaItem.color) || String(c.nombre) === String(ventaItem.color));
+          if (colorObj && (typeof colorObj.cantidad !== 'undefined')) return Number(colorObj.cantidad || 0);
+        }
+      }
+
+      // Stock directo en el producto
+      if (typeof prod.stock !== 'undefined') return Number(prod.stock || 0);
+      if (typeof prod.cantidad !== 'undefined') return Number(prod.cantidad || 0);
+
+      // Fallback: usar la cantidad vendida (no permitir más que lo comprado)
+      return Number(ventaItem.cantidad || 0);
+    } catch (err) {
+      return Number(ventaItem.cantidad || 0);
+    }
+  };
+
 
   const agregarItem = () => {
     if (!nuevoItem.productoId || !nuevoItem.talla || !nuevoItem.color || !nuevoItem.cantidad) {
@@ -670,6 +697,16 @@ export default function VentasManager() {
   };
 
   const handleCrearDevolucion = () => {
+    // Prevención: si ya existe una devolución para esta venta, no permitir crear otra
+    const existingDevoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const alreadyHas = ventaToDevolver ? existingDevoluciones.some((d: any) => String(d.ventaId) === String(ventaToDevolver.id) || String(d.numeroVenta) === String(ventaToDevolver.numeroVenta)) : false;
+    if (alreadyHas) {
+      setNotificationMessage('Ya existe una devolución para esta venta. No se puede generar otra.');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
     if (!ventaToDevolver || !devolucionData.motivo) {
       setNotificationMessage('Debes seleccionar un motivo de devolución');
       setNotificationType('error');
@@ -683,6 +720,25 @@ export default function VentasManager() {
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
+    }
+
+    // Validación adicional: cada cantidad a devolver no puede ser mayor al stock actual
+    for (const it of devolucionData.itemsDevueltos) {
+      const itemOriginal = ventaToDevolver.items.find(i => i.id === it.itemId);
+      if (!itemOriginal) continue;
+      const available = getAvailableStockForItem(itemOriginal);
+      if (it.cantidad > available) {
+        setNotificationMessage(`La cantidad a devolver para ${itemOriginal.productoNombre} no puede ser mayor al stock actual (${available}).`);
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
+      if (it.cantidad < 0) {
+        setNotificationMessage('La cantidad a devolver debe ser un número válido.');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
     }
 
     if (!devolucionData.productoNuevoId) {
@@ -850,50 +906,52 @@ export default function VentasManager() {
   };
 
   const descargarComprobante = (venta: Venta) => {
-    const contenido = `
-=================================
-COMPROBANTE DE VENTA
-${venta.numeroVenta}
-=================================
+    // Generar PDF del comprobante usando jsPDF
+    const doc = new jsPDF();
+    const left = 14;
+    let y = 16;
+    const lineHeight = 7;
 
-Fecha: ${new Date(venta.fechaVenta).toLocaleDateString()}
-Cliente: ${venta.clienteNombre}
-Estado: ${venta.estado}
+    const push = (text: string, opts?: any) => {
+      const lines = doc.splitTextToSize(text, 180);
+      doc.text(lines, left, y);
+      y += lines.length * lineHeight;
+      if (y > 280) { doc.addPage(); y = 16; }
+    };
 
----------------------------------
-PRODUCTOS
----------------------------------
-${venta.items.map(item => `
-${item.productoNombre}
-Talla: ${item.talla} | Color: ${item.color}
-Cantidad: ${item.cantidad} x $${item.precioUnitario.toLocaleString()}
-Subtotal: $${item.subtotal.toLocaleString()}
-`).join('\n')}
+    push('COMPROBANTE DE VENTA');
+    y += 2;
+    push(`Número: ${venta.numeroVenta}`);
+    push(`Fecha: ${new Date(venta.fechaVenta).toLocaleDateString()}`);
+    push(`Cliente: ${venta.clienteNombre}`);
+    push(`Estado: ${venta.estado}`);
+    y += 4;
+    push('PRODUCTOS:');
+    venta.items.forEach((item) => {
+      push(`${item.productoNombre}`);
+      push(`Talla: ${item.talla} | Color: ${item.color}`);
+      push(`Cantidad: ${item.cantidad} x $${item.precioUnitario.toLocaleString()}  Subtotal: $${item.subtotal.toLocaleString()}`);
+      y += 2;
+    });
+    y += 2;
+    push('TOTALES:');
+    push(`Subtotal: $${venta.subtotal.toLocaleString()}`);
+    push(`IVA (19%): $${venta.iva.toLocaleString()}`);
+    push(`TOTAL: $${venta.total.toLocaleString()}`);
+    y += 2;
+    push(`Método de Pago: ${venta.metodoPago}`);
+    if (venta.observaciones) push(`Observaciones: ${venta.observaciones}`);
+    if (venta.anulada) push(`*** VENTA ANULADA *** Motivo: ${venta.motivoAnulacion || ''}`);
 
----------------------------------
-TOTALES
----------------------------------
-Subtotal: $${venta.subtotal.toLocaleString()}
-IVA (19%): $${venta.iva.toLocaleString()}
-TOTAL: $${venta.total.toLocaleString()}
-
-Método de Pago: ${venta.metodoPago}
-
-${venta.observaciones ? `Observaciones:\n${venta.observaciones}` : ''}
-${venta.anulada ? `\n*** VENTA ANULADA ***\nMotivo: ${venta.motivoAnulacion}` : ''}
-
-=================================
-DAMABELLA - Moda Femenina
-Gracias por su compra
-=================================
-    `.trim();
-
-    const blob = new Blob([contenido], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${venta.numeroVenta}.txt`;
-    a.click();
+    // Guardar PDF
+    try {
+      doc.save(`${venta.numeroVenta}.pdf`);
+    } catch (err) {
+      console.error('Error generando PDF', err);
+      setNotificationMessage('Error al generar el PDF');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+    }
   };
 
   
@@ -969,18 +1027,22 @@ Gracias por su compra
       return `"${str.replace(/"/g, '""')}"`;
     };
 
-    // 4) Generar CSV (coma)
-    const csvContent = [
-      headers.join(','),
-      ...filas.map((row) => headers.map((h) => escapeCSV(row[h])).join(','))
+    // 4) Generar TSV (tab-separated) y descargar con extensión .xlsx
+    const tsvContent = [
+      headers.join('\t'),
+      ...filas.map((row) => headers.map((h) => {
+        const v = row[h];
+        const s = v == null ? '' : String(v);
+        return s.replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
+      }).join('\t'))
     ].join('\n');
 
-    // 5) Descargar con nombre distinto (para evitar abrir el viejo)
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // 5) Descargar con nombre .xlsx
+    const blob = new Blob([tsvContent], { type: 'text/plain;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Ventas_Detalladas_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `Ventas_Detalladas_${new Date().toISOString().split('T')[0]}.xlsx`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -1005,10 +1067,15 @@ Gracias por su compra
     const matchEstado = (v.estado?.toLowerCase() ?? '').includes(searchLower);
     const matchFecha = new Date(v.fechaVenta).toLocaleDateString().includes(searchTerm);
     const matchTotal = v.total.toString().includes(searchTerm);
-    const matchPedidoId = v.pedido_id ? (v.pedido_id?.toLowerCase() ?? '').includes(searchLower) : false;
+    // Defensive: pedido_id puede ser number o null; convertir a string antes de toLowerCase
+    const pedidoIdStr = v.pedido_id != null ? String(v.pedido_id).toLowerCase() : '';
+    const matchPedidoId = pedidoIdStr.includes(searchLower);
     const matchProductos = v.items.some(item => (item.productoNombre?.toLowerCase() ?? '').includes(searchLower));
     return matchNumero || matchCliente || matchEstado || matchFecha || matchTotal || matchPedidoId || matchProductos;
   });
+
+  // Leer devoluciones para saber qué ventas ya tienen una devolución
+  const devolucionesStored = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
 
   const totales = calcularTotales(formData.items);
 
@@ -1021,6 +1088,19 @@ Gracias por su compra
 
   const saldoAplicado = usarSaldoAFavor ? Math.min(saldoDisponible, totalVenta) : 0;
   const restantePorPagar = Math.max(totalVenta - saldoAplicado, 0);
+
+  // PAGINACIÓN: mostrar 5 ventas por página (useMemo + useState)
+const ITEMS_PER_PAGE = 5;
+const [currentPage, setCurrentPage] = useState(1);
+
+const totalPages = Math.ceil(filteredVentas.length / ITEMS_PER_PAGE);
+
+const paginatedVentas = useMemo(() => {
+  const start = (currentPage - 1) * ITEMS_PER_PAGE;
+  const end = start + ITEMS_PER_PAGE;
+  return filteredVentas.slice(start, end);
+}, [filteredVentas, currentPage]);
+
 
   return (
     <div className="space-y-6">
@@ -1054,7 +1134,6 @@ Gracias por su compra
           />
         </div>
       </div>
-
       {/* Ventas Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
@@ -1071,15 +1150,22 @@ Gracias por su compra
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredVentas.length === 0 ? (
+              {filteredVentas.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-gray-500">
                     <ShoppingBag className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron ventas</p>
                   </td>
                 </tr>
-              ) : (
-                filteredVentas.map((venta) => (
+              )}
+
+              {paginatedVentas.map((venta) => {
+                const hasDevolucion = devolucionesStored && Array.isArray(devolucionesStored)
+                  ? devolucionesStored.some((d: any) => String(d.ventaId) === String(venta.id) || String(d.numeroVenta) === String(venta.numeroVenta))
+                  : false;
+                const displayEstado = hasDevolucion ? 'Devuelta' : venta.estado;
+
+                return (
                   <tr key={venta.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="text-gray-900 font-medium">{venta.numeroVenta}</div>
@@ -1102,15 +1188,14 @@ Gracias por su compra
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
-                        {/* ✅ CAMBIO: color para "Devolución" */}
                         <span className={`inline-flex px-3 py-1 rounded-full text-sm ${
-                          venta.estado === 'Completada'
+                          displayEstado === 'Completada'
                             ? 'bg-green-100 text-green-700'
-                            : venta.estado === 'Devolución'
+                            : (displayEstado === 'Devuelta' || displayEstado === 'Devolución')
                               ? 'bg-orange-100 text-orange-700'
                               : 'bg-red-100 text-red-700'
                         }`}>
-                          {venta.estado}
+                          {displayEstado}
                         </span>
                       </div>
                     </td>
@@ -1130,54 +1215,67 @@ Gracias por su compra
                         >
                           <Download size={18} />
                         </button>
-
-                        {!venta.anulada && (
-                          <>
-                            <button
-                              onClick={() => {
-                                setVentaToDevolver(venta);
-                                setDevolucionData({
-                                  motivo: 'Defectuoso',
-                                  itemsDevueltos: [],
-                                  productoNuevoId: '',
-                                  productoNuevoTalla: '',
-                                  productoNuevoColor: '',
-                                  medioPagoExcedente: 'Efectivo',
-                                });
-                                setShowDevolucionModal(true);
-                              }}
-                              className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600"
-                              title="Generar devolución"
-                            >
-                              <RotateCcw size={18} />
-                            </button>
-                            <button
-                              onClick={() => { setVentaToAnular(venta); setShowAnularModal(true); }}
-                              className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                              title="Anular"
-                            >
-                              <Ban size={18} />
-                            </button>
-                          </>
-                        )}
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Paginador */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
+          {/* Texto informativo */}
+          <span className="text-sm text-gray-500">
+            {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredVentas.length || 0)} a ${Math.min(currentPage * ITEMS_PER_PAGE, filteredVentas.length)} de ${filteredVentas.length} ventas`}
+          </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+            >
+              Anterior
+            </button>
+
+            {Array.from({ length: totalPages }).map((_, index) => {
+              const page = index + 1;
+              const isActive = currentPage === page;
+              return (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={isActive ? 'px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-semibold' : 'px-3 py-1.5 rounded-md border text-sm text-gray-700 hover:bg-gray-100 transition'}
+                >
+                  {page}
+                </button>
+              );
+            })}
+
+            <button
+              onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal Crear Venta */}
       <Modal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         title="Nueva Venta"
-        size="lg"
+        size="xl"
+        noScroll
       >
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* Cliente con búsqueda */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -1220,13 +1318,13 @@ Gracias por su compra
               />
 
               {showClienteDropdown && filteredClientes.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-36 overflow-y-auto">
                   {filteredClientes.map((c: any) => (
                     <button
                       key={c.id}
                       type="button"
                       onClick={() => handleSelectCliente(c.id.toString(), c.nombre)}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors"
+                      className="w-full text-left px-3 py-1.5 hover:bg-gray-100 transition-colors"
                     >
                       <div className="font-medium text-gray-900">{c.nombre}</div>
                       <div className="text-sm text-gray-600">{c.numeroDoc} - {c.telefono}</div>
@@ -1241,7 +1339,7 @@ Gracias por su compra
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-gray-700 mb-2">Fecha *</label>
               <Input
@@ -1258,7 +1356,7 @@ Gracias por su compra
               {saldoDisponible > 0 && formData.clienteId && (
                 <div className="mb-3 rounded-lg border border-green-300 bg-green-50 p-3">
                   <div className="text-green-800 font-semibold">
-                    ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
+                    ✅ Este cliente tiene saldo a favor: $${saldoDisponible.toLocaleString()}
                   </div>
 
                   <label className="mt-2 flex items-center gap-2 text-sm text-green-900">
@@ -1606,8 +1704,6 @@ Gracias por su compra
           </div>
         </div>
       </Modal>
-
-            {/* Modal Generar Devolución */}
       <Modal
         isOpen={showDevolucionModal}
         onClose={() => setShowDevolucionModal(false)}
@@ -1702,19 +1798,20 @@ Gracias por su compra
 
                           <div className="flex items-center gap-3 mt-2">
                             <label className="text-sm text-gray-700">Cantidad a devolver:</label>
-                            <input
-                              type="number"
-                              min="0"
-                              max={item.cantidad}
-                              value={cantidadDevuelta}
-                              onChange={(e) =>
-                                handleToggleItemDevolucion(
-                                  item.id,
-                                  parseInt(e.target.value, 10) || 0
-                                )
-                              }
-                              className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                            />
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      // Máximo defensivo: no permitir más que el stock actual del producto
+                                      max={Math.max(0, getAvailableStockForItem(item))}
+                                      value={cantidadDevuelta}
+                                      onChange={(e) => {
+                                        const parsed = parseInt(e.target.value, 10) || 0;
+                                        const maxAllowed = Math.max(0, getAvailableStockForItem(item));
+                                        const clamped = Math.min(parsed, maxAllowed);
+                                        handleToggleItemDevolucion(item.id, clamped);
+                                      }}
+                                      className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                                    />
                             <span className="text-sm text-gray-600">de {item.cantidad}</span>
                             {cantidadDevuelta > 0 && (
                               <span className="ml-auto text-sm text-green-600 font-medium">
@@ -1878,13 +1975,23 @@ Gracias por su compra
                   <Button onClick={() => setShowDevolucionModal(false)} variant="secondary">
                     Cancelar
                   </Button>
-                  <Button
-                    onClick={handleCrearDevolucion}
-                    variant="primary"
-                    className="bg-purple-600 hover:bg-purple-700"
-                  >
-                    Generar Devolución
-                  </Button>
+                  {
+                    // Verificar si ya existe una devolución para esta venta y deshabilitar el botón
+                    (() => {
+                      const existing = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+                      const exists = ventaToDevolver ? existing.some((d: any) => String(d.ventaId) === String(ventaToDevolver.id) || String(d.numeroVenta) === String(ventaToDevolver.numeroVenta)) : false;
+                      return (
+                        <Button
+                          onClick={handleCrearDevolucion}
+                          variant="primary"
+                          className="bg-purple-600 hover:bg-purple-700"
+                          disabled={exists}
+                        >
+                          Generar Devolución
+                        </Button>
+                      );
+                    })()
+                  }
                 </div>
               </div>
             );

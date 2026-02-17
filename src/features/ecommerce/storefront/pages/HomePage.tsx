@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { Search, Heart, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
+import { useToast } from '../../../../shared/components/native';
+import { useToast } from '../../../../shared/components/native';
 
 interface HomePageProps {
   onNavigate: (view: string, productId?: string) => void;
@@ -8,88 +10,10 @@ interface HomePageProps {
   isAuthenticated: boolean;
 }
 
-interface CategoryInfo {
-  name: string;
-  icon: string;
-  bgColor: string;
-  count: number;
-}
-
-// Mapeo de iconos para categorías
-const categoryIcons: Record<string, string> = {
-  'Vestidos Largos': '👗',
-  'Vestidos Cortos': '👚',
-  'Enterizos': '🩱',
-  'Sets': '👔',
-  'Falda': '👙',
-  'Blusa': '👕',
-  'Pantalón': '👖',
-  'Abrigo': '🧥',
-};
-
-// Gradientes de colores para categorías
-const categoryGradients: Record<number, string> = {
-  0: 'linear-gradient(135deg, #ec4899 0%, #f472b6 50%, #c084fc 100%)',
-  1: 'linear-gradient(135deg, #a855f7 0%, #f472b6 50%, #06b6d4 100%)',
-  2: 'linear-gradient(135deg, #3b82f6 0%, #22d3ee 50%, #f472b6 100%)',
-  3: 'linear-gradient(135deg, #f43f5e 0%, #f472b6 50%, #c084fc 100%)',
-  4: 'linear-gradient(135deg, #14b8a6 0%, #06b6d4 50%, #f472b6 100%)',
-  5: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #fcd34d 100%)',
-  6: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 50%, #ec4899 100%)',
-  7: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 50%, #22d3ee 100%)',
-};
-
 export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomePageProps) {
   const { products, favorites, toggleFavorite, recentlyViewed, addToCart } = useEcommerce();
+  const { showToast } = useToast();
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [categories, setCategories] = useState<CategoryInfo[]>([]);
-  const loadedCategoriesRef = useRef<string>(''); // Para detectar cambios
-
-  // Cargar categorías desde localStorage + Polling para cambios
-  useEffect(() => {
-    const loadCategories = () => {
-      const stored = localStorage.getItem('damabella_categorias');
-      
-      // Solo actualizar si cambió
-      if (stored !== loadedCategoriesRef.current) {
-        loadedCategoriesRef.current = stored || '';
-        console.log('[HomePage] 📍 Leyendo categorías desde localStorage...');
-        
-        if (stored) {
-          try {
-            const categorias = JSON.parse(stored);
-            console.log('[HomePage] 📊 Categorías leídas del storage:', categorias.map((c: any) => c.name));
-            
-            const dynamicCategories = categorias.map((cat: any, index: number) => {
-              const catInfo = {
-                name: cat.name,
-                icon: categoryIcons[cat.name] || '📦',
-                bgColor: categoryGradients[index % Object.keys(categoryGradients).length],
-                count: products.filter(p => p.category === cat.name).length
-              };
-              console.log(`[HomePage] 📦 Categoría "${cat.name}" - Productos: ${catInfo.count}`);
-              return catInfo;
-            });
-            setCategories(dynamicCategories);
-            console.log('[HomePage] ✅ Categorías actualizadas en UI:', dynamicCategories.map(c => c.name).join(', '));
-          } catch (error) {
-            console.error('[HomePage] ❌ Error cargando categorías:', error);
-            setCategories([]);
-          }
-        } else {
-          console.log('[HomePage] ⚠️ No hay categorías en localStorage');
-          setCategories([]);
-        }
-      }
-    };
-
-    // Cargar una vez al inicio
-    loadCategories();
-    
-    // Polling cada 500ms para detectar nuevas categorías
-    const interval = setInterval(loadCategories, 500);
-    return () => clearInterval(interval);
-  }, [products]);
 
   // Detectar si hay productos del panel administrativo
   const adminProductsCount = products.filter(p => !p.id.startsWith('p')).length;
@@ -105,6 +29,37 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
     { id: 3, title: '💎 Descuentos Especiales', subtitle: 'Hasta 30% OFF en productos seleccionados', bgColor: 'from-purple-300 to-pink-400' },
   ];
 
+  const categories = [
+  { 
+    name: 'Vestidos Largos', 
+    icon: '👗', 
+    image: 'https://images.unsplash.com/photo-1520923146031-1e54cf1b1f6b?w=900',
+    color: 'bg-pink-100', 
+    count: products.filter(p => p.category === 'Vestidos Largos').length 
+  },
+  { 
+    name: 'Vestidos Cortos', 
+    icon: '👚', 
+    image: 'https://images.unsplash.com/photo-1509631179647-0177331693ae?w=900',
+    color: 'bg-purple-100', 
+    count: products.filter(p => p.category === 'Vestidos Cortos').length 
+  },
+  { 
+    name: 'Enterizos', 
+    icon: '🩱', 
+    image: 'https://images.unsplash.com/photo-1520975928313-3e78d14e272e?w=900',
+    color: 'bg-blue-100', 
+    count: products.filter(p => p.category === 'Enterizos').length 
+  },
+  { 
+    name: 'Sets', 
+    icon: '👔', 
+    image: 'https://images.unsplash.com/photo-1521335629791-ce4aec67dd47?w=900',
+    color: 'bg-rose-100', 
+    count: products.filter(p => p.category === 'Sets').length 
+  },
+];
+
 
   const nextSlide = () => {
     setCurrentSlide((prev) => (prev + 1) % banners.length);
@@ -115,20 +70,11 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
   };
 
   const handleAddToCart = (product: any) => {
-    // Validar que el producto tenga variantes
-    if (!product?.variants || product.variants.length === 0) {
-      alert('Este producto no tiene variantes disponibles');
-      return;
-    }
-
     const firstVariant = product.variants[0];
+    const firstSize = firstVariant.sizes.find((s: any) => s.stock > 0);
 
-    // Validar que la variante tenga tallas
-    if (!firstVariant?.sizes || firstVariant.sizes.length === 0) {
-      alert('Este producto no tiene tallas disponibles');
-      return;
-    }
-
+    if (firstSize) {
+    const firstVariant = product.variants[0];
     const firstSize = firstVariant.sizes.find((s: any) => s.stock > 0);
 
     if (firstSize) {
@@ -142,27 +88,28 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
         size: firstSize.size,
         quantity: 1,
       });
-    } else {
-      alert('Este producto no tiene stock disponible');
+      try { showToast('Producto agregado al carrito', 'success'); } catch(e){ console.warn('[HomePage] showToast failed', e); }
     }
   };
 
   return (
     <div className="min-h-screen bg-[#F5F6F7]">
-      {/* Header - Mobile */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm md:hidden">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+      {/* Header - Desktop */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm lg:hidden">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
               DAMABELLA
             </h1>
-            <button
-              onClick={() => onNavigate('search')}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              title="Buscar"
-            >
-              <Search size={20} className="text-gray-600" />
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => onNavigate('search')}
+                className="flex items-center gap-2 px-6 py-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <Search size={20} className="text-gray-600" />
+                <span className="text-gray-700">Buscar</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -237,16 +184,29 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
               <button
                 key={category.name}
                 onClick={() => onNavigate('search', category.name)}
-                style={{ background: category.bgColor }}
-                className="relative rounded-xl overflow-hidden shadow-sm hover:shadow-lg transition-all hover:-translate-y-1 h-64"
+                className="relative rounded-xl overflow-hidden shadow-sm hover:shadow-lg transition-all hover:-translate-y-1 p-0"
               >
-                {/* Capa oscura para mejor contraste */}
-                <div className="absolute inset-0 bg-black/20" />
+                {/* Fondo de imagen: <img> con object-cover y fallback */}
+                <img
+                  src={category.image}
+                  alt={category.name}
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.onerror = null;
+                    // fallback a color sólido usando una imagen generada por datos URI (gris claro)
+                    target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="100%" height="100%" fill="%23efe9f0"/></svg>';
+                  }}
+                />
+
+                {/* Capa de color/gradiente*/}
+                <div className={`absolute inset-0 ${category.color} bg-opacity-30`} />
 
                 {/* Contenido */}
-                <div className="absolute inset-0 p-6 flex flex-col justify-end text-white">
-                  <div className="text-6xl mb-3">{category.icon}</div>
-                  <p className="text-xl font-bold mb-1">{category.name}</p>
+                <div className="relative p-6 min-h-[12rem] flex flex-col justify-end text-white">
+                  <div className="text-4xl mb-3">{category.icon}</div>
+                  <p className="text-lg font-semibold mb-1">{category.name}</p>
                   <p className="text-sm opacity-90 mb-4">{category.count} productos</p>
                   <div className="text-sm font-medium opacity-90">Explorar →</div>
                 </div>
@@ -286,20 +246,11 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                     ${product.price.toLocaleString()}
                   </p>
                   <div className="flex gap-1.5 mb-3">
-                    {Array.from(new Set(product.variants.map(v => v.colorHex))).slice(0, 4).map((colorHex, idx) => (
+                    {product.variants.slice(0, 4).map((variant, idx) => (
                       <div
                         key={idx}
                         className="w-6 h-6 rounded-full border-2 border-gray-300"
-                        style={{ backgroundColor: colorHex }}
-                      />
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5 mb-3">
-                    {Array.from(new Set(product.variants.map((v: any) => v.colorHex))).slice(0, 4).map((colorHex: string, idx: number) => (
-                      <div
-                        key={idx}
-                        className="w-6 h-6 rounded-full border-2 border-gray-300"
-                        style={{ backgroundColor: colorHex }}
+                        style={{ backgroundColor: variant.colorHex }}
                       />
                     ))}
                   </div>

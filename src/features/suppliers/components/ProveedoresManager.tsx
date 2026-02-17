@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Store, Search, Eye, History, AlertTriangle, Eye as ViewIcon } from 'lucide-react';
+import { Plus, Edit2, Store, Search, Eye, History, AlertTriangle, Eye as ViewIcon, Trash2 } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 
 const STORAGE_KEY = 'damabella_proveedores';
@@ -15,11 +15,11 @@ interface Proveedor {
   email: string;
   direccion: string;
   activo: boolean;
-  publicado: boolean;
+  publicado?: boolean;
   createdAt: string;
 }
 
-export function ProveedoresManager() {
+export function ProveedoresManager({ onlyModal = false, openOnMount = false }: { onlyModal?: boolean; openOnMount?: boolean }) {
   const [proveedores, setProveedores] = useState<Proveedor[]>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
@@ -39,6 +39,9 @@ export function ProveedoresManager() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showStatusConfirmModal, setShowStatusConfirmModal] = useState(false);
   const [proveedorToToggle, setProveedorToToggle] = useState<Proveedor | null>(null);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
+  const [proveedorToDelete, setProveedorToDelete] = useState<Proveedor | null>(null);
   
   const itemsPerPage = 10;
   
@@ -59,7 +62,21 @@ export function ProveedoresManager() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(proveedores));
   }, [proveedores]);
 
-  // Recargar compras cuando cambian
+  // Recargar compras cuando se abre el modal de historial
+  useEffect(() => {
+    if (showHistorialModal) {
+      const stored = localStorage.getItem(COMPRAS_KEY);
+      if (stored) {
+        try {
+          setCompras(JSON.parse(stored));
+        } catch (error) {
+          console.error('Error al cargar compras:', error);
+        }
+      }
+    }
+  }, [showHistorialModal]);
+
+  // Recargar compras cuando cambian en otro contexto (cross-tab)
   useEffect(() => {
     const handleStorageChange = () => {
       const stored = localStorage.getItem(COMPRAS_KEY);
@@ -69,6 +86,33 @@ export function ProveedoresManager() {
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  // Limpieza del listener 'proveedor:abrir' cuando el componente se desmonte
+  useEffect(() => {
+    const handler = (e: any) => handleCreate();
+    window.addEventListener('proveedor:abrir', handler as EventListener);
+    return () => window.removeEventListener('proveedor:abrir', handler as EventListener);
+  }, []);
+
+  // Si se monta con openOnMount, abrir el modal de creación inmediatamente
+  useEffect(() => {
+    if (openOnMount) {
+      setEditingProveedor(null);
+      setFormData({
+        numeroDoc: '',
+        tipoDoc: 'NIT',
+        nombre: '',
+        contacto: '',
+        telefono: '',
+        email: '',
+        direccion: '',
+        publicado: false
+      });
+      setFormErrors({});
+      setShowModal(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openOnMount]);
 
   const validateField = (field: string, value: string) => {
     const errors: any = {};
@@ -204,22 +248,84 @@ export function ProveedoresManager() {
     };
 
     if (editingProveedor) {
-      setProveedores(proveedores.map(p => 
+      const updated = proveedores.map(p => 
         p.id === editingProveedor.id ? { ...p, ...proveedorData } : p
-      ));
+      );
+      setProveedores(updated);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch (e) { console.warn('No se pudo escribir proveedores en localStorage', e); }
+      // Emitir evento para notificar edición (opcional)
+      window.dispatchEvent(new CustomEvent('proveedor:guardado', { detail: { proveedor: proveedorData } }));
     } else {
-      setProveedores([...proveedores, { id: Date.now(), ...proveedorData }]);
+      const nuevo = { id: Date.now(), ...proveedorData };
+      const nuevoArray = [...proveedores, nuevo];
+      setProveedores(nuevoArray);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevoArray)); } catch (e) { console.warn('No se pudo escribir proveedores en localStorage', e); }
+      // Emitir evento para notificar creación de proveedor y pasar el proveedor creado
+      window.dispatchEvent(new CustomEvent('proveedor:creado', { detail: { proveedor: nuevo } }));
     }
-    
+
     setShowModal(false);
   };
 
   const toggleActive = (id: number) => {
     const proveedor = proveedores.find(p => p.id === id);
     if (proveedor) {
-      setProveedorToToggle(proveedor);
-      setShowStatusConfirmModal(true);
+      // Si está inactivo -> activar inmediatamente (consistente con Roles)
+      if (proveedor.activo === false) {
+        const updated = proveedores.map(p => p.id === id ? { ...p, activo: true } : p);
+        setProveedores(updated);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch (e) { console.warn('No se pudo escribir proveedores en localStorage', e); }
+      } else {
+        // Si está activo -> pedir confirmación para inactivar
+        setProveedorToToggle(proveedor);
+        setShowStatusConfirmModal(true);
+      }
     }
+  };
+
+  // Eliminar proveedor (validación contra compras asociadas)
+  const handleDeleteProveedor = (id: number) => {
+    try {
+      const proveedor = proveedores.find(p => p.id === id);
+      if (!proveedor) return;
+
+      // Leer compras desde localStorage (fuente de verdad)
+      const stored = localStorage.getItem(COMPRAS_KEY);
+      const comprasFromStorage = stored ? JSON.parse(stored) : [];
+
+      // Verificar si existen compras asociadas (comparar proveedorId)
+      const hasCompras = comprasFromStorage.some((c: any) => {
+        return c.proveedorId === id || c.proveedorId === String(id) || (c.proveedor && (c.proveedor.id === id || String(c.proveedor.id) === String(id)));
+      });
+
+      // Abrir modal informativo si tiene compras asociadas
+      if (hasCompras) {
+        setProveedorToDelete(proveedor);
+        setShowCannotDeleteModal(true);
+        return;
+      }
+
+      // Abrir modal de confirmación para eliminar
+      setProveedorToDelete(proveedor);
+      setShowDeleteConfirmModal(true);
+    } catch (e) {
+      console.error('Error al intentar eliminar proveedor:', e);
+      setProveedorToDelete(null);
+      setShowCannotDeleteModal(true);
+    }
+  };
+
+  const confirmDeleteProveedor = () => {
+    if (!proveedorToDelete) return;
+    try {
+      const updated = proveedores.filter(p => p.id !== proveedorToDelete.id);
+      setProveedores(updated);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch (e) { console.warn('No se pudo actualizar proveedores en localStorage', e); }
+    } catch (e) {
+      console.error('Error al eliminar proveedor:', e);
+    }
+    setShowDeleteConfirmModal(false);
+    setProveedorToDelete(null);
   };
 
   const confirmToggleStatus = () => {
@@ -242,12 +348,46 @@ export function ProveedoresManager() {
     setShowViewModal(true);
   };
 
+  // 📊 Helper: Obtener compras de un proveedor específico
   const getComprasProveedor = (proveedorId: number) => {
-    return compras.filter((c: any) => c.proveedorId === proveedorId);
+    if (!compras || !Array.isArray(compras)) return [];
+    const comprasFiltered = compras.filter((c: any) => {
+      // Comparar como número y string para flexibilidad
+      return c.proveedorId === proveedorId || c.proveedorId === String(proveedorId);
+    });
+    // Ordenar por fecha descendente (más reciente primero)
+    return comprasFiltered.sort((a: any, b: any) => {
+      const fechaA = new Date(a.fechaCompra || a.fechaRegistro || 0).getTime();
+      const fechaB = new Date(b.fechaCompra || b.fechaRegistro || 0).getTime();
+      return fechaB - fechaA;
+    });
   };
 
+  // 💰 Helper: Calcular total de monto de compras de un proveedor
   const getTotalComprasProveedor = (proveedorId: number) => {
-    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => sum + c.total, 0);
+    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => {
+      return sum + (c.total || 0);
+    }, 0);
+  };
+
+  // 📦 Helper: Contar cantidad total de productos en compras
+  const getCantidadProductosProveedor = (proveedorId: number) => {
+    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => {
+      const cantidadCompra = (c.items || []).reduce((itemSum: number, item: any) => {
+        return itemSum + (item.cantidad || 0);
+      }, 0);
+      return sum + cantidadCompra;
+    }, 0);
+  };
+
+  // 🎨 Helper: Formatear valor en COP
+  const formatearCOP = (valor: number) => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(valor);
   };
 
   const filteredProveedores = proveedores.filter(p => {
@@ -270,22 +410,139 @@ export function ProveedoresManager() {
     setCurrentPage(1);
   }, [searchTerm]);
 
+  if (onlyModal) {
+    return (
+      <>
+        {/* Modal Create/Edit (solo modal, sin el resto del UI) */}
+        <Modal
+          isOpen={showModal}
+          onClose={() => setShowModal(false)}
+          title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
+                <select
+                  value={formData.tipoDoc}
+                  onChange={(e) => setFormData({ ...formData, tipoDoc: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  required
+                >
+                  <option value="NIT">NIT</option>
+                  <option value="CC">Cédula de Ciudadanía</option>
+                  <option value="CE">Cédula de Extranjería</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 mb-2">Número de Documento *</label>
+                <Input
+                  value={formData.numeroDoc}
+                  onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
+                  placeholder="900123456"
+                  maxLength={15}
+                  required
+                />
+                {formErrors.numeroDoc && (
+                  <p className="text-red-600 text-xs mt-1">{formErrors.numeroDoc}</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-2">Nombre del Proveedor *</label>
+              <Input
+                value={formData.nombre}
+                onChange={(e) => handleFieldChange('nombre', e.target.value)}
+                placeholder="Distribuidora XYZ"
+                required
+              />
+              {formErrors.nombre && (
+                <p className="text-red-600 text-xs mt-1">{formErrors.nombre}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-2">Persona de Contacto *</label>
+              <Input
+                value={formData.contacto}
+                onChange={(e) => handleFieldChange('contacto', e.target.value)}
+                placeholder="Nombre del contacto"
+                required
+              />
+              {formErrors.contacto && (
+                <p className="text-red-600 text-xs mt-1">{formErrors.contacto}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-gray-700 mb-2">Teléfono</label>
+                <Input
+                  value={formData.telefono}
+                  onChange={(e) => handleFieldChange('telefono', e.target.value)}
+                  placeholder="3001234567"
+                  maxLength={10}
+                />
+                {formErrors.telefono && (
+                  <p className="text-red-600 text-xs mt-1">{formErrors.telefono}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-gray-700 mb-2">Email</label>
+                <Input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleFieldChange('email', e.target.value)}
+                  placeholder="proveedor@ejemplo.com"
+                />
+                {formErrors.email && (
+                  <p className="text-red-600 text-xs mt-1">{formErrors.email}</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-2">Dirección</label>
+              <Input
+                value={formData.direccion}
+                onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+                placeholder="Calle 123 # 45-67"
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end pt-4 border-t">
+              <Button onClick={() => setShowModal(false)} variant="secondary">
+                Cancelar
+              </Button>
+              <Button onClick={handleSave} variant="primary">
+                {editingProveedor ? 'Guardar Cambios' : 'Crear Proveedor'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      </>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-gray-900 mb-2">Gestión de Proveedores</h2>
-          <p className="text-gray-600">Administra los proveedores y su información de contacto</p>
-        </div>
-        <Button onClick={handleCreate} variant="primary">
-          <Plus size={20} />
-          Nuevo Proveedor
-        </Button>
-      </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-gray-900 mb-1">Gestión de Proveedores</h2>
+              <p className="text-gray-600">Administra los proveedores y su información de contacto</p>
+            </div>
+            <Button onClick={handleCreate} variant="primary">
+              <Plus size={20} />
+              Nuevo Proveedor
+            </Button>
+          </div>
 
       {/* Search */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
           <Input
@@ -308,14 +565,13 @@ export function ProveedoresManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Teléfono</th>
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
-                <th className="text-center py-4 px-6 text-gray-600">Publicado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {paginatedProveedores.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                  <td colSpan={6} className="py-12 text-center text-gray-500">
                     <Store className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron proveedores</p>
                   </td>
@@ -323,7 +579,7 @@ export function ProveedoresManager() {
               ) : (
                 paginatedProveedores.map((proveedor) => (
                   <tr key={proveedor.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-6">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white">
                           {proveedor.nombre[0]?.toUpperCase()}
@@ -334,46 +590,31 @@ export function ProveedoresManager() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-6">
                       <div className="text-gray-700">{proveedor.contacto || '-'}</div>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-6">
                       <div className="text-gray-700">{proveedor.tipoDoc}</div>
                       <div className="text-gray-500">{proveedor.numeroDoc}</div>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-6">
                       <div className="text-gray-700">{proveedor.telefono || '-'}</div>
                       <div className="text-gray-500 text-sm">{proveedor.direccion || '-'}</div>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-6">
                       <div className="flex justify-center">
                         <button
+                          onMouseDown={(e) => e.preventDefault()}
                           onClick={() => toggleActive(proveedor.id)}
-                          className={`relative w-12 h-6 rounded-full transition-colors ${
-                            proveedor.activo ? 'bg-green-500' : 'bg-gray-300'
-                          }`}
+                          aria-pressed={proveedor.activo !== false}
+                          title={proveedor.activo === false ? 'Activar proveedor' : 'Inactivar proveedor'}
+                          className={`relative w-12 h-6 rounded-full transition-colors ${proveedor.activo !== false ? 'bg-green-500' : 'bg-gray-400'}`}
                         >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                            proveedor.activo ? 'translate-x-6' : 'translate-x-0'
-                          }`} />
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${proveedor.activo !== false ? 'translate-x-6' : 'translate-x-0'}`} />
                         </button>
                       </div>
                     </td>
-                    <td className="py-4 px-6">
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => handleEdit(proveedor)}
-                          className={`relative w-12 h-6 rounded-full transition-colors ${
-                            proveedor.publicado ? 'bg-blue-500' : 'bg-gray-300'
-                          }`}
-                        >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                            proveedor.publicado ? 'translate-x-6' : 'translate-x-0'
-                          }`} />
-                        </button>
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-6">
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => handleVerProveedor(proveedor)}
@@ -395,6 +636,13 @@ export function ProveedoresManager() {
                           title="Editar"
                         >
                           <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProveedor(proveedor.id)}
+                          className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
@@ -547,19 +795,6 @@ export function ProveedoresManager() {
             />
           </div>
 
-          <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-lg border border-blue-200">
-            <input
-              type="checkbox"
-              checked={formData.publicado}
-              onChange={(e) => setFormData({ ...formData, publicado: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-              id="publicado"
-            />
-            <label htmlFor="publicado" className="text-gray-700 cursor-pointer flex-1">
-              Publicar en catálogo
-            </label>
-          </div>
-
           <div className="flex gap-3 justify-end pt-4 border-t">
             <Button onClick={() => setShowModal(false)} variant="secondary">
               Cancelar
@@ -575,60 +810,84 @@ export function ProveedoresManager() {
       <Modal
         isOpen={showHistorialModal}
         onClose={() => setShowHistorialModal(false)}
-        title={`Historial de Compras - ${viewingProveedor?.nombre}`}
+        title={`Historial de Compras – ${viewingProveedor?.nombre}`}
       >
-        <div className="space-y-4">
+        <div className="space-y-6">
           {viewingProveedor && (
             <>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="grid grid-cols-2 gap-4">
+              {/* Resumen de Totales */}
+              <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <div className="text-gray-600 mb-1">Total Compras</div>
-                    <div className="text-2xl text-gray-900">
+                    <div className="text-blue-600 text-sm font-medium mb-1">Total Compras</div>
+                    <div className="text-3xl font-bold text-blue-900">
                       {getComprasProveedor(viewingProveedor.id).length}
                     </div>
                   </div>
                   <div>
-                    <div className="text-gray-600 mb-1">Total Monto</div>
-                    <div className="text-2xl text-green-600">
-                      ${getTotalComprasProveedor(viewingProveedor.id).toLocaleString()}
+                    <div className="text-blue-600 text-sm font-medium mb-1">Productos Recibidos</div>
+                    <div className="text-3xl font-bold text-blue-900">
+                      {getCantidadProductosProveedor(viewingProveedor.id)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-blue-600 text-sm font-medium mb-1">Monto Acumulado</div>
+                    <div className="text-2xl font-bold text-green-600">
+                      {formatearCOP(getTotalComprasProveedor(viewingProveedor.id))}
                     </div>
                   </div>
                 </div>
               </div>
 
+              {/* Lista de Compras */}
               {getComprasProveedor(viewingProveedor.id).length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-12 text-gray-500">
                   <Store className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p>No hay compras registradas para este proveedor</p>
+                  <p className="text-lg font-medium">Este proveedor aún no tiene compras registradas.</p>
+                  <p className="text-sm mt-2">Las compras aparecerán aquí cuando se registren en el módulo de Compras.</p>
                 </div>
               ) : (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="border border-gray-200 rounded-lg overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-100 border-b border-gray-200">
                       <tr>
-                        <th className="text-left py-2 px-3 text-gray-600">N° Compra</th>
-                        <th className="text-left py-2 px-3 text-gray-600">Fecha</th>
-                        <th className="text-center py-2 px-3 text-gray-600">Estado</th>
-                        <th className="text-right py-2 px-3 text-gray-600">Total</th>
+                        <th className="text-left py-3 px-4 text-gray-700 font-semibold">Fecha</th>
+                        <th className="text-left py-3 px-4 text-gray-700 font-semibold">N° Compra</th>
+                        <th className="text-center py-3 px-4 text-gray-700 font-semibold">Cantidad</th>
+                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">Subtotal</th>
+                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">IVA</th>
+                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">Total</th>
+                        <th className="text-center py-3 px-4 text-gray-700 font-semibold">Estado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {getComprasProveedor(viewingProveedor.id).map((compra: any) => (
-                        <tr key={compra.id}>
-                          <td className="py-2 px-3 text-gray-900">{compra.numeroCompra}</td>
-                          <td className="py-2 px-3 text-gray-700">{compra.fechaCompra}</td>
-                          <td className="py-2 px-3 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
+                        <tr key={compra.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4 text-gray-900">
+                            {new Date(compra.fechaCompra || compra.fechaRegistro).toLocaleDateString('es-CO')}
+                          </td>
+                          <td className="py-3 px-4 text-gray-900 font-medium">{compra.numeroCompra}</td>
+                          <td className="py-3 px-4 text-center text-gray-700">
+                            {(compra.items || []).reduce((sum: number, item: any) => sum + (item.cantidad || 0), 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right text-gray-900">
+                            {formatearCOP(compra.subtotal || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right text-gray-900">
+                            {formatearCOP(compra.iva || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-semibold text-gray-900">
+                            {formatearCOP(compra.total || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
                               compra.estado === 'Recibida' ? 'bg-green-100 text-green-700' :
                               compra.estado === 'Pendiente' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-red-100 text-red-700'
+                              compra.estado === 'Anulada' ? 'bg-red-100 text-red-700' :
+                              'bg-blue-100 text-blue-700'
                             }`}>
-                              {compra.estado}
+                              {compra.estado || 'Confirmada'}
                             </span>
-                          </td>
-                          <td className="py-2 px-3 text-right text-gray-900">
-                            ${compra.total.toLocaleString()}
                           </td>
                         </tr>
                       ))}
@@ -689,15 +948,6 @@ export function ProveedoresManager() {
                     </span>
                   </div>
                 </div>
-                <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-                  <div className="text-gray-600 text-sm mb-1">Publicado en Catálogo</div>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${viewingProveedor.publicado ? 'bg-blue-500' : 'bg-gray-400'}`} />
-                    <span className="text-gray-900 font-semibold">
-                      {viewingProveedor.publicado ? 'Sí' : 'No'}
-                    </span>
-                  </div>
-                </div>
               </div>
 
               <div className="bg-gray-100 rounded-lg p-3">
@@ -755,6 +1005,44 @@ export function ProveedoresManager() {
             <Button onClick={confirmToggleStatus} variant="primary">
               {proveedorToToggle?.activo ? 'Inactivar' : 'Activar'}
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: No se puede eliminar (tiene compras asociadas) */}
+      <Modal
+        isOpen={showCannotDeleteModal}
+        onClose={() => {
+          setShowCannotDeleteModal(false);
+          setProveedorToDelete(null);
+        }}
+        title="No se puede eliminar"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+            <AlertTriangle className="text-yellow-600 flex-shrink-0" size={24} />
+            <div>
+              <p className="text-yellow-800 font-semibold">Operación no permitida</p>
+              <p className="text-yellow-700 text-sm">El proveedor <strong>{proveedorToDelete?.nombre}</strong> tiene compras asociadas y no puede ser eliminado. Puedes inactivarlo desde el estado.</p>
+            </div>
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button onClick={() => { setShowCannotDeleteModal(false); setProveedorToDelete(null); }} variant="primary">Aceptar</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Confirmar eliminación */}
+      <Modal
+        isOpen={showDeleteConfirmModal}
+        onClose={() => { setShowDeleteConfirmModal(false); setProveedorToDelete(null); }}
+        title="Confirmar Eliminación"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700">¿Estás seguro de que deseas eliminar al proveedor <strong>{proveedorToDelete?.nombre}</strong>? Esta acción no se puede deshacer.</p>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button onClick={() => { setShowDeleteConfirmModal(false); setProveedorToDelete(null); }} variant="secondary">Cancelar</Button>
+            <Button onClick={confirmDeleteProveedor} variant="primary" className="bg-red-600 hover:bg-red-700">Eliminar</Button>
           </div>
         </div>
       </Modal>

@@ -1,6 +1,11 @@
 import React, { useState, useContext, useMemo } from 'react';
 import { EcommerceContext } from '../../../../shared/contexts';
+import { PremiumNavbar } from '../components/PremiumNavbar';
 import { Package, ChevronDown } from 'lucide-react';
+
+// ✅ CONFIGURACIÓN DE ENVÍO
+const MIN_SHIPPING_AMOUNT = 50000; // Monto mínimo para envío gratis
+const STANDARD_SHIPPING_COST = 8000; // Costo de envío estándar
 
 interface ShippingInfo {
   fullName: string;
@@ -143,7 +148,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   }, [cart]);
 
-  const shippingCost = subtotal > 50000 ? 0 : 8000;
+  const shippingCost = subtotal > MIN_SHIPPING_AMOUNT ? 0 : STANDARD_SHIPPING_COST;
   const iva = (subtotal + shippingCost) * 0.19;
   const total = subtotal + shippingCost + iva;
 
@@ -189,6 +194,87 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
     purchases.push(purchase);
     localStorage.setItem('purchaseHistory', JSON.stringify(purchases));
 
+    // Guardar como PEDIDO (key administrativa: 'damabella_pedidos')
+    try {
+      const PEDIDOS_KEY = 'damabella_pedidos';
+      const CLIENTES_KEY = 'damabella_clientes';
+      const VENTAS_KEY = 'damabella_ventas';
+
+      // 1) Asegurar cliente existe o crear uno nuevo (NO modificar clientes creados manualmente)
+      const clientesRaw = localStorage.getItem(CLIENTES_KEY) || '[]';
+      const clientes = JSON.parse(clientesRaw);
+
+      // Buscar por teléfono o por email (si existe currentUser)
+      const phone = shippingInfo.phone?.toString() || '';
+      const email = (currentUser?.email || '').toString().toLowerCase();
+
+      let cliente = clientes.find((c: any) => (c.telefono && c.telefono.toString() === phone) || (c.email && c.email.toString().toLowerCase() === email));
+
+      if (!cliente) {
+        // Crear cliente mínimo requerido por el admin
+        cliente = {
+          id: Date.now(),
+          nombre: shippingInfo.fullName || (currentUser?.nombre || 'Cliente sin nombre'),
+          tipoDoc: '',
+          numeroDoc: '',
+          telefono: phone,
+          email: currentUser?.email || '',
+          direccion: shippingInfo.address || '',
+          ciudad: shippingInfo.city || '',
+          activo: false,
+          createdAt: new Date().toISOString()
+        };
+        clientes.push(cliente);
+        try { localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientes)); } catch (e) { console.warn('[Checkout] No se pudo guardar cliente', e); }
+      }
+
+      // 2) Crear pedido en la key administrativa
+      const pedidosRaw = localStorage.getItem(PEDIDOS_KEY) || '[]';
+      const pedidos = JSON.parse(pedidosRaw);
+
+      const itemsPedido = cart.map((it: any, idx: number) => ({
+        id: `it-${Date.now()}-${idx}`,
+        productoId: it.productId,
+        productoNombre: it.productName || '',
+        talla: it.size || '',
+        color: it.color || '',
+        cantidad: it.quantity || 1,
+        precioUnitario: it.price || 0,
+        subtotal: (it.price || 0) * (it.quantity || 1)
+      }));
+
+      const nuevoPedido = {
+        id: Date.now(),
+        numeroPedido: `PED-${Date.now()}`,
+        tipo: 'Pedido',
+        clienteId: cliente.id,
+        clienteNombre: cliente.nombre,
+        fechaPedido: new Date().toISOString(),
+        estado: 'Pendiente',
+        items: itemsPedido,
+        productos: itemsPedido,
+        subtotal: Number(subtotal.toFixed(2)),
+        iva: Number(iva.toFixed(2)),
+        total: Number(total.toFixed(2)),
+        metodoPago: paymentMethod || 'unknown',
+        observaciones: '',
+        createdAt: new Date().toISOString(),
+        venta_id: null
+      };
+
+      pedidos.push(nuevoPedido);
+      try { localStorage.setItem(PEDIDOS_KEY, JSON.stringify(pedidos)); } catch (e) { console.warn('[Checkout] No se pudo guardar pedido', e); }
+
+      // Nota: no crear venta desde el checkout. El flujo correcto es:
+      // - El checkout crea únicamente el pedido con estado 'Pendiente'.
+      // - El admin (PedidosManager) debe cambiar el estado a 'Completada'/'Pagado',
+      //   momento en el cual la lógica centralizada convertirá el pedido en venta
+      //   (creando la entrada en `damabella_ventas` y descontando stock).
+
+    } catch (e) {
+      console.error('[Checkout] Error al crear pedido/cliente/venta administrativa', e);
+    }
+
     console.log('✅ Compra creada:', purchase);
 
     // Limpiar carrito
@@ -200,7 +286,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
 
   if (cart.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white py-8">
+      <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white pt-0 pb-8">
+        <PremiumNavbar onNavigate={onNavigate} isAuthenticated={Boolean(currentUser)} currentUser={currentUser} />
         <div className="max-w-4xl mx-auto px-4">
           <div className="text-center py-12">
             <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
@@ -219,9 +306,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white py-8">
+    <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white pt-0 pb-8">
+      <PremiumNavbar onNavigate={onNavigate} isAuthenticated={Boolean(currentUser)} currentUser={currentUser} />
       <div className="max-w-6xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Checkout</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-8">Datos del pedido</h1>
 
         <div className="grid md:grid-cols-3 gap-8">
           {/* Formulario */}
@@ -373,7 +461,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                       onChange={(e) => handleCardChange('cardNumber', e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400"
                       placeholder="4532 1234 5678 9010"
-                      maxLength="19"
+                      maxLength={19}
                     />
                   </div>
 
@@ -386,7 +474,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                         onChange={(e) => handleCardChange('cardExpiry', e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400"
                         placeholder="MM/YY"
-                        maxLength="5"
+                      maxLength={5}
                       />
                     </div>
 
@@ -398,7 +486,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                         onChange={(e) => handleCardChange('cardCVC', e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400"
                         placeholder="123"
-                        maxLength="3"
+                      maxLength={3}
                       />
                     </div>
                   </div>
@@ -408,7 +496,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {paymentMethod === 'nequi' && (
                 <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-gray-700">
-                    📲 Recibirás un código en tu app Nequi para confirmar la compra después de hacer clic en "Confirmar Compra"
+                    📲 Simulación: recibirás instrucciones en tu app Nequi para completar el pago. No se realiza ninguna redirección ni pago real desde esta interfaz.
                   </p>
                 </div>
               )}
@@ -416,7 +504,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {paymentMethod === 'bancolombia' && (
                 <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm text-gray-700">
-                    🏦 Serás redirigido a Bancolombia para completar tu transacción de manera segura
+                    🏦 Simulación: se mostrará información para completar el pago por Banco. No se realizará ninguna redirección ni pago real.
                   </p>
                 </div>
               )}
@@ -424,7 +512,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {paymentMethod === 'delivery' && (
                 <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-sm text-gray-700">
-                    🚚 Pagarás el total al recibir tu pedido en la dirección indicada
+                    🚚 Pagarás el total al recibir tu pedido en la dirección indicada (Pago contra entrega). Este flujo es solo visual.
                   </p>
                 </div>
               )}
@@ -482,9 +570,28 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               </div>
 
               {/* Nota de envío gratis */}
-              {subtotal <= 50000 && shippingCost > 0 && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-gray-700">
-                  ℹ️ Envío gratis en compras mayores a $50.000
+              {shippingCost === 0 && subtotal > 0 && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="text-sm text-green-700 font-medium">
+                    ✅ ¡Envío GRATIS! Tu compra califica para envío sin costo.
+                  </div>
+                </div>
+              )}
+
+              {subtotal > 0 && subtotal <= MIN_SHIPPING_AMOUNT && shippingCost > 0 && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-xs text-gray-700 mb-2">
+                    ℹ️ Envío gratis en compras mayores a ${MIN_SHIPPING_AMOUNT.toLocaleString('es-CO')}
+                  </div>
+                  <div className="w-full bg-blue-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all"
+                      style={{ width: `${(subtotal / MIN_SHIPPING_AMOUNT) * 100}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-gray-600 mt-2">
+                    Te faltan ${(MIN_SHIPPING_AMOUNT - subtotal).toLocaleString('es-CO')} para envío gratis
+                  </div>
                 </div>
               )}
 
@@ -498,7 +605,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                {isFormValid ? 'Confirmar Compra' : 'Completa el formulario'}
+                {isFormValid ? 'Generar Pedido' : 'Completa el formulario'}
               </button>
 
               {/* Botón de volver */}

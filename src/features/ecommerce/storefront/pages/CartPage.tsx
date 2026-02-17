@@ -62,7 +62,7 @@ export function CartPage({ onNavigate, isAuthenticated = false, currentUser = nu
             <div className="lg:col-span-2 space-y-4">
               {cart.map((item) => (
                 <div key={`${item.productId}-${item.color}-${item.size}`} className="bg-white rounded-xl shadow-sm p-6">
-                  <div className="flex gap-6">
+                  <div className="flex gap-4 items-center">
                     <img
                       src={item.image}
                       alt={item.productName}
@@ -87,7 +87,7 @@ export function CartPage({ onNavigate, isAuthenticated = false, currentUser = nu
                       <p className="text-2xl text-gray-900 mb-4">
                         ${item.price.toLocaleString()}
                       </p>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
                         <div className="flex items-center border-2 border-gray-300 rounded-lg">
                           <button
                             onClick={() => updateCartQuantity(item.productId, item.color, item.size, item.quantity - 1)}
@@ -103,7 +103,7 @@ export function CartPage({ onNavigate, isAuthenticated = false, currentUser = nu
                             <Plus size={18} />
                           </button>
                         </div>
-                        {deletingItem?.productId === item.productId && deletingItem?.color === item.color && deletingItem?.size === item.size ? (
+                          {deletingItem?.productId === item.productId && deletingItem?.color === item.color && deletingItem?.size === item.size ? (
                           <div className="flex items-center gap-2">
                             <span className="text-sm text-gray-700">¿Eliminar?</span>
                             <button
@@ -119,12 +119,14 @@ export function CartPage({ onNavigate, isAuthenticated = false, currentUser = nu
                               No
                             </button>
                           </div>
-                        ) : (
+                          ) : (
                           <button
                             onClick={() => handleDeleteClick(item.productId, item.color, item.size)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            className="p-3 text-red-500 hover:bg-red-50 rounded-md transition-colors self-center flex items-center"
+                            aria-label="Eliminar producto del carrito"
                           >
-                            <Trash2 size={20} />
+                            <Trash2 size={22} />
+                            <span className="ml-2 text-sm text-red-600">Eliminar producto del carrito</span>
                           </button>
                         )}
                       </div>

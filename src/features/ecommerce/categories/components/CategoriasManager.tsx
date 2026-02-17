@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Package, Search, FolderTree, AlertTriangle, Eye, Grid3x3, List } from 'lucide-react';
+import { Plus, Edit2, Package, Search, FolderTree, AlertTriangle, Eye, Grid3x3, List, Trash2 } from 'lucide-react';
 import { Button, Input, Modal, useToast } from '../../../../shared/components/native';
+import { usePermissions } from '../../../../shared/hooks/usePermissions';
 
 const STORAGE_KEY = 'damabella_categorias';
 const PRODUCTOS_KEY = 'damabella_productos';
@@ -40,22 +41,52 @@ export default function CategoriasManager() {
   });
   
   const { showToast } = useToast();
+  const { hasPermission, getModulePermissions } = usePermissions();
+  
   const [showModal, setShowModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [formData, setFormData] = useState({ name: '', description: '' });
-  const [formErrors, setFormErrors] = useState({ name: '' });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showInactiveConfirmModal, setShowInactiveConfirmModal] = useState(false);
   const [showActiveConfirmModal, setShowActiveConfirmModal] = useState(false);
   const [categoryToToggle, setCategoryToToggle] = useState<any>(null);
-  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
-  const [categoryToDelete, setCategoryToDelete] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
   const [showProductsModal, setShowProductsModal] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<any>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   
   const itemsPerPage = 10;
+  // 🔐 PERMISOS - Usar el hook usePermissions
+  const permisos = getModulePermissions('Categorias');
+  const canViewCategorias = permisos.canView;
+  const canCreateCategorias = permisos.canCreate;
+  const canEditCategorias = permisos.canEdit;
+  const canDeleteCategorias = hasPermission('Categorias', 'delete');
+
+  // 🔄 ESCUCHAR CAMBIOS EN ROLES DESDE OTROS MÓDULOS/TABS
+  useEffect(() => {
+    console.log(`📋 [CategoriasManager] Permisos del usuario:`, {
+      canViewCategorias,
+      canCreateCategorias,
+      canEditCategorias,
+    });
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'damabella_roles') {
+        console.log('🔄 [CategoriasManager] Roles actualizados en otro tab/módulo, recalculando permisos');
+        // Force re-render para recalcular permisos
+        window.location.reload();
+      }
+    };
+
+    
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [canViewCategorias, canCreateCategorias, canEditCategorias]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(categories));
@@ -156,35 +187,7 @@ const handleViewProducts = (category: any) => {
     setShowModal(false);
   };
 
-  const handleDelete = (id: number) => {
-    const category = categories.find((c: any) => c.id === id);
-    setCategoryToDelete(category);
-    setShowDeleteConfirmModal(true);
-  };
-
-  const confirmDelete = () => {
-    if (categoryToDelete) {
-      const categoryName = categoryToDelete.name;
-      
-      // Eliminar la categoría
-      setCategories(categories.filter((c: any) => c.id !== categoryToDelete.id));
-      
-      // Eliminar productos relacionados
-      const productosActualizados = productos.filter((p: any) => p.categoria !== categoryName);
-      setProductos(productosActualizados);
-      localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosActualizados));
-      
-      // Limpiar el historial de esta categoría
-      const newDisabledProducts = { ...disabledProductsByCategory };
-      delete newDisabledProducts[categoryName];
-      setDisabledProductsByCategory(newDisabledProducts);
-      localStorage.setItem(DISABLED_PRODUCTS_KEY, JSON.stringify(newDisabledProducts));
-      
-      console.log(`🗑️ Categoría "${categoryName}" eliminada junto con ${productos.filter((p: any) => p.categoria === categoryName).length} producto(s)`);
-    }
-    setShowDeleteConfirmModal(false);
-    setCategoryToDelete(null);
-  };
+  
 
   const toggleActive = (id: number) => {
     const category = categories.find((c: any) => c.id === id);
@@ -270,6 +273,56 @@ const handleViewProducts = (category: any) => {
     setCategoryToToggle(null);
   };
 
+  // Eliminar categoría: validar productos asociados antes de borrar
+  const handleDeleteCategory = (categoryId: number) => {
+    try {
+      const categoria = categories.find((c: any) => c.id === categoryId);
+      if (!categoria) return;
+
+      // Leer productos desde localStorage (fuente de verdad)
+      const productosRaw = localStorage.getItem(PRODUCTOS_KEY);
+      const productosFromStorage = productosRaw ? JSON.parse(productosRaw) : [];
+
+      // Comprobar asociación por categoryId o por nombre (campo 'categoria')
+      const hasProducts = productosFromStorage.some((p: any) => {
+        if (p.categoryId !== undefined && String(p.categoryId) === String(categoria.id)) return true;
+        if (p.categoria !== undefined && String(p.categoria) === String(categoria.name)) return true;
+        return false;
+      });
+
+      if (hasProducts) {
+        showToast('No se puede eliminar la categoría porque tiene productos asociados', 'error');
+        return;
+      }
+
+      // Usar modal de confirmación en lugar de confirm() nativo
+      setCategoryToDelete(categoria);
+      setShowDeleteConfirmModal(true);
+    } catch (e) {
+      console.error('Error al intentar eliminar categoría:', e);
+      showToast('Error verificando productos asociados', 'error');
+    }
+  };
+
+  const confirmDeleteCategory = () => {
+    if (!categoryToDelete) return;
+    try {
+      const updated = categories.filter((c: any) => c.id !== categoryToDelete.id);
+      setCategories(updated);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.warn('No se pudo actualizar damabella_categorias en localStorage', e);
+      }
+      showToast('Categoría eliminada correctamente', 'success');
+    } catch (e) {
+      console.error('Error al eliminar categoría:', e);
+      showToast('Error al eliminar la categoría', 'error');
+    }
+    setShowDeleteConfirmModal(false);
+    setCategoryToDelete(null);
+  };
+
   const filteredCategories = categories.filter((c: any) => {
     const searchLower = searchTerm.toLowerCase();
     return (
@@ -298,7 +351,12 @@ const handleViewProducts = (category: any) => {
           <h2 className="text-gray-900 mb-2">Categorías de Productos</h2>
           <p className="text-gray-600">Gestiona las categorías: Vestidos Largos, Vestidos Cortos, Sets y Enterizos</p>
         </div>
-        <Button onClick={handleCreate} variant="primary">
+        <Button 
+          onClick={handleCreate} 
+          variant="primary"
+          disabled={!canCreateCategorias}
+          title={!canCreateCategorias ? 'No tienes permiso para crear categorías' : ''}
+        >
           <Plus size={20} />
           Nueva Categoría
         </Button>
@@ -389,79 +447,86 @@ const handleViewProducts = (category: any) => {
           {viewMode === 'grid' ? (
             // VISTA GRID
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {paginatedCategories.map((category: any) => (
-              <div 
-                key={category.id} 
-                className="bg-gray-50 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200"
-              >
-                {/* Header sin gradiente */}
-                <div className="bg-white p-6 border-b border-gray-200">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center">
-                      <FolderTree size={28} className="text-gray-600" />
+              {paginatedCategories.map((category: any) => (
+                <div 
+                  key={category.id} 
+                  className="bg-gray-50 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200"
+                >
+                  {/* Header sin gradiente */}
+                  <div className="bg-white p-6 border-b border-gray-200">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center">
+                        <FolderTree size={28} className="text-gray-600" />
+                      </div>
+                      {/* Switch ON/OFF */}
+                      <button
+                        onClick={() => toggleActive(category.id)}
+                        className={`relative w-14 h-7 rounded-full transition-colors ${
+                          category.active ? 'bg-green-500' : 'bg-gray-400'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
+                          category.active ? 'translate-x-7' : 'translate-x-0'
+                        }`} />
+                      </button>
                     </div>
-                    {/* Switch ON/OFF */}
-                    <button
-                      onClick={() => toggleActive(category.id)}
-                      className={`relative w-14 h-7 rounded-full transition-colors ${
-                        category.active ? 'bg-green-500' : 'bg-gray-400'
-                      }`}
-                    >
-                      <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
-                        category.active ? 'translate-x-7' : 'translate-x-0'
-                      }`} />
-                    </button>
-                  </div>
-                  <h3 className="text-gray-900 text-xl">{category.name}</h3>
-                </div>
-
-                {/* Body */}
-                <div className="p-6">
-                  <p className="text-gray-600 mb-4 min-h-[3rem]">{category.description}</p>
-                  
-                  <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
-                    <span className="text-gray-500 text-sm">Productos</span>
-                    <button
-                      onClick={() => handleViewProducts(category)}
-                      className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
-                      title="Ver productos"
-                    >
-                      <Package size={16} />
-                      <span className="font-semibold">{getProductosPorCategoria(category.name)}</span>
-                    </button>
+                    <h3 className="text-gray-900 text-xl">{category.name}</h3>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <span className={`text-sm font-medium ${category.active ? 'text-green-600' : 'text-gray-400'}`}>
-                      {category.active ? 'Activa' : 'Inactiva'}
-                    </span>
-                    <div className="flex gap-2">
+                  {/* Body */}
+                  <div className="p-6">
+                    <p className="text-gray-600 mb-4 min-h-[3rem]">{category.description}</p>
+                    
+                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
+                      <span className="text-gray-500 text-sm">Productos</span>
                       <button
                         onClick={() => handleViewProducts(category)}
-                        className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                        className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
                         title="Ver productos"
                       >
-                        <Eye size={18} />
+                        <Package size={16} />
+                        <span className="font-semibold">{getProductosPorCategoria(category.name)}</span>
                       </button>
-                      <button
-                        onClick={() => handleEdit(category)}
-                        className="p-2 hover:bg-white rounded-lg transition-colors text-gray-600"
-                        title="Editar"
-                      >
-                        <Edit2 size={18} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(category.id)}
-                        className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                        title="Eliminar"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-medium ${category.active ? 'text-green-600' : 'text-gray-400'}`}>
+                        {category.active ? 'Activa' : 'Inactiva'}
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleViewProducts(category)}
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                          title="Ver productos"
+                        >
+                          <Eye size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(category)}
+                          disabled={!canEditCategorias}
+                          className={`p-2 rounded-lg transition-colors ${
+                            canEditCategorias
+                              ? 'hover:bg-white text-gray-600'
+                              : 'opacity-50 cursor-not-allowed text-gray-400'
+                          }`}
+                          title={!canEditCategorias ? 'No tienes permiso para editar' : 'Editar'}
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        {canDeleteCategorias && (
+                          <button
+                            onClick={() => handleDeleteCategory(category.id)}
+                            className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
             </div>
           ) : (
             // VISTA LIST
@@ -492,14 +557,15 @@ const handleViewProducts = (category: any) => {
                           </button>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
-                            category.active
-                              ? 'bg-green-50 text-green-700 border border-green-200'
-                              : 'bg-gray-100 text-gray-600 border border-gray-300'
-                          }`}>
-                            <span className={`w-2 h-2 rounded-full ${category.active ? 'bg-green-600' : 'bg-gray-400'}`}></span>
-                            {category.active ? 'Activa' : 'Inactiva'}
-                          </span>
+                          <button
+                            onClick={() => toggleActive(category.id)}
+                            className={`relative w-14 h-7 rounded-full transition-colors ${category.active ? 'bg-green-500' : 'bg-gray-400'}`}
+                            title={category.active ? 'Desactivar categoría' : 'Activar categoría'}
+                          >
+                            <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
+                              category.active ? 'translate-x-7' : 'translate-x-0'
+                            }`} />
+                          </button>
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex gap-2 justify-center">
@@ -512,18 +578,25 @@ const handleViewProducts = (category: any) => {
                             </button>
                             <button
                               onClick={() => handleEdit(category)}
-                              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                              title="Editar"
+                              disabled={!canEditCategorias}
+                              className={`p-2 rounded-lg transition-colors ${
+                                canEditCategorias
+                                  ? 'hover:bg-gray-100 text-gray-600'
+                                  : 'opacity-50 cursor-not-allowed text-gray-400'
+                              }`}
+                              title={!canEditCategorias ? 'No tienes permiso para editar' : 'Editar'}
                             >
                               <Edit2 size={18} />
                             </button>
-                            <button
-                              onClick={() => handleDelete(category.id)}
-                              className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                              title="Eliminar"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                              {canDeleteCategorias && (
+                                <button
+                                  onClick={() => handleDeleteCategory(category.id)}
+                                  className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
+                                  title="Eliminar"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              )}
                           </div>
                         </td>
                       </tr>
@@ -610,6 +683,43 @@ const handleViewProducts = (category: any) => {
             </Button>
             <Button onClick={handleSave} variant="primary">
               {editingCategory ? 'Guardar Cambios' : 'Crear Categoría'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+      {/* Modal Confirmation - Delete Category */}
+      <Modal
+        isOpen={showDeleteConfirmModal}
+        onClose={() => {
+          setShowDeleteConfirmModal(false);
+          setCategoryToDelete(null);
+        }}
+        title="Confirmar Eliminación"
+      >
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-gray-700 mb-2">
+              ¿Estás seguro de que deseas eliminar la categoría <strong>{categoryToDelete?.name}</strong>?
+            </p>
+            <p className="text-red-800 font-semibold text-sm mb-2">
+              ⚠️ Esta acción es irreversible y eliminará la categoría.
+            </p>
+            <p className="text-gray-600 text-sm">
+              Antes de eliminar se verifica que no existan productos asociados. Si no hay productos, la categoría será eliminada permanentemente.
+            </p>
+          </div>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button 
+              onClick={() => {
+                setShowDeleteConfirmModal(false);
+                setCategoryToDelete(null);
+              }} 
+              variant="secondary"
+            >
+              Cancelar
+            </Button>
+            <Button onClick={confirmDeleteCategory} variant="primary" className="bg-red-600 hover:bg-red-700">
+              Eliminar Categoría
             </Button>
           </div>
         </div>
@@ -745,55 +855,6 @@ const handleViewProducts = (category: any) => {
             </Button>
             <Button onClick={confirmToggleActive} variant="primary" className="bg-green-600 hover:bg-green-700">
               Activar Categoría y Productos
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Modal Confirmation - Delete Category */}
-      <Modal
-        isOpen={showDeleteConfirmModal}
-        onClose={() => {
-          setShowDeleteConfirmModal(false);
-          setCategoryToDelete(null);
-        }}
-        title="Eliminar Categoría"
-      >
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 bg-red-50 p-4 rounded-lg border border-red-200">
-            <AlertTriangle className="text-red-600 flex-shrink-0" size={24} />
-            <div>
-              <p className="text-red-800 font-semibold">⚠️ Acción irreversible</p>
-              <p className="text-red-700 text-sm">Esta acción NO se puede deshacer</p>
-            </div>
-          </div>
-          <div>
-            <p className="text-gray-700 mb-2">
-              ¿Está seguro de que desea eliminar la categoría <strong className="text-red-600">{categoryToDelete?.name}</strong>?
-            </p>
-            <p className="text-red-700 font-semibold text-sm mb-2">
-              🗑️ Se eliminarán {getProductosPorCategoria(categoryToDelete?.name || '')} producto(s) permanentemente
-            </p>
-            <p className="text-gray-600 text-sm">
-              Esta es una eliminación permanente. Todos los productos asociados a esta categoría serán eliminados de la base de datos.
-            </p>
-          </div>
-          <div className="flex gap-3 justify-end pt-4">
-            <Button 
-              onClick={() => {
-                setShowDeleteConfirmModal(false);
-                setCategoryToDelete(null);
-              }} 
-              variant="secondary"
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={confirmDelete} 
-              variant="primary"
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Eliminar Categoría y Productos
             </Button>
           </div>
         </div>

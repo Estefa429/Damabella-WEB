@@ -216,16 +216,21 @@ export default function ColoresPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="hexCode">Código de Color</Label>
-            <div className="flex gap-3">
-              <Input
-                id="hexCode"
-                type="color"
-                value={formData.hexCode}
-                onChange={(e) => handleFieldChange('hexCode', e.target.value)}
-                className="w-20 h-12 p-1 cursor-pointer"
-                required
-              />
+            <Label>Selecciona o Crea un Color</Label>
+            
+            {/* Color Picker Visual */}
+            <div className="flex gap-3 items-end">
+              <div className="flex flex-col gap-2">
+                <span className="text-xs text-gray-600">Selector de color:</span>
+                <Input
+                  id="hexCode"
+                  type="color"
+                  value={formData.hexCode}
+                  onChange={(e) => handleFieldChange('hexCode', e.target.value)}
+                  className="w-20 h-12 p-1 cursor-pointer rounded-lg"
+                  required
+                />
+              </div>
               <div className="flex-1">
                 <Input
                   value={formData.hexCode}
@@ -235,9 +240,33 @@ export default function ColoresPage() {
                   pattern="^#[0-9A-Fa-f]{6}$"
                   required
                 />
-                {formErrors.hexCode && <p className="text-red-500 text-sm mt-1">{formErrors.hexCode}</p>}
               </div>
             </div>
+            
+            {/* Paleta de Colores Predefinidos */}
+            <div className="mt-4">
+              <span className="text-xs text-gray-600 mb-2 block">O elige de la paleta:</span>
+              <div className="grid grid-cols-8 gap-2">
+                {[
+                  '#000000', '#FFFFFF', '#DC2626', '#2563EB', '#16A34A', '#EC4899', '#6B7280', '#D4A574',
+                  '#F97316', '#06B6D4', '#8B5CF6', '#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#6366F1',
+                  '#14B8A6', '#D946EF', '#F43F5E', '#0EA5E9', '#84CC16', '#F97316', '#4F46E5', '#6D28D9'
+                ].map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => handleFieldChange('hexCode', hex)}
+                    className={`w-8 h-8 rounded-lg border-2 transition-all hover:scale-110 ${
+                      formData.hexCode === hex ? 'border-gray-900 ring-2 ring-offset-2 ring-gray-400' : 'border-gray-300'
+                    }`}
+                    style={{ backgroundColor: hex }}
+                    title={hex}
+                  />
+                ))}
+              </div>
+            </div>
+            
+            {formErrors.hexCode && <p className="text-red-500 text-sm mt-2">{formErrors.hexCode}</p>}
           </div>
 
           <div className="space-y-2">

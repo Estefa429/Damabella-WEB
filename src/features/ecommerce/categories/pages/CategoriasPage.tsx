@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Button, Input, Label, Textarea, Modal, DataTable, useToast } from '../../../../shared/components/native';
 import { Plus, Edit, Trash2, FolderTree } from 'lucide-react';
 import { useAuth } from '../../../../shared/contexts/AuthContext';
@@ -119,17 +119,72 @@ export function CategoriasPage() {
       showToast('No tienes permisos para eliminar categorías', 'error');
       return;
     }
-    if (confirm('¿Estás seguro de eliminar esta categoría?')) {
-      setCategories(categories.filter(c => c.id !== id));
-      showToast('Categoría eliminada correctamente', 'success');
+    // Verificar si existen productos asociados en localStorage
+    try {
+      const productosRaw = localStorage.getItem('damabella_productos');
+      const productos = productosRaw ? JSON.parse(productosRaw) : [];
+      const categoria = categories.find(c => c.id === id);
+      const hasProducts = productos.some((p: any) => {
+        // Comparar por nombre de categoría si existe
+        return (p.categoria && categoria && String(p.categoria) === String(categoria.name));
+      });
+
+      if (hasProducts) {
+        showToast('No se puede eliminar la categoría porque tiene productos asociados', 'error');
+        return;
+      }
+
+      if (confirm('¿Estás seguro de eliminar esta categoría?')) {
+        const updated = categories.filter(c => c.id !== id);
+        setCategories(updated);
+        try {
+          localStorage.setItem('damabella_categorias', JSON.stringify(updated));
+        } catch (e) {
+          console.warn('No se pudo actualizar damabella_categorias en localStorage', e);
+        }
+        showToast('Categoría eliminada correctamente', 'success');
+      }
+    } catch (e) {
+      console.error('Error verificando productos asociados:', e);
+      showToast('Error verificando productos asociados', 'error');
     }
   };
 
+  // Persistir categorías en localStorage para que sean la fuente de verdad del módulo
+  useEffect(() => {
+    try {
+      localStorage.setItem('damabella_categorias', JSON.stringify(categories));
+    } catch (e) {
+      console.warn('No se pudo guardar damabella_categorias en localStorage', e);
+    }
+  }, [categories]);
+
+  // Estado y lógica de confirmación para estandarizar toggle como en Roles
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [categoryToToggle, setCategoryToToggle] = useState<Category | null>(null);
+
   const toggleStatus = (id: string) => {
-    setCategories(categories.map(c => 
-      c.id === id ? { ...c, status: c.status === 'Activo' ? 'Inactivo' : 'Activo' } : c
-    ));
-    showToast('Estado actualizado correctamente', 'success');
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    if (cat.status === 'Inactivo') {
+      // Activar inmediatamente
+      const updated = categories.map(c => c.id === id ? { ...c, status: 'Activo' as 'Activo' | 'Inactivo' } : c);
+      setCategories(updated);
+      showToast('Categoría activada', 'success');
+    } else {
+      // Abrir modal para confirmar inactivación
+      setCategoryToToggle(cat);
+      setIsStatusModalOpen(true);
+    }
+  };
+
+  const confirmToggleStatus = () => {
+    if (!categoryToToggle) return;
+    const updated = categories.map(c => c.id === categoryToToggle.id ? { ...c, status: 'Inactivo' as 'Activo' | 'Inactivo' } : c);
+    setCategories(updated);
+    setIsStatusModalOpen(false);
+    setCategoryToToggle(null);
+    showToast('Categoría inactivada', 'success');
   };
 
   const columns = [
@@ -152,18 +207,17 @@ export function CategoriasPage() {
     {
       key: 'status',
       label: 'Estado',
-      render: (category: Category) => (
-        <button
-          onClick={() => toggleStatus(category.id)}
-          className={`relative w-12 h-6 rounded-full transition-colors ${
-            category.status === 'Activo' ? 'bg-green-500' : 'bg-gray-400'
-          }`}
-        >
-          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-            category.status === 'Activo' ? 'translate-x-6' : 'translate-x-0'
-          }`} />
-        </button>
-      ),
+        render: (category: Category) => (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => toggleStatus(category.id)}
+            aria-pressed={category.status !== 'Inactivo'}
+            title={category.status === 'Inactivo' ? 'Activar categoría' : 'Inactivar categoría'}
+            className={`relative w-12 h-6 rounded-full transition-colors ${category.status === 'Activo' ? 'bg-green-500' : 'bg-gray-400'}`}
+          >
+            <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${category.status === 'Activo' ? 'translate-x-6' : 'translate-x-0'}`} />
+          </button>
+        ),
     },
     {
       key: 'actions',
@@ -265,6 +319,32 @@ export function CategoriasPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+      {/* Confirm status change modal (inactivar) - estandarizado como Roles */}
+      <Modal
+        isOpen={isStatusModalOpen}
+        onClose={() => { setIsStatusModalOpen(false); setCategoryToToggle(null); }}
+        title="Confirmar cambio de estado"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3">
+            <FolderTree className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-gray-900 font-medium">¿Estás seguro de que deseas inactivar esta categoría?</p>
+              <p className="text-gray-600 text-sm mt-2">
+                Esta acción deshabilitará la categoría <strong>{categoryToToggle?.name}</strong> y puede afectar productos asociados.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3 justify-end pt-4">
+            <Button type="button" variant="outline" onClick={() => { setIsStatusModalOpen(false); setCategoryToToggle(null); }}>
+              Cancelar
+            </Button>
+            <Button type="button" className="bg-orange-600 hover:bg-orange-700" onClick={confirmToggleStatus}>
+              Inactivar
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

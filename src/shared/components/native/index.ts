@@ -9,3 +9,4 @@ export { Textarea } from './Textarea';
 export { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from './Table';
 export { Modal } from './Modal';
 export { DataTable } from './DataTable';
+// Pagination export removed; pagination is copied inline where needed

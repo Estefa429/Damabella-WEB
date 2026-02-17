@@ -1,7 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Pencil, Ban, ShoppingCart, Repeat } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { validateField } from '../../../../shared/utils/validation';
+import { finalizarVenta, generarNumeroVenta } from '../../../../services/saleService';
+import {
+  cambiarEstadoPedidoCentralizado,
+  puedeEditarse,
+  puedeTransicionar,
+  obtenerClaseEstado,
+  obtenerDescripcionEstado,
+  obtenerEstadosValidos,
+  type EstadoPedido,
+  type TipoTransicion,
+} from '../../../../services/pedidosCentralizado';
 
 const STORAGE_KEY = 'damabella_pedidos';
 const CLIENTES_KEY = 'damabella_clientes';
@@ -29,13 +40,15 @@ interface Pedido {
   clienteId: string;
   clienteNombre: string;
   fechaPedido: string;
-  estado: 'Pendiente' | 'Anulado' | 'Venta';
+  estado: 'Pendiente' | 'Anulado' | 'Completada' | 'Convertido a venta';
   items: ItemPedido[];
   subtotal: number;
   iva: number;
   total: number;
   metodoPago: string;
   observaciones: string;
+  direccionEnvio?: string;
+  personaRecibe?: string;
   createdAt: string;
   venta_id?: string | null;
 }
@@ -165,7 +178,9 @@ export default function PedidosManager() {
     fechaPedido: new Date().toISOString().split('T')[0],
     metodoPago: 'Efectivo',
     observaciones: '',
-    items: [] as ItemPedido[]
+    items: [] as ItemPedido[],
+    direccionEnvio: '',
+    personaRecibe: ''
   });
 
   const [nuevoCliente, setNuevoCliente] = useState({
@@ -184,6 +199,8 @@ export default function PedidosManager() {
     cantidad: '1',
     precioUnitario: ''
   });
+
+  const [stockDisponible, setStockDisponible] = useState<number | null>(null);
 
   const [formErrors, setFormErrors] = useState<any>({});
 
@@ -204,15 +221,38 @@ export default function PedidosManager() {
 
   const handleNuevoItemChange = (field: string, value: any) => {
     setNuevoItem((prev: any) => {
+      let newItem = prev;
       if (field === 'productoId') {
         // Limpiar talla, color y otros campos cuando se cambia el producto
-        return { ...prev, productoId: value, talla: '', color: '', cantidad: '1', precioUnitario: '' };
-      }
-      if (field === 'talla') {
+        newItem = { ...prev, productoId: value, talla: '', color: '', cantidad: '1', precioUnitario: '' };
+        setStockDisponible(null);
+      } else if (field === 'talla') {
         // Limpiar color cuando se cambia la talla
-        return { ...prev, talla: value, color: '' };
+        newItem = { ...prev, talla: value, color: '' };
+        setStockDisponible(null);
+      } else if (field === 'color') {
+        newItem = { ...prev, color: value };
+        // Calcular stock disponible cuando se selecciona color
+        const producto = productos.find((p: any) => p.id.toString() === prev.productoId);
+        if (producto && producto.variantes) {
+          const varianteTalla = producto.variantes.find((v: any) => v.talla === prev.talla);
+          if (varianteTalla) {
+            const colorItem = varianteTalla.colores?.find((c: any) => c.color === value);
+            if (colorItem) {
+              setStockDisponible(colorItem.cantidad);
+            } else {
+              setStockDisponible(0);
+            }
+          } else {
+            setStockDisponible(0);
+          }
+        } else {
+          setStockDisponible(null);
+        }
+      } else {
+        newItem = { ...prev, [field]: value };
       }
-      return { ...prev, [field]: value };
+      return newItem;
     });
 
     // validate nuevo item minimal
@@ -313,7 +353,9 @@ export default function PedidosManager() {
       fechaPedido: new Date().toISOString().split('T')[0],
       metodoPago: 'Efectivo',
       observaciones: '',
-      items: []
+      items: [],
+      direccionEnvio: '',
+      personaRecibe: ''
     });
     setNuevoItem({
       productoId: '',
@@ -332,8 +374,8 @@ export default function PedidosManager() {
   };
 
   const handleEdit = (pedido: Pedido) => {
-    // ✅ No permitir editar si ya está en Venta o Anulado
-    if (pedido.estado === 'Venta' || pedido.estado === 'Anulado') {
+    // ✅ USAR VALIDADOR CENTRALIZADO
+    if (!puedeEditarse(pedido.estado)) {
       setNotificationMessage(`No puedes editar un pedido en estado "${pedido.estado}".`);
       setNotificationType('error');
       setShowNotificationModal(true);
@@ -347,6 +389,8 @@ export default function PedidosManager() {
       fechaPedido: pedido.fechaPedido,
       metodoPago: pedido.metodoPago,
       observaciones: pedido.observaciones,
+      direccionEnvio: (pedido as any).direccionEnvio || '',
+      personaRecibe: (pedido as any).personaRecibe || '',
       items: pedido.items
     });
 
@@ -420,6 +464,51 @@ export default function PedidosManager() {
     if (!producto) return;
 
     const cantidad = parseInt(nuevoItem.cantidad);
+
+    // 🔒 VALIDACIÓN: Verificar stock disponible (si el producto tiene variantes)
+    if (producto.variantes && producto.variantes.length > 0) {
+      // Buscar la variante de talla
+      const varianteTalla = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
+      
+      if (!varianteTalla) {
+        setNotificationMessage(`❌ Talla ${nuevoItem.talla} no tiene stock definido. Debe crearse desde Compras.`);
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
+
+      // Buscar el color en la talla
+      const colorItem = varianteTalla.colores?.find((c: any) => c.color === nuevoItem.color);
+      
+      if (!colorItem) {
+        setNotificationMessage(`❌ Color ${nuevoItem.color} no tiene stock definido. Debe crearse desde Compras.`);
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
+
+      // 🔒 VALIDACIÓN: Stock insuficiente
+      if (colorItem.cantidad < cantidad) {
+        setNotificationMessage(
+          `❌ Stock insuficiente para ${producto.nombre} (${nuevoItem.talla}, ${nuevoItem.color}).\n` +
+          `Disponible: ${colorItem.cantidad} unidades\n` +
+          `Solicitado: ${cantidad} unidades`
+        );
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
+
+      console.log(`✅ [PedidosManager] Stock validado: ${producto.nombre} - ${nuevoItem.talla} - ${nuevoItem.color}: ${colorItem.cantidad} disponible`);
+    } else {
+      // Si el producto NO tiene variantes definidas, es un error
+      console.warn(`⚠️ [PedidosManager] Producto sin variantes: ${producto.nombre}. Stock no puede validarse.`);
+      setNotificationMessage(`❌ El producto ${producto.nombre} no tiene variantes definidas. Debe crearse desde Compras.`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
     const precioUnitario = producto.precioVenta;
     const subtotal = cantidad * precioUnitario;
 
@@ -475,7 +564,7 @@ export default function PedidosManager() {
 
   const handleSave = () => {
     // ✅ Bloqueo extra si intentan guardar un pedido ya finalizado
-    if (editingPedido && (editingPedido.estado === 'Venta' || editingPedido.estado === 'Anulado')) {
+    if (editingPedido && (editingPedido.estado === 'Completada' || editingPedido.estado === 'Anulado')) {
       setNotificationMessage(`No puedes editar un pedido en estado "${editingPedido.estado}".`);
       setNotificationType('error');
       setShowNotificationModal(true);
@@ -528,6 +617,8 @@ export default function PedidosManager() {
       total: totales.total,
       metodoPago: formData.metodoPago,
       observaciones: formData.observaciones,
+      direccionEnvio: (formData as any).direccionEnvio || '',
+      personaRecibe: (formData as any).personaRecibe || '',
       createdAt: editingPedido?.createdAt || new Date().toISOString()
     };
 
@@ -552,33 +643,52 @@ export default function PedidosManager() {
   };
 
   const anularPedido = (pedido: Pedido) => {
-    setPedidos(pedidos.map(p =>
-      p.id === pedido.id ? { ...p, estado: 'Anulado' } : p
-    ));
+    // 🔒 USAR FUNCIÓN MAESTRA CENTRALIZADA
+    // Automáticamente ejecuta cambiarEstadoPedidoCentralizado con tipo 'anular'
+    const resultado = cambiarEstadoPedidoCentralizado(pedido, 'Anulado', {
+      onNotificar: (titulo, mensaje, tipo) => {
+        setNotificationMessage(mensaje);
+        setNotificationType(tipo);
+        setShowNotificationModal(true);
+      },
+      onExitoso: (res) => {
+        console.log('✅ Anulación completada:', res);
+        if (res.stockDevuelto && res.stockDevuelto.length > 0) {
+          console.log(`📦 Stock devuelto: ${res.stockDevuelto.length} productos`);
+        }
+      },
+      onLog: (msg, nivel) => {
+        if (nivel === 'error') {
+          console.error(msg);
+        } else if (nivel === 'warn') {
+          console.warn(msg);
+        } else {
+          console.log(msg);
+        }
+      },
+    });
+
+    if (resultado.exitoso && resultado.pedidoActualizado) {
+      setPedidos(pedidos.map(p =>
+        p.id === pedido.id ? resultado.pedidoActualizado! : p
+      ));
+    }
     setShowConfirmModal(false);
-    setNotificationMessage(`Pedido ${pedido.numeroPedido} ha sido anulado correctamente`);
-    setNotificationType('success');
-    setShowNotificationModal(true);
   };
 
-  // ✅ NUEVO: convierte pedido en venta y la persiste en localStorage (para que Ventas la muestre)
+  // ✅ DEPRECATED: Esta función fue reemplazada por cambiarEstadoCentralizado
+  // La mantengo aquí para referencia pero ya no se usa
   const crearVentaDesdePedido = (pedido: Pedido) => {
-    const ventasActuales = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
-
-    // Evitar duplicados por pedido
-    const yaExiste = ventasActuales.some((v: any) => v.pedido_id === pedido.numeroPedido);
-    if (yaExiste) return;
-
-    const counter = parseInt(localStorage.getItem(VENTA_COUNTER_KEY) || '1', 10);
-    const numeroVenta = `VEN-${counter.toString().padStart(3, '0')}`;
-
+    // 1️⃣ Crear objeto Venta con datos del Pedido
+    const numeroVenta = generarNumeroVenta();
+    
     const nuevaVenta = {
       id: Date.now(),
       numeroVenta,
       clienteId: pedido.clienteId,
       clienteNombre: pedido.clienteNombre,
       fechaVenta: pedido.fechaPedido,
-      estado: 'Completada',
+      estado: 'Completada' as const,
       items: pedido.items,
       subtotal: pedido.subtotal,
       iva: pedido.iva,
@@ -587,37 +697,62 @@ export default function PedidosManager() {
       observaciones: pedido.observaciones || '',
       anulada: false,
       createdAt: new Date().toISOString(),
-      pedido_id: pedido.numeroPedido
+      pedido_id: pedido.numeroPedido,
+      // 🔒 NUEVO: Flags de movimientos de stock
+      movimientosStock: {
+        salidaEjecutada: false,   // Se marca true en finalizarVenta()
+        devolucionEjecutada: false
+      }
     };
 
-    localStorage.setItem(VENTAS_KEY, JSON.stringify([...ventasActuales, nuevaVenta]));
-    localStorage.setItem(VENTA_COUNTER_KEY, String(counter + 1));
+    // 2️⃣ 🔒 LLAMAR A FUNCIÓN CENTRAL: finalizarVenta()
+    // Esta función es responsable de:
+    // - Validar variantes y stock
+    // - Descontar stock automáticamente
+    // - Guardar venta en localStorage
+    // - Disparar eventos para sincronización
+    const resultado = finalizarVenta(nuevaVenta, pedido.items);
 
-    // Avisar a la UI de ventas (si está abierta)
-    window.dispatchEvent(new Event('salesUpdated'));
+    // 3️⃣ GUARD CLAUSE: Si el descuento falla, mostrar error
+    if (!resultado.exitoso) {
+      console.error(`❌ [PedidosManager] Error al convertir pedido a venta: ${resultado.error}`);
+      setNotificationMessage(`❌ Error: ${resultado.error}`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return; // ABORTA - No cambiar estado a Completada
+    }
+
+    // ✅ Éxito: Stock descuento correctamente, marcar como éxito
+    console.log(`✅ [PedidosManager] Pedido ${pedido.numeroPedido} convertido a venta ${numeroVenta} - Stock descargado`);
   };
 
-  const cambiarEstado = (pedido: Pedido, nuevoEstado: Pedido['estado']) => {
-    setPedidos(pedidos.map(p =>
-      p.id === pedido.id ? { ...p, estado: nuevoEstado } : p
-    ));
-
-    // Si el estado es "Venta", sincronizar con el módulo de ventas
-    if (nuevoEstado === 'Venta') {
-      // ✅ Persistir venta para que Ventas la lea siempre
-      crearVentaDesdePedido({ ...pedido, estado: nuevoEstado });
-
-      // ✅ Mantener evento (por compatibilidad)
-      const evento = new CustomEvent('pedidoConvertidoAVenta', {
-        detail: {
-          pedido: { ...pedido, estado: nuevoEstado }
+  const cambiarEstado = (pedido: Pedido, nuevoEstado: EstadoPedido) => {
+    // 🔒 USAR FUNCIÓN MAESTRA CENTRALIZADA
+    // Orquesta automáticamente el tipo correcto de transición
+    const resultado = cambiarEstadoPedidoCentralizado(pedido, nuevoEstado, {
+      onNotificar: (titulo, mensaje, tipo) => {
+        setNotificationMessage(mensaje);
+        setNotificationType(tipo);
+        setShowNotificationModal(true);
+      },
+      onExitoso: (res) => {
+        console.log(`✅ Transición completada (${res.tipo}):`, res);
+      },
+      onLog: (msg, nivel) => {
+        if (nivel === 'error') {
+          console.error(msg);
+        } else if (nivel === 'warn') {
+          console.warn(msg);
+        } else {
+          console.log(msg);
         }
-      });
-      window.dispatchEvent(evento);
+      },
+    });
 
-      setNotificationMessage(`Pedido ${pedido.numeroPedido} convertido a venta exitosamente`);
-      setNotificationType('success');
-      setShowNotificationModal(true);
+    if (resultado.exitoso && resultado.pedidoActualizado) {
+      setPedidos(pedidos.map(p =>
+        p.id === pedido.id ? resultado.pedidoActualizado! : p
+      ));
     }
   };
 
@@ -681,6 +816,8 @@ ${pedido.numeroPedido}
 Fecha: ${new Date(pedido.fechaPedido).toLocaleDateString()}
 Cliente: ${pedido.clienteNombre}
 Estado: ${pedido.estado}
+  Dirección de Envío: ${pedido.direccionEnvio || '-'}
+  Persona que recibe: ${pedido.personaRecibe || '-'}
 
 ---------------------------------
 PRODUCTOS
@@ -717,6 +854,8 @@ DAMABELLA - Moda Femenina
   };
 
   const filteredPedidos = pedidos.filter(p => {
+    // Mostrar SOLO pedidos pendientes en el módulo de Pedidos
+    if (p.estado !== 'Pendiente') return false;
     const searchLower = searchTerm.toLowerCase();
     const matchPedido = (p.numeroPedido?.toLowerCase() ?? '').includes(searchLower);
     const matchCliente = (p.clienteNombre?.toLowerCase() ?? '').includes(searchLower);
@@ -735,6 +874,18 @@ DAMABELLA - Moda Femenina
     });
     return matchPedido || matchCliente || matchEstado || matchFecha || matchTotal || matchProducto;
   });
+
+  // PAGINACIÓN: mostrar 5 pedidos por página (useMemo + useState)
+  const ITEMS_PER_PAGE = 5;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.ceil(filteredPedidos.length / ITEMS_PER_PAGE);
+
+  const paginatedPedidos = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredPedidos.slice(start, end);
+  }, [filteredPedidos, currentPage]);
 
   const filteredClientes = clientes.filter((c: any) =>
     (c.nombre?.toLowerCase() ?? '').includes(clienteSearch.toLowerCase()) ||
@@ -767,7 +918,7 @@ DAMABELLA - Moda Femenina
   const getEstadoColor = (estado: Pedido['estado']) => {
     switch (estado) {
       case 'Pendiente': return 'bg-yellow-100 text-yellow-700';
-      case 'Venta': return 'bg-green-100 text-green-700';
+      case 'Completada': return 'bg-green-100 text-green-700';
       case 'Anulado': return 'bg-red-100 text-red-700';
       default: return 'bg-gray-100 text-gray-700';
     }
@@ -788,27 +939,30 @@ DAMABELLA - Moda Femenina
         'IVA (19%)': `$${p.iva.toLocaleString()}`,
         'Total': `$${p.total.toLocaleString()}`,
         'Estado': p.estado,
-        'Método Pago': p.metodoPago
+        'Método Pago': p.metodoPago,
+        'Dirección Envío': p.direccionEnvio || '',
+        'Persona recibe': p.personaRecibe || ''
       }));
-      // Crear contenido CSV (alternativa simple sin librerías externas)
+      // Crear contenido TSV para exportar a Excel (archivo .xlsx con tab-separado)
       const headers = Object.keys(datosExcel[0] || {});
-      const csvContent = [
-        headers.join(','),
+      const tsvContent = [
+        headers.join('\t'),
         ...datosExcel.map(row =>
           headers.map(header => {
             const valor = row[header as keyof typeof row];
             const valorStr = String(valor || '');
-            // Escapar comillas y envolver en comillas si contiene comas
-            return valorStr.includes(',') ? `"${valorStr.replace(/"/g, '""')}"` : valorStr;
-          }).join(',')
+            // Escapar tabs y nuevas líneas reemplazándolas por espacios simples
+            return valorStr.replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
+          }).join('\t')
         )
       ].join('\n');
-      // Crear blob y descargar
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+      // Crear blob y descargar con extensión .xlsx (contenido tab-separado)
+      const blob = new Blob([tsvContent], { type: 'text/plain;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `pedidos_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+      link.setAttribute('download', `pedidos_${new Date().toLocaleDateString().replace(/\//g, '-')}.xlsx`);
       link.click();
       URL.revokeObjectURL(url);
       setNotificationMessage('Pedidos exportados correctamente');
@@ -883,7 +1037,7 @@ DAMABELLA - Moda Femenina
                   </td>
                 </tr>
               ) : (
-                filteredPedidos.map((pedido) => (
+                paginatedPedidos.map((pedido) => (
                   <tr key={pedido.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="text-gray-900">{pedido.numeroPedido}</div>
@@ -932,17 +1086,19 @@ DAMABELLA - Moda Femenina
                           <Repeat size={18} />
                         </button>
 
-                        {/* ✅ Editar (solo si NO está en Venta ni Anulado) */}
+                        {/* ✅ Editar (solo si NO está en Venta ni Anulado ni tiene ventaId) */}
                         <button
                           onClick={() => handleEdit(pedido)}
-                          disabled={pedido.estado === 'Venta' || pedido.estado === 'Anulado'}
+                          disabled={!puedeEditarse(pedido.estado) || !!pedido.venta_id}
                           className={`p-2 rounded-lg transition-colors ${
-                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                            !puedeEditarse(pedido.estado) || !!pedido.venta_id
                               ? 'text-gray-300 cursor-not-allowed'
                               : 'hover:bg-gray-100 text-gray-600'
                           }`}
                           title={
-                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                            !!pedido.venta_id
+                              ? 'Este pedido tiene una venta asociada'
+                              : !puedeEditarse(pedido.estado)
                               ? `No se puede editar en estado ${pedido.estado}`
                               : 'Editar'
                           }
@@ -950,17 +1106,19 @@ DAMABELLA - Moda Femenina
                           <Pencil size={18} />
                         </button>
 
-                        {/* ✅ Anular (solo si NO está en Venta ni Anulado) */}
+                        {/* ✅ Anular (bloqueado si tiene ventaId) */}
                         <button
                           onClick={() => handleAnular(pedido)}
-                          disabled={pedido.estado === 'Venta' || pedido.estado === 'Anulado'}
+                          disabled={!puedeTransicionar(pedido.estado, 'Anulado') || !!pedido.venta_id}
                           className={`p-2 rounded-lg transition-colors ${
-                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                            !puedeTransicionar(pedido.estado, 'Anulado') || !!pedido.venta_id
                               ? 'text-gray-300 cursor-not-allowed'
                               : 'hover:bg-red-50 text-red-600'
                           }`}
                           title={
-                            (pedido.estado === 'Venta' || pedido.estado === 'Anulado')
+                            !!pedido.venta_id
+                              ? 'Pedido bloqueado: tiene una venta asociada'
+                              : !puedeTransicionar(pedido.estado, 'Anulado')
                               ? `No se puede anular en estado ${pedido.estado}`
                               : 'Anular'
                           }
@@ -975,6 +1133,49 @@ DAMABELLA - Moda Femenina
             </tbody>
           </table>
         </div>
+
+        {/* Paginador */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
+            {/* Texto informativo */}
+            <span className="text-sm text-gray-500">
+              {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredPedidos.length || 0)} a ${Math.min(currentPage * ITEMS_PER_PAGE, filteredPedidos.length)} de ${filteredPedidos.length} pedidos`}
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Anterior
+              </button>
+
+              {Array.from({ length: totalPages }).map((_, index) => {
+                const page = index + 1;
+                const isActive = currentPage === page;
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={isActive ? 'px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-semibold' : 'px-3 py-1.5 rounded-md border text-sm text-gray-700 hover:bg-gray-100 transition'}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* Modal Crear/Editar */}
@@ -983,10 +1184,10 @@ DAMABELLA - Moda Femenina
         onClose={() => setShowModal(false)}
         title={editingPedido ? `Editar Pedido` : 'Nuevo Pedido'}
       >
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="space-y-0 p-0 -mt-4">
           {/* Cliente */}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1">
               <label className="block text-gray-700">Cliente *</label>
               <button
                 onClick={() => setShowClienteModal(true)}
@@ -1025,7 +1226,7 @@ DAMABELLA - Moda Femenina
               />
 
               {showClienteDropdown && (
-                <div className="absolute z-[9999] mt-2 w-full max-h-56 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                <div className="absolute z-[9999] mt-1 w-full max-h-[40vh] bg-white border border-gray-200 rounded-lg shadow-lg">
                   {clientesFiltradosSelect.length === 0 ? (
                     <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
                   ) : (
@@ -1060,27 +1261,25 @@ DAMABELLA - Moda Femenina
             {formErrors.clienteId && <p className="text-red-500 text-sm mt-1">{formErrors.clienteId}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-4 gap-2">
             <div>
-              <label className="block text-gray-700 mb-2">Fecha *</label>
+              <label className="block text-gray-700 mb-1">Fecha *</label>
               <Input
                 type="date"
                 value={formData.fechaPedido}
                 onChange={(e) => handleFieldChange('fechaPedido', e.target.value)}
                 required
+                disabled={!!editingPedido}
               />
               {formErrors.fechaPedido && <p className="text-red-500 text-sm mt-1">{formErrors.fechaPedido}</p>}
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-2">Método de Pago *</label>
+              <label className="block text-gray-700 mb-1">Método de Pago *</label>
               {saldoDisponible > 0 && formData.clienteId && (
-                <div className="mb-3 rounded-lg border border-green-300 bg-green-50 p-3">
+                <div className="mb-2 rounded-lg border border-green-300 bg-green-50 p-2 text-sm">
                   <div className="text-green-800 font-semibold">
                     ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
-                  </div>
-                  <div className="text-sm text-green-900 mt-1">
-                    (Se aplicará cuando conviertas este pedido en venta, si decides usarlo allá)
                   </div>
                 </div>
               )}
@@ -1088,7 +1287,7 @@ DAMABELLA - Moda Femenina
               <select
                 value={formData.metodoPago}
                 onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                 required
               >
                 <option value="Efectivo">Efectivo</option>
@@ -1098,15 +1297,33 @@ DAMABELLA - Moda Femenina
                 <option value="Daviplata">Daviplata</option>
               </select>
             </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Dirección de Envío</label>
+              <Input
+                value={(formData as any).direccionEnvio}
+                onChange={(e) => handleFieldChange('direccionEnvio', e.target.value)}
+                placeholder="Dirección de envío (opcional)"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Persona que recibe</label>
+              <Input
+                value={(formData as any).personaRecibe}
+                onChange={(e) => handleFieldChange('personaRecibe', e.target.value)}
+                placeholder="Nombre de la persona que recibe (opcional)"
+              />
+            </div>
           </div>
 
           {/* Productos */}
-          <div className="border-t pt-4">
-            <h4 className="text-gray-900 mb-3">Agregar Productos</h4>
+          <div className="border-t pt-1">
+            <h4 className="text-gray-900 mb-1">Agregar Productos</h4>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-4 space-y-3">
+            <div className="bg-gray-50 rounded-lg p-1 mb-1 space-y-1">
               <div>
-                <label className="block text-gray-700 mb-2 text-sm">Producto</label>
+                <label className="block text-gray-700 mb-1 text-sm">Producto</label>
 
                 <div className="relative" onClick={(e) => e.stopPropagation()}>
                   <Input
@@ -1125,7 +1342,7 @@ DAMABELLA - Moda Femenina
                   />
 
                   {showProductoDropdown && (
-                    <div className="absolute z-[9999] mt-2 w-full max-h-56 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                    <div className="absolute z-[9999] mt-1 w-full max-h-[40vh] bg-white border border-gray-200 rounded-lg shadow-lg">
                       {productosFiltradosSelect.length === 0 ? (
                         <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
                       ) : (
@@ -1157,10 +1374,10 @@ DAMABELLA - Moda Femenina
 
               {nuevoItem.productoId && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-1">
+                    <div className="grid grid-cols-2 gap-1">
                       <div>
-                        <label className="block text-gray-700 mb-2 text-sm">Talla</label>
+                        <label className="block text-gray-700 mb-1 text-sm">Talla</label>
                         <select
                           value={nuevoItem.talla}
                           onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
@@ -1174,7 +1391,7 @@ DAMABELLA - Moda Femenina
                       </div>
 
                       <div>
-                        <label className="block text-gray-700 mb-2 text-sm">Color</label>
+                        <label className="block text-gray-700 mb-1 text-sm">Color</label>
                         <select
                           value={nuevoItem.color}
                           onChange={(e) => handleNuevoItemChange('color', e.target.value)}
@@ -1191,14 +1408,35 @@ DAMABELLA - Moda Femenina
 
                   </div>
 
+                  {/* 🔒 Mostrar stock disponible */}
+                  {nuevoItem.color && stockDisponible !== null && (
+                    <div className={`rounded-lg p-3 text-sm ${
+                      stockDisponible > 0
+                        ? 'bg-blue-50 border border-blue-200 text-blue-800'
+                        : 'bg-red-50 border border-red-200 text-red-800'
+                    }`}>
+                      {stockDisponible > 0 ? (
+                        <div>
+                          <strong>✅ Stock disponible:</strong> {stockDisponible} unidades
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>❌ Sin stock:</strong> No hay disponibilidad para este producto
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div>
-                    <label className="block text-gray-700 mb-2 text-sm">Cantidad</label>
+                    <label className="block text-gray-700 mb-1 text-sm">Cantidad</label>
                     <Input
                       type="number"
                       min="1"
+                      max={stockDisponible || undefined}
                       value={nuevoItem.cantidad}
                       onChange={(e) => handleNuevoItemChange('cantidad', e.target.value)}
                       placeholder="1"
+                      disabled={!nuevoItem.color || stockDisponible === 0}
                     />
                     {formErrors['nuevoItem_cantidad'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoItem_cantidad']}</p>}
                   </div>
@@ -1213,9 +1451,9 @@ DAMABELLA - Moda Femenina
 
             {/* Lista de items */}
             {formData.items.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {formData.items.map((item) => (
-                  <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-white flex items-center justify-between">
+                  <div key={item.id} className="border border-gray-200 rounded-lg p-1 bg-white flex items-center justify-between text-sm">
                     <div className="flex-1">
                       <div className="text-gray-900">{item.productoNombre}</div>
                       <div className="text-sm text-gray-600">
@@ -1239,8 +1477,8 @@ DAMABELLA - Moda Femenina
 
           {/* Totales */}
           {formData.items.length > 0 && (
-            <div className="border-t pt-4 bg-gray-50 rounded-lg p-4">
-              <div className="space-y-2">
+            <div className="border-t pt-2 bg-gray-50 rounded-lg p-2">
+              <div className="space-y-1">
                 <div className="flex justify-between text-gray-600">
                   <span>Subtotal:</span>
                   <span>${totales.subtotal.toLocaleString()}</span>
@@ -1249,7 +1487,7 @@ DAMABELLA - Moda Femenina
                   <span>IVA (19%):</span>
                   <span>${totales.iva.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 pt-2 border-t">
+                <div className="flex justify-between text-gray-900 pt-1 border-t">
                   <span>Total:</span>
                   <span>${totales.total.toLocaleString()}</span>
                 </div>
@@ -1259,17 +1497,17 @@ DAMABELLA - Moda Femenina
 
           {/* Observaciones */}
           <div>
-            <label className="block text-gray-700 mb-2">Observaciones</label>
+            <label className="block text-gray-700 mb-1">Observaciones</label>
             <textarea
               value={formData.observaciones}
               onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+              rows={2}
               placeholder="Notas adicionales..."
             />
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t">
+          <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowModal(false)} variant="secondary">
               Cancelar
             </Button>
@@ -1287,8 +1525,8 @@ DAMABELLA - Moda Femenina
           onClose={() => setShowDetailModal(false)}
           title={`Detalle ${viewingPedido.tipo} ${viewingPedido.numeroPedido}`}
         >
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="space-y-0 p-0 -mt-4">
+            <div className="grid grid-cols-2 gap-1 p-1 bg-gray-50 rounded-lg">
               <div>
                 <div className="text-sm text-gray-600 mb-1">Cliente</div>
                 <div className="text-gray-900">{viewingPedido.clienteNombre}</div>
@@ -1309,13 +1547,21 @@ DAMABELLA - Moda Femenina
                 <div className="text-sm text-gray-600 mb-1">Método de Pago</div>
                 <div className="text-gray-900">{viewingPedido.metodoPago}</div>
               </div>
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Dirección de Envío</div>
+                <div className="text-gray-900">{viewingPedido.direccionEnvio || '-'}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Persona que recibe</div>
+                <div className="text-gray-900">{viewingPedido.personaRecibe || '-'}</div>
+              </div>
             </div>
 
             <div>
-              <h4 className="text-gray-900 mb-3">Productos</h4>
-              <div className="space-y-2">
+              <h4 className="text-gray-900 mb-1">Productos</h4>
+              <div className="grid grid-cols-2 gap-1">
                 {viewingPedido.items.map((item, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-3">
+                  <div key={index} className="border border-gray-200 rounded-lg p-1 text-sm">
                     <div className="flex justify-between mb-1">
                       <div className="text-gray-900">{item.productoNombre}</div>
                       <div className="text-gray-900">${item.subtotal.toLocaleString()}</div>
@@ -1328,8 +1574,8 @@ DAMABELLA - Moda Femenina
               </div>
             </div>
 
-            <div className="border-t pt-4 bg-gray-50 rounded-lg p-4">
-              <div className="space-y-2">
+            <div className="border-t pt-2 bg-gray-50 rounded-lg p-2">
+              <div className="space-y-1">
                 <div className="flex justify-between text-gray-600">
                   <span>Subtotal:</span>
                   <span>${viewingPedido.subtotal.toLocaleString()}</span>
@@ -1338,7 +1584,7 @@ DAMABELLA - Moda Femenina
                   <span>IVA (19%):</span>
                   <span>${viewingPedido.iva.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 pt-2 border-t">
+                <div className="flex justify-between text-gray-900 pt-1 border-t">
                   <span>Total:</span>
                   <span>${viewingPedido.total.toLocaleString()}</span>
                 </div>
@@ -1348,32 +1594,18 @@ DAMABELLA - Moda Femenina
             {viewingPedido.observaciones && (
               <div>
                 <div className="text-sm text-gray-600 mb-1">Observaciones</div>
-                <div className="text-gray-900 bg-gray-50 p-3 rounded-lg">
+                <div className="text-gray-900 bg-gray-50 p-2 rounded-lg">
                   {viewingPedido.observaciones}
                 </div>
               </div>
             )}
 
-            <div className="border-t pt-4">
-              <div className="text-sm text-gray-600 mb-2">Cambiar Estado</div>
-              <div className="flex flex-wrap gap-2">
-                {(['Pendiente', 'Venta', 'Anulado'] as const).map(estado => (
-                  <button
-                    key={estado}
-                    onClick={() => {
-                      cambiarEstado(viewingPedido, estado);
-                      setViewingPedido({ ...viewingPedido, estado });
-                    }}
-
-                    className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                      viewingPedido.estado === estado
-                        ? getEstadoColor(estado) + ' ring-2 ring-gray-400'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {estado}
-                  </button>
-                ))}
+            <div className="border-t pt-2">
+              <div className="text-sm text-gray-600 mb-1">Estado Actual</div>
+              <div className="flex items-center gap-2">
+                <span className={`px-4 py-2 rounded-lg text-sm font-medium ${obtenerClaseEstado(viewingPedido.estado)}`}>
+                  {obtenerDescripcionEstado(viewingPedido.estado)}
+                </span>
               </div>
             </div>
           </div>
@@ -1391,7 +1623,7 @@ DAMABELLA - Moda Femenina
           {/* ✅ DOCUMENTO PRIMERO */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
+              <label className="block text-gray-700 mb-1">Tipo de Documento *</label>
               <select
                 value={nuevoCliente.tipoDoc}
                 onChange={(e) => setNuevoCliente({ ...nuevoCliente, tipoDoc: e.target.value })}
@@ -1405,7 +1637,7 @@ DAMABELLA - Moda Femenina
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-2">Número de Documento *</label>
+              <label className="block text-gray-700 mb-1">Número de Documento *</label>
               <Input
                 value={nuevoCliente.numeroDoc}
                 onChange={(e) => handleNuevoClienteChange('numeroDoc', e.target.value)}
@@ -1422,7 +1654,7 @@ DAMABELLA - Moda Femenina
 
           {/* ✅ NOMBRE DESPUÉS */}
           <div>
-            <label className="block text-gray-700 mb-2">Nombre Completo *</label>
+            <label className="block text-gray-700 mb-1">Nombre Completo *</label>
             <Input
               value={nuevoCliente.nombre}
               onChange={(e) => handleNuevoClienteChange('nombre', e.target.value)}
@@ -1438,7 +1670,7 @@ DAMABELLA - Moda Femenina
 
           {/* RESTO IGUAL */}
           <div>
-            <label className="block text-gray-700 mb-2">Teléfono *</label>
+            <label className="block text-gray-700 mb-1">Teléfono *</label>
             <Input
               value={nuevoCliente.telefono}
               onChange={(e) =>
@@ -1455,7 +1687,7 @@ DAMABELLA - Moda Femenina
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Correo Electrónico</label>
+            <label className="block text-gray-700 mb-1">Correo Electrónico</label>
             <Input
               type="email"
               value={nuevoCliente.email}
@@ -1470,7 +1702,7 @@ DAMABELLA - Moda Femenina
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Dirección</label>
+            <label className="block text-gray-700 mb-1">Dirección</label>
             <Input
               value={nuevoCliente.direccion}
               onChange={(e) => handleNuevoClienteChange('direccion', e.target.value)}
@@ -1478,7 +1710,7 @@ DAMABELLA - Moda Femenina
             />
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t">
+          <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowClienteModal(false)} variant="secondary">
               Cancelar
             </Button>
@@ -1509,7 +1741,7 @@ DAMABELLA - Moda Femenina
             )}
             <p className="text-gray-700 text-base">{notificationMessage}</p>
           </div>
-          <div className="flex justify-end pt-4 border-t">
+          <div className="flex justify-end pt-2 border-t">
             <Button onClick={() => setShowNotificationModal(false)} variant="primary">
               Aceptar
             </Button>
@@ -1528,7 +1760,7 @@ DAMABELLA - Moda Femenina
             <AlertCircle className="text-yellow-600 flex-shrink-0 mt-1" size={24} />
             <p className="text-gray-700 text-base">{confirmMessage}</p>
           </div>
-          <div className="flex gap-3 justify-end pt-4 border-t">
+          <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowConfirmModal(false)} variant="secondary">
               Cancelar
             </Button>
@@ -1554,6 +1786,7 @@ DAMABELLA - Moda Femenina
         <div className="space-y-4">
           {pedidoParaCambiarEstado && (
             <>
+              {/* 📋 Información del Pedido */}
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                 <p className="text-sm text-gray-700">
                   <span className="font-semibold">Pedido:</span> {pedidoParaCambiarEstado.numeroPedido}
@@ -1561,43 +1794,99 @@ DAMABELLA - Moda Femenina
                 <p className="text-sm text-gray-700">
                   <span className="font-semibold">Cliente:</span> {pedidoParaCambiarEstado.clienteNombre}
                 </p>
+                <p className="text-sm text-gray-700 mt-2">
+                  <span className="font-semibold">Estado Actual:</span>{' '}
+                  <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${obtenerClaseEstado(pedidoParaCambiarEstado.estado)}`}>
+                    {obtenerDescripcionEstado(pedidoParaCambiarEstado.estado)}
+                  </span>
+                </p>
               </div>
 
-              <div>
-                <label className="block text-gray-700 mb-3 font-semibold">Nuevo Estado</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['Pendiente', 'Venta', 'Anulado'] as const).map((estado) => (
-                    <button
-                      key={estado}
-                      onClick={() => setNuevoEstado(estado)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        nuevoEstado === estado
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      {estado}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* 🔒 HELPER: Detectar si pedido fue convertido a venta (con múltiples criterios) */}
+              {(() => {
+                const esConvertidoAVenta = 
+                  pedidoParaCambiarEstado.estado?.toLowerCase?.()?.includes('convertido') ||
+                  pedidoParaCambiarEstado.estado === 'Convertido a venta' ||
+                  pedidoParaCambiarEstado.venta_id !== null;
 
-              <div className="flex gap-3 justify-end pt-4 border-t">
-                <Button onClick={() => setShowEstadoModal(false)} variant="secondary">
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={() => {
-                    if (pedidoParaCambiarEstado) {
-                      cambiarEstado(pedidoParaCambiarEstado, nuevoEstado);
-                      setShowEstadoModal(false);
-                    }
-                  }}
-                  variant="primary"
-                >
-                  Guardar Cambio
-                </Button>
-              </div>
+                return (
+                  <>
+                    {/* Mensaje informativo - Solo si está convertido a venta */}
+                    {esConvertidoAVenta && (
+                      <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-300 space-y-3">
+                        <div className="flex gap-3">
+                          <AlertCircle className="text-yellow-600 flex-shrink-0 mt-1" size={20} />
+                          <div className="text-sm">
+                            <p className="text-yellow-900 font-semibold mb-2">
+                              Este pedido ya fue convertido en una venta
+                            </p>
+                            <p className="text-yellow-800">
+                              Cualquier modificación debe realizarse desde el módulo de Ventas.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Selector de estado - Solo si NO está convertido a venta */}
+                    {!esConvertidoAVenta && (
+                      <div>
+                        <label className="block text-gray-700 mb-3 font-semibold">Nuevo Estado</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(['Pendiente', 'Completada', 'Anulado'] as const).map((estado) => {
+                            const esTransicionValida = puedeTransicionar(pedidoParaCambiarEstado.estado, estado);
+                            
+                            return (
+                              <button
+                                key={estado}
+                                onClick={() => {
+                                  if (esTransicionValida) {
+                                    setNuevoEstado(estado);
+                                  }
+                                }}
+                                disabled={!esTransicionValida}
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                  esTransicionValida
+                                    ? nuevoEstado === estado
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                }`}
+                                title={!esTransicionValida ? `No puedes pasar de ${pedidoParaCambiarEstado.estado} a ${estado}` : undefined}
+                              >
+                                {estado}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 🔘 Botones de acción */}
+                    <div className="flex gap-3 justify-end pt-4 border-t">
+                      {/* Botón Cancelar/Cerrar */}
+                      <Button onClick={() => setShowEstadoModal(false)} variant="secondary">
+                        {esConvertidoAVenta ? 'Cerrar' : 'Cancelar'}
+                      </Button>
+
+                      {/* Botón Guardar - Solo visible si NO está "Convertido a venta" */}
+                      {!esConvertidoAVenta && (
+                        <Button
+                          onClick={() => {
+                            if (pedidoParaCambiarEstado) {
+                              cambiarEstado(pedidoParaCambiarEstado, nuevoEstado);
+                              setShowEstadoModal(false);
+                            }
+                          }}
+                          variant="primary"
+                        >
+                          Guardar Cambio
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
         </div>

@@ -4,6 +4,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from ".
 interface Column<T> {
   key: string;
   label: string;
+  render?: (item: T) => React.ReactNode;
 }
 
 interface DataTableProps<T> {
@@ -26,21 +27,16 @@ export function DataTable<T extends { id: string }>({
           {columns.map((col) => (
             <TableHead key={col.key}>{col.label}</TableHead>
           ))}
-          {(onEdit || onDelete) && <TableHead>Acciones</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
         {data.map((item) => (
           <TableRow key={item.id}>
             {columns.map((col) => (
-              <TableCell key={col.key}>{(item as any)[col.key]}</TableCell>
-            ))}
-            {(onEdit || onDelete) && (
-              <TableCell>
-                {onEdit && <button onClick={() => onEdit(item)}>Editar</button>}
-                {onDelete && <button onClick={() => onDelete(item)}>Eliminar</button>}
+              <TableCell key={col.key}>
+                {col.render ? col.render(item) : (item as any)[col.key]}
               </TableCell>
-            )}
+            ))}
           </TableRow>
         ))}
       </TableBody>

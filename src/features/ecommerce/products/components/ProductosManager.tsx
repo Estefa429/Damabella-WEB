@@ -23,11 +23,18 @@ interface Producto {
   nombre: string;
   proveedor: string;
   categoria: string;
+  categoryId?: string;  // ✅ ID de la categoría (desde Compras)
   precioVenta: number;
   activo: boolean;
   variantes: VarianteTalla[];
   imagen?: string;
   createdAt: string;
+  // Campos opcionales creados desde ComprasManager
+  referencia?: string;
+  precioCompra?: number;
+  createdFromSKU?: string;
+  updatedAt?: string;
+  lastUpdatedFrom?: string;
 }
 
 export default function ProductosManager() {
@@ -53,7 +60,45 @@ export default function ProductosManager() {
 
   const [productos, setProductos] = useState<Producto[]>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    let productos = stored ? JSON.parse(stored) : [];
+    
+    // 🔄 MIGRACIÓN AUTOMÁTICA: Resolver categoryId → categoria para productos antiguos
+    const categorias = (() => {
+      const catStored = localStorage.getItem(CATEGORIAS_KEY);
+      return catStored ? JSON.parse(catStored) : [
+        { id: 1, name: 'Vestidos Largos' },
+        { id: 2, name: 'Vestidos Cortos' },
+        { id: 3, name: 'Sets' },
+        { id: 4, name: 'Enterizos' }
+      ];
+    })();
+    
+    // Revisar cada producto
+    const productosActualizados = productos.map((p: any) => {
+      // Si tiene categoryId pero NO tiene categoria (campo textual)
+      if (p.categoryId && !p.categoria) {
+        const categoriaNombre = categorias.find((c: any) => 
+          String(c.id) === String(p.categoryId) || c.name === p.categoryId
+        )?.name;
+        
+        if (categoriaNombre) {
+          console.log(`🔄 [ProductosManager-INIT] Migrando ${p.nombre}: categoryId="${p.categoryId}" → categoria="${categoriaNombre}"`);
+          return {
+            ...p,
+            categoria: categoriaNombre  // ✅ Guardar el nombre
+          };
+        }
+      }
+      return p;
+    });
+    
+    // Si hubo cambios, guardar
+    if (JSON.stringify(productos) !== JSON.stringify(productosActualizados)) {
+      console.log('💾 [ProductosManager-INIT] Guardando productos migrados...');
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(productosActualizados));
+    }
+    
+    return productosActualizados;
   });
 
   const [categorias, setCategorias] = useState(() => {
@@ -75,6 +120,33 @@ export default function ProductosManager() {
           const parsed = JSON.parse(stored);
           setCategorias(parsed);
           console.log('[ProductosManager] ✅ Categorías actualizadas:', parsed.length);
+          
+          // 🔄 SINCRONIZACIÓN: Resolver categoryId → categoria para productos que lo necesiten
+          setProductos(prevProductos => {
+            const productosActualizados = prevProductos.map((p: any) => {
+              if (p.categoryId && !p.categoria) {
+                const categoriaNombre = parsed.find((c: any) => 
+                  String(c.id) === String(p.categoryId) || c.name === p.categoryId
+                )?.name;
+                
+                if (categoriaNombre) {
+                  console.log(`✅ [ProductosManager-SYNC] Resolviendo categoría: ${p.nombre} = "${categoriaNombre}"`);
+                  return {
+                    ...p,
+                    categoria: categoriaNombre
+                  };
+                }
+              }
+              return p;
+            });
+            
+            // Si hubo cambios, guardar
+            if (JSON.stringify(prevProductos) !== JSON.stringify(productosActualizados)) {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(productosActualizados));
+            }
+            
+            return productosActualizados;
+          });
         } catch (error) {
           console.error('[ProductosManager] Error al actualizar categorías:', error);
         }
@@ -187,6 +259,7 @@ export default function ProductosManager() {
   }, []);
 
   const [showModal, setShowModal] = useState(false);
+  const [editMode, setEditMode] = useState(false);  // ✅ Diferenciar crear vs editar
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [viewingProduct, setViewingProduct] = useState<Producto | null>(null);
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null);
@@ -220,25 +293,18 @@ export default function ProductosManager() {
   }, [productos]);
 
   const handleCreate = () => {
-    setEditingProduct(null);
-    setFormData({
-      nombre: '',
-      proveedor: '',
-      categoria: '',
-      precioVenta: '',
-      imagen: '',
-      variantes: []
+    // ❌ PROHIBIDO: No se pueden crear nuevos productos desde este módulo
+    // Solo Compras puede crear productos
+    setShowAlert({ 
+      visible: true, 
+      message: '❌ Los productos se crean SOLO desde el módulo Compras. Este módulo solo permite editar metadatos.', 
+      type: 'error' 
     });
-    setFormErrors({});
-    setNuevaVariante({
-      talla: '',
-      colores: [{ color: '', cantidad: 0 }]
-    });
-    setShowModal(true);
   };
 
   const handleEdit = (producto: Producto) => {
     setEditingProduct(producto);
+    setEditMode(true);  // ✅ Modo editar
     setFormData({
       nombre: producto.nombre || '',
       proveedor: producto.proveedor || '',
@@ -249,6 +315,12 @@ export default function ProductosManager() {
         ? producto.variantes 
         : []
     });
+    // ✅ RESET nuevaVariante al editar - NO heredar valores anteriores
+    setNuevaVariante({
+      talla: '',
+      colores: [{ color: '', cantidad: 0 }]
+    });
+    setFormErrors({});  // ✅ Limpiar errores previos
     setShowModal(true);
   };
 
@@ -258,34 +330,12 @@ export default function ProductosManager() {
   };
 
   const agregarVariante = () => {
-    if (!nuevaVariante.talla) {
-      setShowAlert({ visible: true, message: 'Debes seleccionar una talla', type: 'error' });
-      return;
-    }
-
-    const coloresValidos = nuevaVariante.colores.filter(c => c.color && c.cantidad >= 0);
-    if (coloresValidos.length === 0) {
-      setShowAlert({ visible: true, message: 'Debes agregar al menos un color con cantidad', type: 'error' });
-      return;
-    }
-
-    // Verificar si ya existe una variante con esa talla
-    if (formData.variantes.some(v => v.talla === nuevaVariante.talla)) {
-      setShowAlert({ visible: true, message: 'Ya existe una variante con esta talla', type: 'error' });
-      return;
-    }
-
-    setFormData({
-      ...formData,
-      variantes: [...formData.variantes, {
-        talla: nuevaVariante.talla,
-        colores: coloresValidos
-      }]
-    });
-
-    setNuevaVariante({
-      talla: '',
-      colores: [{ color: '', cantidad: 0 }]
+    // ❌ PROHIBIDO: No se pueden crear variantes desde este módulo
+    // Solo Compras puede crear variantes
+    setShowAlert({ 
+      visible: true, 
+      message: '❌ Las variantes se crean SOLO desde el módulo Compras. Este módulo permite verlas en lectura, no crearlas.', 
+      type: 'error' 
     });
   };
 
@@ -305,8 +355,14 @@ export default function ProductosManager() {
     const precioErr = validateField('price', formData.precioVenta);
     if (precioErr) errors.precioVenta = precioErr;
 
-    if (formData.variantes.length === 0) {
-      errors.variantes = 'Debes agregar al menos una talla con sus colores';
+    // ❌ PROHIBICIÓN: NO se puede crear producto nuevo (sin editingProduct)
+    if (!editingProduct) {
+      setShowAlert({ 
+        visible: true, 
+        message: '❌ No se pueden crear nuevos productos desde este módulo. Solo editar metadatos de productos existentes.', 
+        type: 'error' 
+      });
+      return;
     }
 
     if (Object.keys(errors).length > 0) {
@@ -320,22 +376,39 @@ export default function ProductosManager() {
       categoria: formData.categoria,
       precioVenta: parseFloat(formData.precioVenta),
       activo: editingProduct ? editingProduct.activo : true,
-      variantes: formData.variantes,
+      variantes: editingProduct.variantes,  // ✅ Mantener variantes sin cambios - NO editar
       imagen: formData.imagen,
       createdAt: editingProduct ? editingProduct.createdAt : new Date().toISOString()
     };
 
     if (editingProduct) {
+      // 🔧 MERGE COMPLETO: Mantener campos existentes que no se editen
+      const productoActualizado = {
+        ...editingProduct,  // Primero mantener TODO el producto existente
+        ...productoData,     // Luego sobrescribir SOLO los campos editados
+        id: editingProduct.id,  // Asegurar que el ID no cambie
+        variantes: editingProduct.variantes,  // ✅ NUNCA editar variantes desde aquí
+        categoryId: editingProduct.categoryId  // ✅ Mantener categoryId intacto
+      };
+      
+      console.log(`📝 [ProductosManager] Actualizando metadatos del producto:`, {
+        id: productoActualizado.id,
+        nombre: productoActualizado.nombre,
+        categoria: productoActualizado.categoria,
+        precioVenta: productoActualizado.precioVenta,
+        variantesMantenidas: productoActualizado.variantes.length,
+        camposEditados: ['nombre', 'categoria', 'precioVenta', 'proveedor', 'imagen'],
+        camposProtegidos: ['categoryId', 'variantes', 'referencia', 'precioCompra']
+      });
+      
       setProductos(productos.map(p => 
-        p.id === editingProduct.id ? { ...p, ...productoData } : p
+        p.id === editingProduct.id ? productoActualizado : p
       ));
-      setShowAlert({ visible: true, message: 'Producto actualizado exitosamente', type: 'success' });
-    } else {
-      setProductos([...productos, { id: Date.now(), ...productoData }]);
-      setShowAlert({ visible: true, message: 'Producto creado exitosamente', type: 'success' });
+      setShowAlert({ visible: true, message: '✅ Metadatos del producto actualizados. Las variantes se crean desde Compras.', type: 'success' });
     }
     
     setShowModal(false);
+    setEditMode(false);
     setFormErrors({});
     setNuevaVariante({ talla: '', colores: [{ color: '', cantidad: 0 }] });
   };
@@ -522,11 +595,7 @@ export default function ProductosManager() {
         <div className="flex gap-2">
           <Button onClick={exportToExcel} variant="secondary">
             <Download size={20} />
-            Exportar Excel
-          </Button>
-          <Button onClick={handleCreate} variant="primary">
-            <Plus size={20} />
-            Nuevo Producto
+            Descargar Excel
           </Button>
         </div>
       </div>
@@ -569,14 +638,12 @@ export default function ProductosManager() {
                 )}
                 <div className="absolute top-2 right-2">
                   <button
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => toggleActive(producto.id)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      producto.activo 
-                        ? 'bg-green-500 text-white' 
-                        : 'bg-gray-300 text-gray-700'
-                    }`}
-                  >
-                    {producto.activo ? 'Activo' : 'Inactivo'}
+                    aria-pressed={producto.activo}
+                    title={producto.activo ? 'Inactivar producto' : 'Activar producto'}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${producto.activo ? 'bg-green-500' : 'bg-gray-400'}`}>
+                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${producto.activo ? 'translate-x-6' : 'translate-x-0'}`} />
                   </button>
                 </div>
               </div>
@@ -760,6 +827,7 @@ export default function ProductosManager() {
         isOpen={showModal}
         onClose={() => {
           setShowModal(false);
+          setEditMode(false);  // ✅ Resetear modo
           setFormErrors({});
           setEditingProduct(null);
           setFormData({
@@ -817,21 +885,7 @@ export default function ProductosManager() {
               </select>
               {formErrors.categoria && <p className="text-red-600 text-sm mt-1">{formErrors.categoria}</p>}
             </div>
-            <div>
-              <label className="block text-gray-700 mb-2">Proveedor *</label>
-              <select
-                value={formData.proveedor}
-                onChange={(e) => handleFieldChange('proveedor', e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                required
-              >
-                <option value="">Seleccionar...</option>
-                {proveedores.map((prov: any) => (
-                  <option key={prov.id} value={prov.nombre}>{prov.nombre}</option>
-                ))}
-              </select>
-              {formErrors.proveedor && <p className="text-red-600 text-sm mt-1">{formErrors.proveedor}</p>}
-            </div>
+            {/* El campo proveedor se ha eliminado del modal de edición: el proveedor no es editable desde aquí */}
           </div>
 
           {/* Imagen */}
@@ -868,89 +922,21 @@ export default function ProductosManager() {
             </div>
           </div>
 
-          {/* Agregar variantes (tallas y colores) */}
+          {/* Variantes - SOLO LECTURA */}
           <div className="border-t pt-4">
-            <h4 className="text-gray-900 mb-3">Tallas y Colores Disponibles</h4>
+            <h4 className="text-gray-900 mb-3">Variantes Actuales</h4>
             
-            {/* Nueva variante */}
-            <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <div className="mb-3">
-                <label className="block text-gray-700 mb-2">Seleccionar Talla *</label>
-                <select
-                  value={nuevaVariante.talla}
-                  onChange={(e) => setNuevaVariante({ ...nuevaVariante, talla: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                >
-                  <option value="">Seleccionar talla...</option>
-                  {tallas.map(talla => (
-                    <option key={talla} value={talla}>{talla}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="mb-3">
-                <label className="block text-gray-700 mb-2">Color y Cantidad *</label>
-                <div className="flex gap-2 items-start">
-                  <select
-                    value={nuevaVariante.colores[0]?.color || ''}
-                    onChange={(e) => {
-                      const nuevoColor = e.target.value;
-                      setNuevaVariante({
-                        ...nuevaVariante,
-                        colores: [{ ...nuevaVariante.colores[0], color: nuevoColor }]
-                      });
-                    }}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    <option value="">Seleccionar color...</option>
-                    {coloresDisponibles.map(color => (
-                      <option key={color.nombre} value={color.nombre}>
-                        {color.nombre}
-                      </option>
-                    ))}
-                  </select>
-                  <Input
-                    type="number"
-                    value={nuevaVariante.colores[0]?.cantidad || 0}
-                    onChange={(e) => {
-                      setNuevaVariante({
-                        ...nuevaVariante,
-                        colores: [{ ...nuevaVariante.colores[0], cantidad: parseInt(e.target.value) || 0 }]
-                      });
-                    }}
-                    placeholder="Cantidad"
-                    className="w-24"
-                  />
-                </div>
-              </div>
-
-              <Button 
-                type="button"
-                onClick={agregarVariante}
-                variant="secondary"
-                className="w-full"
-              >
-                <Plus size={18} />
-                Agregar esta Talla
-              </Button>
+            {/* 🔒 Mensaje de protección */}
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
+              <strong>🔒 Variantes en modo lectura:</strong> Las variantes solo se crean desde el módulo <strong>Compras</strong>. El inventario se gestiona automáticamente desde allí.
             </div>
 
-            {/* Variantes agregadas */}
+            {/* Variantes agregadas - SOLO LECTURA */}
             {formData.variantes.length > 0 && (
               <div className="space-y-2">
-                <h5 className="text-gray-700 font-medium">Variantes agregadas:</h5>
                 {formData.variantes.map((variante, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-3 bg-white">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium text-gray-900">Talla {variante.talla}</span>
-                      <button
-                        type="button"
-                        onClick={() => eliminarVariante(index)}
-                        className="text-red-600 hover:bg-red-50 p-1 rounded-lg"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                  <div key={index} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                    <div className="font-medium text-gray-900 mb-2">Talla {variante.talla}</div>
                     <div className="text-sm text-gray-600">
                       {variante.colores.map((c, i) => (
                         <span key={i}>
@@ -961,6 +947,12 @@ export default function ProductosManager() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {formData.variantes.length === 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
+                Este producto aún no tiene variantes. Se crean automáticamente desde el módulo <strong>Compras</strong>.
               </div>
             )}
           </div>

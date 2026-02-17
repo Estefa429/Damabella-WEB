@@ -15,17 +15,14 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   searchPlaceholder?: string;
   onRowClick?: (item: T) => void;
+  itemsPerPage?: number;
 }
 
-export function DataTable<T extends { id: string | number }>({
-  data,
-  columns,
-  searchPlaceholder = 'Buscar...',
-  onRowClick,
-}: DataTableProps<T>) {
+export function DataTable<T extends { id: string | number }>(
+  { data, columns, searchPlaceholder = 'Buscar...', onRowClick, itemsPerPage = 10 }: DataTableProps<T>
+) {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
 
   // Filtrar datos
   const filteredData = data.filter((item) =>
@@ -100,27 +97,40 @@ export function DataTable<T extends { id: string | number }>({
 
       {/* Paginación */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
+        <div className="bg-gray-50 border-t border-gray-200 px-4 py-3 flex items-center justify-between">
           <div className="text-sm text-gray-600">
-            Página {currentPage} de {totalPages}
+            Mostrando <span className="font-medium">{Math.min(startIndex + 1, filteredData.length)}</span> a <span className="font-medium">{Math.min(startIndex + itemsPerPage, filteredData.length)}</span> de <span className="font-medium">{filteredData.length}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              Anterior
+            </button>
+            <div className="flex items-center gap-2">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    currentPage === page
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+              Siguiente
+            </button>
           </div>
         </div>
       )}

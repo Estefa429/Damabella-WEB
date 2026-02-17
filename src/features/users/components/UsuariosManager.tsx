@@ -59,17 +59,7 @@ export default function UsuariosManager() {
     roleId: ''
   });
 
-  const [formErrors, setFormErrors] = useState<{
-    nombre?: string;
-    tipoDoc?: string;
-    numeroDoc?: string;
-    celular?: string;
-    email?: string;
-    direccion?: string;
-    password?: string;
-    confirmPassword?: string;
-    roleId?: string;
-  }>({});
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -412,6 +402,18 @@ export default function UsuariosManager() {
                     <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
                         <button
+                          onClick={() => toggleActive(usuario.id)}
+                          className={`relative w-10 h-5 rounded-full transition-colors ${
+                            usuario.activo ? 'bg-green-500' : 'bg-gray-300'
+                          } mr-1`}
+                          title={usuario.activo ? 'Desactivar usuario' : 'Activar usuario'}
+                          aria-pressed={usuario.activo}
+                        >
+                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                            usuario.activo ? 'translate-x-5' : 'translate-x-0'
+                          }`} />
+                        </button>
+                        <button
                           onClick={() => handleEdit(usuario)}
                           className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                           title="Editar"
@@ -667,10 +669,10 @@ export default function UsuariosManager() {
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="text-gray-600 mb-2">Por Rol</div>
             {roles.map((rol: any) => {
-              const count = usuarios.filter(u => u.role === rol.nombre).length;
+              const count = usuarios.filter(u => u.role === (rol.name || rol.nombre)).length;
               return (
                 <div key={rol.id} className="flex justify-between items-center py-1">
-                  <span className="text-gray-700">{rol.nombre}</span>
+                  <span className="text-gray-700">{rol.name || rol.nombre}</span>
                   <span className="text-gray-900">{count}</span>
                 </div>
               );

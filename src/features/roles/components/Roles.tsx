@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Label, Textarea, Modal, DataTable, useToast } from '../../../shared/components/native';
 import validateField from '../../../shared/utils/validation';
+import { Trash2, Edit2 } from 'lucide-react';
+// import { DataTable } from '@/components/ui/DataTable';
 
 
 const validateRoleName = (value: string) => {
@@ -12,9 +14,24 @@ const validateRoleName = (value: string) => {
   return '';
 };
 
+// ============== TIPOS ==============
+interface Permission {
+  module: string;
+  canView: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+}
 
+interface Role {
+  id: string;
+  name: string;
+  description: string;
+  permissions: Permission[];
+  userCount: number;
+}
 
-// Mock roles ya tipados correctamente
+// Para compatibilidad con código antiguo
 interface Rol {
   id: string;
   nombre: string;
@@ -22,60 +39,186 @@ interface Rol {
   permisos: string[];
 }
 
-const mockRoles: Rol[] = [
+const STORAGE_KEY = 'damabella_roles';
+
+const availableModules = [
+  'Usuarios',
+  'Roles',
+  'Clientes',
+  'Proveedores',
+  'Categorias',
+  'Productos',
+  'Tallas',
+  'Colores',
+  'Pedidos',
+  'Ventas',
+  'Compras',
+  'Devoluciones',
+];
+
+const DEFAULT_ROLES: Role[] = [
   {
     id: '1',
-    nombre: 'Administrador',
-    descripcion: 'Usuario con todos los permisos',
-    permisos: ['crear', 'editar', 'eliminar', 'ver'],
+    name: 'Administrador',
+    description: 'Usuario con todos los permisos',
+    userCount: 1,
+    permissions: availableModules.map(module => ({
+      module,
+      canView: true,
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+    })),
   },
   {
     id: '2',
-    nombre: 'Vendedor',
-    descripcion: 'Usuario con permisos de ventas',
-    permisos: ['ver', 'crear'],
+    name: 'Vendedor',
+    description: 'Usuario con permisos de ventas',
+    userCount: 0,
+    permissions: availableModules.map(module => ({
+      module,
+      canView: ['Pedidos', 'Ventas', 'Productos', 'Clientes'].includes(module),
+      canCreate: ['Pedidos', 'Ventas', 'Clientes'].includes(module),
+      canEdit: ['Pedidos', 'Ventas', 'Clientes'].includes(module),
+      canDelete: false,
+    })),
   },
   {
     id: '3',
-    nombre: 'Contador',
-    descripcion: 'Usuario con acceso a reportes y finanzas',
-    permisos: ['ver', 'editar'],
+    name: 'Contador',
+    description: 'Usuario con acceso a reportes y finanzas',
+    userCount: 0,
+    permissions: availableModules.map(module => ({
+      module,
+      canView: ['Ventas', 'Compras', 'Pedidos'].includes(module),
+      canCreate: false,
+      canEdit: false,
+      canDelete: false,
+    })),
   },
 ];
 
 export const Roles: React.FC = () => {
   const { showToast } = useToast();
-  const [roles, setRoles] = useState<Rol[]>(mockRoles);
-  const [searchTerm, setSearchTerm] = useState(''); // 👈 NUEVO
+  
+  // 🔧 CARGAR DESDE LOCALSTORAGE
+  const [roles, setRoles] = useState<Role[]>(() => {
+    console.log('🔍 [Roles] Inicializando roles...');
+    const stored = localStorage.getItem(STORAGE_KEY);
+    
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`✅ [Roles] Roles cargados desde localStorage:`, parsed.map((r: Role) => r.name));
+          return parsed;
+        }
+      } catch (e) {
+        console.error('❌ [Roles] Error parsing roles:', e);
+      }
+    }
+    
+    console.log('ℹ️ [Roles] Usando roles por defecto');
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_ROLES));
+    return DEFAULT_ROLES;
+  });
+
+  const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedRol, setSelectedRol] = useState<Rol | null>(null);
-  const [formData, setFormData] = useState<Partial<Rol>>({});
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    permissions: availableModules.map(module => ({
+      module,
+      canView: false,
+      canCreate: false,
+      canEdit: false,
+      canDelete: false,
+    })),
+  });
   const [formErrors, setFormErrors] = useState<any>({});
 
+  // 🔄 SINCRONIZAR CAMBIOS EN OTROS TABS/VENTANAS
+  useEffect(() => {
+    console.log('📡 [Roles] Configurando listeners de sincronización...');
+    let lastStoredData: string | null = null;
+
+    const checkForChanges = () => {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored !== lastStoredData) {
+        lastStoredData = stored;
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              console.log('🔄 [Roles] Roles actualizados en otro tab/ventana');
+              setRoles(parsed);
+            }
+          } catch (e) {
+            console.error('Error updating roles:', e);
+          }
+        }
+      }
+    };
+
+    checkForChanges();
+    window.addEventListener('storage', checkForChanges);
+    const interval = setInterval(checkForChanges, 500);
+
+    return () => {
+      window.removeEventListener('storage', checkForChanges);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // 💾 GUARDAR EN LOCALSTORAGE CUANDO CAMBIEN LOS ROLES
+  useEffect(() => {
+    if (roles && roles.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(roles));
+        console.log(`✅ [Roles] ${roles.length} roles guardados en localStorage`);
+      } catch (error) {
+        console.error('Error guardando roles:', error);
+        showToast('Error al guardar roles', 'error');
+      }
+    }
+  }, [roles, showToast]);
+
   const columns = [
-  { key: 'nombre', label: 'Nombre' },
-  { key: 'descripcion', label: 'Descripción' },
+  { key: 'name', label: 'Nombre' },
+  { key: 'description', label: 'Descripción' },
   {
-    key: 'permisos',
-    label: 'Permisos',
-    render: (item: Rol) => item.permisos.join(', '),
+    key: 'permissions',
+    label: 'Módulos',
+    render: (item: Role) => {
+      const modulosConVista = item.permissions.filter(p => p.canView).length;
+      return <span>{modulosConVista} módulos</span>;
+    },
   },
   {
-    key: 'id', // 👈 usamos una key que SÍ existe
+    key: 'userCount',
+    label: 'Usuarios',
+    render: (item: Role) => <span>{item.userCount || 0}</span>,
+  },
+  {
+    key: 'id',
     label: 'Acciones',
-    render: (item: Rol) => (
+    render: (item: Role) => (
       <div className="flex gap-2 justify-end">
         <Button size="sm" onClick={() => handleEdit(item)}>
           Editar
         </Button>
-        <Button
-          size="sm"
-          className="bg-red-600 hover:bg-red-700 text-white"
-          onClick={() => handleDelete(item)}
-        >
-          Eliminar
-        </Button>
+        {item.name !== 'Administrador' && (
+          <Button
+            size="sm"
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => handleDelete(item)}
+          >
+            Eliminar
+          </Button>
+        )}
       </div>
     ),
   },
@@ -87,14 +230,12 @@ export const Roles: React.FC = () => {
   const filteredRoles = roles.filter((rol) => {
     const search = searchTerm.toLowerCase().trim();
 
-    const nombre = rol.nombre.toLowerCase();
-    const descripcion = rol.descripcion.toLowerCase();
-    const cantidad = rol.permisos.length;
+    const nombre = rol.name.toLowerCase();
+    const descripcion = rol.description.toLowerCase();
+    const cantidad = rol.permissions.filter(p => p.canView).length;
 
     const busquedasCantidad = [
       `${cantidad}`,
-      `${cantidad} permiso`,
-      `${cantidad} permisos`,
       `${cantidad} módulo`,
       `${cantidad} módulos`,
     ];
@@ -107,37 +248,71 @@ export const Roles: React.FC = () => {
   });
 
   const handleAdd = () => {
-    setSelectedRol(null);
-    setFormData({ permisos: [] });
+    setSelectedRole(null);
+    setFormData({
+      name: '',
+      description: '',
+      permissions: availableModules.map(module => ({
+        module,
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+      })),
+    });
+    setFormErrors({});
     setIsDialogOpen(true);
   };
 
-  const handleEdit = (rol: Rol) => {
-    setSelectedRol(rol);
-    setFormData(rol);
+  const handleEdit = (rol: Role) => {
+    setSelectedRole(rol);
+    setFormData({
+      name: rol.name,
+      description: rol.description,
+      permissions: rol.permissions.length > 0 
+        ? rol.permissions 
+        : availableModules.map(module => ({
+            module,
+            canView: false,
+            canCreate: false,
+            canEdit: false,
+            canDelete: false,
+          })),
+    });
+    setFormErrors({});
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (rol: Rol) => {
-    setSelectedRol(rol);
+  const handleDelete = (rol: Role) => {
+    setSelectedRole(rol);
     setIsDeleteDialogOpen(true);
   };
 
   const confirmDelete = () => {
-    if (selectedRol) {
-      setRoles(roles.filter((r) => r.id !== selectedRol.id));
-      showToast('Rol eliminado correctamente', 'success');
+    if (selectedRole) {
+      setRoles(roles.filter((r) => r.id !== selectedRole.id));
+      showToast(`Rol "${selectedRole.name}" eliminado correctamente`, 'success');
       setIsDeleteDialogOpen(false);
-      setSelectedRol(null);
+      setSelectedRole(null);
     }
   };
 
   const handleSave = () => {
     const errors: any = {};
-    ['nombre', 'descripcion'].forEach((f) => {
-      const err = validateField(f, (formData as any)[f]);
-      if (err) errors[f] = err;
-    });
+    
+    if (!formData.name?.trim()) {
+      errors.name = 'El nombre es obligatorio';
+    } else if (formData.name.trim().length < 3) {
+      errors.name = 'Debe tener al menos 3 caracteres';
+    } else if (!/^[a-zA-Z0-9\s]+$/.test(formData.name)) {
+      errors.name = 'No se permiten caracteres especiales';
+    }
+
+    if (!formData.description?.trim()) {
+      errors.description = 'La descripción es obligatoria';
+    } else if (formData.description.trim().length < 10) {
+      errors.description = 'Debe tener al menos 10 caracteres';
+    }
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
@@ -145,41 +320,69 @@ export const Roles: React.FC = () => {
       return;
     }
 
-    if (selectedRol) {
-      setRoles(roles.map((r) => (r.id === selectedRol.id ? { ...r, ...formData } as Rol : r)));
+    if (selectedRole) {
+      // ✏️ EDITAR ROL
+      setRoles(roles.map((r) => 
+        r.id === selectedRole.id 
+          ? { ...r, name: formData.name, description: formData.description, permissions: formData.permissions } 
+          : r
+      ));
       showToast('Rol actualizado correctamente', 'success');
     } else {
-      const newRol: Rol = {
+      // ✨ CREAR NUEVO ROL
+      const newRole: Role = {
         id: String(Date.now()),
-        nombre: formData.nombre!,
-        descripcion: formData.descripcion || '',
-        permisos: formData.permisos || [],
+        name: formData.name,
+        description: formData.description,
+        permissions: formData.permissions,
+        userCount: 0,
       };
-      setRoles([...roles, newRol]);
+      setRoles([...roles, newRole]);
       showToast('Rol creado correctamente', 'success');
+      console.log('✅ [Roles] Nuevo rol creado:', newRole);
     }
 
     setIsDialogOpen(false);
-    setFormData({});
   };
 
   const handleFieldChange = (field: string, value: any) => {
-  setFormData({ ...formData, [field]: value });
+    setFormData({ ...formData, [field]: value });
 
-  let err = '';
-  if (field === 'nombre') {
-    err = validateRoleName(value);
-  } else {
-    err = validateField(field, value);
-  }
+    let err = '';
+    if (field === 'name') {
+      err = validateRoleName(value);
+    } else {
+      err = validateField(field, value);
+    }
 
-  if (err) {
-    setFormErrors({ ...formErrors, [field]: err });
-  } else {
-    const { [field]: _removed, ...rest } = formErrors;
-    setFormErrors(rest);
-  }
-};
+    if (err) {
+      setFormErrors({ ...formErrors, [field]: err });
+    } else {
+      const { [field]: _removed, ...rest } = formErrors;
+      setFormErrors(rest);
+    }
+  };
+
+  const handlePermissionChange = (moduleIndex: number, permissionType: keyof Omit<Permission, 'module'>, value: boolean) => {
+    const newPermissions = [...formData.permissions];
+    newPermissions[moduleIndex] = {
+      ...newPermissions[moduleIndex],
+      [permissionType]: value,
+    };
+    setFormData({ ...formData, permissions: newPermissions });
+  };
+
+  const toggleAllPermissions = (moduleIndex: number, enable: boolean) => {
+    const newPermissions = [...formData.permissions];
+    newPermissions[moduleIndex] = {
+      ...newPermissions[moduleIndex],
+      canView: enable,
+      canCreate: enable,
+      canEdit: enable,
+      canDelete: enable,
+    };
+    setFormData({ ...formData, permissions: newPermissions });
+  };
 
 
   return (
@@ -203,26 +406,85 @@ export const Roles: React.FC = () => {
       <Modal
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
-        title={selectedRol ? 'Editar Rol' : 'Nuevo Rol'}
+        title={selectedRole ? 'Editar Rol' : 'Nuevo Rol'}
       >
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="nombre">Nombre del Rol *</Label>
+            <Label htmlFor="name">Nombre del Rol *</Label>
             <Input
-              id="nombre"
-              value={formData.nombre || ''}
-              onChange={(e) => handleFieldChange('nombre', e.target.value)}
+              id="name"
+              value={formData.name || ''}
+              onChange={(e) => handleFieldChange('name', e.target.value)}
+              placeholder="Ej: Supervisor, Vendedor"
             />
-            {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
+            {formErrors.name && <p className="text-red-600 text-sm mt-1">{formErrors.name}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="descripcion">Descripción</Label>
+            <Label htmlFor="description">Descripción</Label>
             <Textarea
-              id="descripcion"
-              value={formData.descripcion || ''}
-              onChange={(e) => handleFieldChange('descripcion', e.target.value)}
+              id="description"
+              value={formData.description || ''}
+              onChange={(e) => handleFieldChange('description', e.target.value)}
+              placeholder="Descripción del rol"
             />
-            {formErrors.descripcion && <p className="text-red-600 text-sm mt-1">{formErrors.descripcion}</p>}
+            {formErrors.description && <p className="text-red-600 text-sm mt-1">{formErrors.description}</p>}
+          </div>
+
+          {/* Permisos por módulo */}
+          <div className="space-y-3">
+            <Label>Permisos por Módulo</Label>
+            <div className="border border-gray-200 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">Módulo</th>
+                    <th className="px-3 py-2 text-center font-medium text-xs">Ver</th>
+                    <th className="px-3 py-2 text-center font-medium text-xs">Crear</th>
+                    <th className="px-3 py-2 text-center font-medium text-xs">Editar</th>
+                    <th className="px-3 py-2 text-center font-medium text-xs">Eliminar</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {formData.permissions.map((permission, index) => (
+                    <tr key={permission.module} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 font-medium">{permission.module}</td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={permission.canView}
+                          onChange={(e) => handlePermissionChange(index, 'canView', e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={permission.canCreate}
+                          onChange={(e) => handlePermissionChange(index, 'canCreate', e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={permission.canEdit}
+                          onChange={(e) => handlePermissionChange(index, 'canEdit', e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={permission.canDelete}
+                          onChange={(e) => handlePermissionChange(index, 'canDelete', e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
         <div className="flex gap-3 justify-end pt-4">
@@ -230,7 +492,7 @@ export const Roles: React.FC = () => {
             Cancelar
           </Button>
           <Button onClick={handleSave} className="bg-black hover:bg-gray-800">
-            {selectedRol ? 'Guardar' : 'Crear'}
+            {selectedRole ? 'Guardar' : 'Crear'}
           </Button>
         </div>
       </Modal>
@@ -241,7 +503,7 @@ export const Roles: React.FC = () => {
         title="Confirmar Eliminación"
       >
         <p className="text-gray-600">
-          ¿Está seguro que desea eliminar el rol <strong>{selectedRol?.nombre}</strong>?
+          ¿Está seguro que desea eliminar el rol <strong>{selectedRole?.name}</strong>?
         </p>
         <div className="flex gap-3 justify-end pt-4">
           <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>

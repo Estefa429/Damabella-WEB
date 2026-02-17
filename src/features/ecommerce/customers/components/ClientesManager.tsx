@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Users, Search, Phone, Mail, AlertTriangle } from 'lucide-react';
+import { Plus, Edit2, Eye, Search, Phone, Mail, Trash2, TrendingUp, DollarSign, BarChart3, Users } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import validateField from '../../../../shared/utils/validation';
 
 const STORAGE_KEY = 'damabella_clientes';
+const VENTAS_KEY = 'damabella_ventas';
+const DEVOLUCIONES_KEY = 'damabella_devoluciones';
+const CAMBIOS_KEY = 'damabella_cambios';
 
 interface Cliente {
   id: number;
@@ -34,10 +37,11 @@ export default function ClientesManager() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [detailingCliente, setDetailingCliente] = useState<Cliente | null>(null);
-  const [showStatusChangeModal, setShowStatusChangeModal] = useState(false);
-  const [statusChangeCliente, setStatusChangeCliente] = useState<Cliente | null>(null);
+  const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
+  const [clienteToDelete, setClienteToDelete] = useState<Cliente | null>(null);
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   const [formData, setFormData] = useState({
     nombre: '',
@@ -49,9 +53,78 @@ export default function ClientesManager() {
     ciudad: ''
   });
 
+  // Auto-cerrar modal de notificación después de acción (ms)
+  const notificationAutoCloseMs = 2000;
+  const notificationTimerRef = React.useRef<number | null>(null);
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(clientes));
+    if (showNotificationModal) {
+      if (notificationTimerRef.current) window.clearTimeout(notificationTimerRef.current);
+      notificationTimerRef.current = window.setTimeout(() => {
+        setShowNotificationModal(false);
+        notificationTimerRef.current = null;
+      }, notificationAutoCloseMs);
+    } else {
+      if (notificationTimerRef.current) {
+        window.clearTimeout(notificationTimerRef.current);
+        notificationTimerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (notificationTimerRef.current) {
+        window.clearTimeout(notificationTimerRef.current);
+        notificationTimerRef.current = null;
+      }
+    };
+  }, [showNotificationModal]);
+
+  // 🔒 LÓGICA DE ESTADO AUTOMÁTICO DEL CLIENTE
+  // Determina si un cliente debe estar ACTIVO basado en sus ventas
+  const debeEstarActivo = (clienteId: number): boolean => {
+    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    return ventas.some((v: any) => 
+      v.clienteId === clienteId && 
+      (v.estado === 'Aplicada' || v.estado === 'APLICADA' || v.estado === 'Completada' || v.estado === 'COMPLETADA')
+    );
+  };
+
+  // 🔒 AUTO-ACTIVAR clientes si tienen ventas aplicadas
+  const sincronizarEstadoClientes = (clientesActuales: Cliente[]): Cliente[] => {
+    return clientesActuales.map(cliente => {
+      const debeActivo = debeEstarActivo(cliente.id);
+      if (debeActivo && !cliente.activo) {
+        console.log(`✅ [ClientesManager] Cliente "${cliente.nombre}" activado automáticamente (tiene venta APLICADA)`);
+        return { ...cliente, activo: true };
+      }
+      return cliente;
+    });
+  };
+
+  useEffect(() => {
+    // Auto-sincronizar estado antes de guardar
+    const clientesSincronizados = sincronizarEstadoClientes(clientes);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clientesSincronizados));
+    if (JSON.stringify(clientesSincronizados) !== JSON.stringify(clientes)) {
+      setClientes(clientesSincronizados);
+    }
   }, [clientes]);
+
+  // 🔗 ACTIVAR/DESACTIVAR CLIENTE
+  const handleToggleCliente = (cliente: Cliente) => {
+    const clienteActualizado = { ...cliente, activo: !cliente.activo };
+    const clientesActualizados = clientes.map(c => 
+      (c.id?.toString() === cliente.id?.toString()) ? clienteActualizado : c
+    );
+    setClientes(clientesActualizados);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clientesActualizados));
+    
+    const accion = clienteActualizado.activo ? 'activado' : 'desactivado';
+    console.log(`✅ Cliente "${cliente.nombre}" ${accion}`);
+    setNotificationMessage(`Cliente "${cliente.nombre}" ha sido ${accion}`);
+    setNotificationType('success');
+    setShowNotificationModal(true);
+  };
 
   const handleFieldChange = (field: string, value: string) => {
     // Validación de entrada: solo permitir números en campos numéricos
@@ -222,8 +295,8 @@ export default function ClientesManager() {
 
     const clienteData = {
       ...formData,
-      activo: true,
-      createdAt: new Date().toISOString()
+      activo: editingCliente ? editingCliente.activo : false,  // 🔒 Nuevos clientes inician INACTIVOS
+      createdAt: editingCliente?.createdAt || new Date().toISOString()
     };
 
     if (editingCliente) {
@@ -237,22 +310,17 @@ export default function ClientesManager() {
     setShowModal(false);
   };
 
-  const handleChangeStatus = (cliente: Cliente) => {
-    setStatusChangeCliente(cliente);
-    setShowStatusChangeModal(true);
-  };
-
-  const confirmChangeStatus = () => {
-    if (statusChangeCliente) {
-      setClientes(clientes.map(c => 
-        c.id === statusChangeCliente.id ? { ...c, activo: !c.activo } : c
-      ));
-      const newStatus = !statusChangeCliente.activo;
-      setShowStatusChangeModal(false);
-      setNotificationMessage(`Cliente marcado como ${newStatus ? 'activo' : 'inactivo'}`);
-      setNotificationType('success');
-      setShowNotificationModal(true);
-    }
+  // Confirmar y ejecutar eliminación del cliente (sin ventas asociadas)
+  const confirmDeleteCliente = () => {
+    if (!clienteToDelete) return;
+    const nuevos = clientes.filter(c => c.id?.toString() !== clienteToDelete.id?.toString());
+    setClientes(nuevos);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos));
+    setShowConfirmModal(false);
+    setClienteToDelete(null);
+    setNotificationMessage('Cliente eliminado correctamente');
+    setNotificationType('success');
+    setShowNotificationModal(true);
   };
 
   const filteredClientes = clientes.filter(c => {
@@ -267,6 +335,122 @@ export default function ClientesManager() {
       (c.direccion?.toLowerCase() ?? '').includes(searchLower)
     );
   });
+
+  // Paginar resultados filtrados
+  const totalItems = filteredClientes.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const paginatedClientes = filteredClientes.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  useEffect(() => {
+    // Reset página cuando cambia búsqueda
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    // Asegurar que currentPage esté dentro de rango si cambia totalPages
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages]);
+
+  // 📊 FUNCIONES DE CÁLCULO COMERCIAL (Read-only)
+  const calcularDatosComerciales = (clienteId: number) => {
+    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+
+    // 🔒 Normalizar clienteId para comparación (string o número)
+    const clienteIdStr = clienteId.toString();
+
+    // Total de ventas del cliente
+    const ventasCliente = ventas.filter((v: any) => 
+      v.clienteId === clienteId || 
+      v.clienteId?.toString() === clienteIdStr ||
+      v.clienteId === clienteIdStr
+    );
+    const totalVentas = ventasCliente.reduce((sum: number, v: any) => sum + (v.total || 0), 0);
+
+    // Total de devoluciones del cliente
+    const devolucionesCliente = devoluciones.filter((d: any) => 
+      d.clienteId === clienteId || 
+      d.clienteId?.toString() === clienteIdStr ||
+      d.clienteId === clienteIdStr
+    );
+    const totalDevoluciones = devolucionesCliente.reduce((sum: number, d: any) => sum + (d.total || 0), 0);
+
+    // Total de cambios del cliente (diferencia financiera - SOLO INFORMATIVO)
+    const cambiosCliente = cambios.filter((c: any) => 
+      c.clienteId === clienteId || 
+      c.clienteId?.toString() === clienteIdStr ||
+      c.clienteId === clienteIdStr
+    );
+    const totalCambios = cambiosCliente.reduce((sum: number, c: any) => sum + (c.diferencia || 0), 0);
+
+    // 🔒 Saldo a favor del cliente - SOLO afectado por devoluciones, NO por cambios
+    // Representa el saldo disponible por devoluciones no aplicadas
+    const saldoAFavor = totalDevoluciones;
+
+    return {
+      totalVentas,
+      totalDevoluciones,
+      totalCambios,
+      saldoAFavor,
+      ventasCliente,
+      devolucionesCliente,
+      cambiosCliente,
+    };
+  };
+
+  const obtenerHistorialCliente = (clienteId: number) => {
+    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
+    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+
+    const historial: any[] = [];
+
+    // Agregar ventas del cliente
+    ventas
+      .filter((v: any) => v.clienteId === clienteId)
+      .forEach((v: any) => {
+        historial.push({
+          tipo: 'Venta',
+          numero: v.numeroVenta || v.id,
+          fecha: v.createdAt || v.fechaVenta,
+          valor: v.total,
+          estado: v.estado || 'Completada',
+          icon: '🛍️',
+        });
+      });
+
+    // Agregar devoluciones del cliente
+    devoluciones
+      .filter((d: any) => d.clienteId === clienteId)
+      .forEach((d: any) => {
+        historial.push({
+          tipo: 'Devolución',
+          numero: d.numeroDevolucion,
+          fecha: d.fechaDevolucion || d.createdAt,
+          valor: d.total,
+          estado: d.estadoGestion,
+          icon: '📦',
+        });
+      });
+
+    // Agregar cambios del cliente
+    cambios
+      .filter((c: any) => c.clienteId === clienteId)
+      .forEach((c: any) => {
+        historial.push({
+          tipo: 'Cambio',
+          numero: c.numeroCambio,
+          fecha: c.fechaCambio || c.createdAt,
+          valor: c.diferencia,
+          estado: c.stockDevuelto && c.stockEntregado ? 'Aplicado' : 'Pendiente',
+          icon: '♻️',
+        });
+      });
+
+    // Ordenar por fecha descendente
+    return historial.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+  };
 
   return (
     <div className="space-y-6">
@@ -305,12 +489,13 @@ export default function ClientesManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Contacto</th>
                 <th className="text-left py-4 px-6 text-gray-600">Ciudad</th>
+                {/* Resumen Comercial eliminado según requerimiento */}
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredClientes.length === 0 ? (
+              {paginatedClientes.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-gray-500">
                     <Users className="mx-auto mb-4 text-gray-300" size={48} />
@@ -318,7 +503,10 @@ export default function ClientesManager() {
                   </td>
                 </tr>
               ) : (
-                filteredClientes.map((cliente) => (
+                paginatedClientes.map((cliente) => {
+                  // calculos siguen disponibles pero no mostramos resumen comercial
+                  const datos = calcularDatosComerciales(cliente.id);
+                  return (
                   <tr key={cliente.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
@@ -351,31 +539,39 @@ export default function ClientesManager() {
                       </div>
                     </td>
                     <td className="py-4 px-6 text-gray-600">{cliente.ciudad || 'N/A'}</td>
+                    
+                    {/* Resumen Comercial eliminado según requerimiento (columna removida) */}
+                    
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
-                        <button
-                          onClick={() => handleChangeStatus(cliente)}
-                          className={`relative w-12 h-6 rounded-full transition-colors ${
-                            cliente.activo ? 'bg-green-500' : 'bg-gray-300'
-                          }`}
-                        >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                            cliente.activo ? 'translate-x-6' : 'translate-x-0'
-                          }`} />
-                        </button>
+                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          cliente.activo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {cliente.activo ? 'Activo' : 'Inactivo'}
+                        </div>
                       </div>
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => {
-                            setDetailingCliente(cliente);
-                            setShowDetailModal(true);
+                            // ✅ Validación defensiva: asegurar que el cliente tiene ID válido
+                            if (!cliente || !cliente.id) {
+                              console.error('❌ [ClientesManager] Error: Cliente sin ID', cliente);
+                              setNotificationMessage('Error: No se puede abrir el detalle del cliente');
+                              setNotificationType('error');
+                              setShowNotificationModal(true);
+                              return;
+                            }
+                            // 🔗 Guardar cliente temporal para navegación
+                            sessionStorage.setItem('cliente_detalle_actual', JSON.stringify(cliente));
+                            // Navegar a detalle
+                            window.dispatchEvent(new CustomEvent('navigate-cliente-detalle', { detail: cliente }));
                           }}
                           className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
                           title="Ver detalle"
                         >
-                          <Users size={18} />
+                          <Eye size={18} />
                         </button>
                         <button
                           onClick={() => handleEdit(cliente)}
@@ -384,10 +580,59 @@ export default function ClientesManager() {
                         >
                           <Edit2 size={18} />
                         </button>
+                        <button
+                          onClick={() => {
+                            // intento de eliminar: verificar ventas asociadas
+                            const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+                            const tieneVentas = ventas.some((v: any) => v.clienteId === cliente.id || v.clienteId?.toString() === cliente.id.toString());
+                            if (tieneVentas) {
+                              setClienteToDelete(cliente);
+                              setShowCannotDeleteModal(true);
+                              return;
+                            }
+                            setClienteToDelete(cliente);
+                            setConfirmMessage(`¿Deseas eliminar al cliente \"${cliente.nombre}\"? Esta acción no se puede deshacer.`);
+                            setConfirmAction(() => () => confirmDeleteCliente());
+                            setShowConfirmModal(true);
+                          }}
+                          className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
+                          title="Eliminar cliente"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </button>
+                        {/* Toggle estándar: activar inmediato / confirmar para desactivar */}
+                        <button
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            if (cliente.activo === false) {
+                              // activar inmediatamente
+                              handleToggleCliente(cliente);
+                            } else {
+                              // antes de permitir desactivar, verificar ventas asociadas
+                              const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+                              const tieneVentas = ventas.some((v: any) => v.clienteId === cliente.id || v.clienteId?.toString() === cliente.id.toString());
+                              if (tieneVentas) {
+                                setClienteToDelete(cliente);
+                                setShowCannotDeleteModal(true);
+                                return;
+                              }
+                              // confirmar desactivación
+                              setConfirmMessage(`¿Deseas desactivar al cliente \"${cliente.nombre}\"?`);
+                              setConfirmAction(() => () => handleToggleCliente(cliente));
+                              setShowConfirmModal(true);
+                            }
+                          }}
+                          aria-pressed={cliente.activo !== false}
+                          className={`relative w-12 h-6 rounded-full transition-colors ${cliente.activo !== false ? 'bg-green-500' : 'bg-gray-400'}`}
+                          title={cliente.activo === false ? 'Activar cliente' : 'Inactivar cliente'}
+                        >
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${cliente.activo !== false ? 'translate-x-6' : 'translate-x-0'}`} />
+                        </button>
                       </div>
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>
@@ -555,8 +800,11 @@ export default function ClientesManager() {
             >
               Cancelar
             </Button>
-            <Button 
-              onClick={() => confirmAction && confirmAction()} 
+            <Button
+              onClick={() => {
+                setShowConfirmModal(false);
+                if (confirmAction) confirmAction();
+              }}
               variant="primary"
             >
               Confirmar
@@ -565,109 +813,48 @@ export default function ClientesManager() {
         </div>
       </Modal>
 
-      {/* Modal Detalle del Cliente */}
+      {/* Modal No se puede eliminar / desactivar */}
       <Modal
-        isOpen={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
-        title={`Detalle del Cliente - ${detailingCliente?.nombre}`}
+        isOpen={showCannotDeleteModal}
+        onClose={() => setShowCannotDeleteModal(false)}
+        title="No se puede completar la acción"
       >
-        {detailingCliente && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-600 text-sm">Cédula</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.numeroDoc}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Tipo de Documento</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.tipoDoc}</p>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-gray-600 text-sm">Nombres</p>
-              <p className="text-gray-900 font-semibold">{detailingCliente.nombre}</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-600 text-sm">Teléfono</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.telefono || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm">Ciudad</p>
-                <p className="text-gray-900 font-semibold">{detailingCliente.ciudad || 'N/A'}</p>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-gray-600 text-sm">Correo Electrónico</p>
-              <p className="text-gray-900 font-semibold">{detailingCliente.email || 'N/A'}</p>
-            </div>
-
-            <div>
-              <p className="text-gray-600 text-sm">Dirección</p>
-              <p className="text-gray-900 font-semibold">{detailingCliente.direccion || 'N/A'}</p>
-            </div>
-
-              <div className="pt-4 border-t">
-              <div className="flex gap-3">
-                <Button onClick={() => setShowDetailModal(false)} variant="secondary" className="flex-1">
-                  Cerrar
-                </Button>
-                <Button 
-                  onClick={() => {
-                    handleChangeStatus(detailingCliente!);
-                    setShowDetailModal(false);
-                  }} 
-                  variant="primary" 
-                  className="flex-1"
-                >
-                  Cambiar Estado
-                </Button>
-              </div>
-            </div>
+        <div className="space-y-4">
+          <p className="text-gray-700">No puedes eliminar ni desactivar este cliente porque tiene ventas asociadas. Si necesitas ayuda, contacta al administrador.</p>
+          <div className="flex gap-3 justify-end">
+            <Button onClick={() => setShowCannotDeleteModal(false)} variant="secondary">Cerrar</Button>
           </div>
-        )}
+        </div>
       </Modal>
 
-      {/* Modal Cambiar Estado */}
-      <Modal
-        isOpen={showStatusChangeModal}
-        onClose={() => setShowStatusChangeModal(false)}
-        title="Cambiar Estado del Cliente"
-      >
-        {statusChangeCliente && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
-              <AlertTriangle className="text-yellow-600 flex-shrink-0" size={24} />
-              <div>
-                <p className="text-yellow-800 font-semibold">¿Cambiar estado?</p>
-                <p className="text-yellow-700 text-sm mt-1">
-                  Cliente: <strong>{statusChangeCliente.nombre}</strong>
-                </p>
-                <p className="text-yellow-700 text-sm">
-                  Nuevo estado: <strong>{statusChangeCliente.activo ? 'Inactivo' : 'Activo'}</strong>
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end pt-4">
-              <Button 
-                onClick={() => setShowStatusChangeModal(false)} 
-                variant="secondary"
-              >
-                Cancelar
-              </Button>
-              <Button 
-                onClick={confirmChangeStatus} 
-                variant="primary"
-              >
-                Confirmar
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      {/* Paginación */}
+      <div className="flex items-center justify-between mt-4">
+        <div className="text-sm text-gray-600">Mostrando {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)} - {Math.min(currentPage * itemsPerPage, totalItems)} de {totalItems} clientes</div>
+        <div className="flex items-center gap-2">
+          <button
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            className="px-3 py-1 border rounded disabled:opacity-40"
+          >Anterior</button>
+          {[...Array(totalPages)].map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentPage(i + 1)}
+              className={`px-3 py-1 border rounded ${currentPage === i + 1 ? 'bg-gray-100' : ''}`}
+            >{i + 1}</button>
+          ))}
+          <button
+            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            className="px-3 py-1 border rounded disabled:opacity-40"
+          >Siguiente</button>
+          <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="ml-2 border rounded px-2 py-1">
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+          </select>
+        </div>
+      </div>
     </div>
   );
 }
