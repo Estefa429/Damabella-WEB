@@ -192,6 +192,7 @@ export const Roles: React.FC = () => {
   {
     key: 'permissions',
     label: 'Módulos',
+    width: '120px',
     render: (item: Role) => {
       const modulosConVista = item.permissions.filter(p => p.canView).length;
       return <span>{modulosConVista} módulos</span>;
@@ -200,28 +201,32 @@ export const Roles: React.FC = () => {
   {
     key: 'userCount',
     label: 'Usuarios',
+    width: '100px',
     render: (item: Role) => <span>{item.userCount || 0}</span>,
   },
   {
-    key: 'id',
-    label: 'Acciones',
-    render: (item: Role) => (
-      <div className="flex gap-2 justify-end">
-        <Button size="sm" onClick={() => handleEdit(item)}>
-          Editar
+  key: 'actions',
+  label: 'Acciones',
+  width: '220px',
+  render: (item: Role) => (
+    <div className="flex items-center justify-center gap-2">
+      <Button size="sm" onClick={() => handleEdit(item)}>
+        Editar
+      </Button>
+
+      {item.name !== 'Administrador' && (
+        <Button
+          size="sm"
+          className="bg-red-600 hover:bg-red-700 text-white"
+          onClick={() => handleDelete(item)}
+        >
+          Eliminar
         </Button>
-        {item.name !== 'Administrador' && (
-          <Button
-            size="sm"
-            className="bg-red-600 hover:bg-red-700 text-white"
-            onClick={() => handleDelete(item)}
-          >
-            Eliminar
-          </Button>
-        )}
-      </div>
-    ),
-  },
+      )}
+    </div>
+  ),
+},
+
 ];
 
 
@@ -388,13 +393,15 @@ export const Roles: React.FC = () => {
   return (
     <>
       {/*🔍 BUSCADOR CONTROLADO --------*/}
-      <div className="mb-4">
+      <div className="mb-4 w-full">
         <Input
+          className="w-full"
           placeholder="Buscar por rol, descripción o cantidad de módulos"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </div>
+
 
       <DataTable
         data={filteredRoles}

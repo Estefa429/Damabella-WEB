@@ -7,8 +7,10 @@ import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 interface Column<T> {
   key: string;
   label: string;
+  width?: string; // 👈 NUEVO
   render?: (item: T) => React.ReactNode;
 }
+
 
 interface DataTableProps<T> {
   data: T[];
@@ -40,7 +42,7 @@ export function DataTable<T extends { id: string | number }>(
     <div className="space-y-4">
       {/* Búsqueda */}
       <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             placeholder={searchPlaceholder}
@@ -49,7 +51,7 @@ export function DataTable<T extends { id: string | number }>(
               setSearch(e.target.value);
               setCurrentPage(1);
             }}
-            className="pl-10"
+            className="pl-10 w-full"
           />
         </div>
         <div className="text-sm text-gray-600">
@@ -63,7 +65,18 @@ export function DataTable<T extends { id: string | number }>(
           <TableHead>
             <TableRow>
               {columns.map((column) => (
-                <TableHeader key={column.key}>{column.label}</TableHeader>
+                <TableHeader
+                  key={column.key}
+                  style={column.width ? { width: column.width } : {}}
+                >
+                  {column.key === 'actions' ? (
+                    <span className="float-right">{column.label}</span>
+                  ) : (
+                    column.label
+                  )}
+                </TableHeader>
+
+
               ))}
             </TableRow>
           </TableHead>
@@ -76,7 +89,11 @@ export function DataTable<T extends { id: string | number }>(
                   className={onRowClick ? 'cursor-pointer' : ''}
                 >
                   {columns.map((column) => (
-                    <TableCell key={column.key}>
+                    <TableCell
+                      key={column.key}
+                      style={column.width ? { width: column.width } : {}}
+                    >
+
                       {column.render
                         ? column.render(item)
                         : String((item as any)[column.key] || '-')}

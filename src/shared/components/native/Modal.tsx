@@ -1,21 +1,25 @@
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
-import { Button } from './Button';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
-  /**
-   * When true, modal will not force an internal scroll. Use sparingly for
-   * specific modals that must display all content without inner scroll.
-   */
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
   noScroll?: boolean;
+  fullscreen?: boolean;
 }
 
-export function Modal({ isOpen, onClose, title, children, size = 'md', noScroll = false }: ModalProps) {
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  size = 'md',
+  noScroll = false,
+  fullscreen = false,
+}: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -25,9 +29,6 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', noScroll 
 
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
-      // If this modal opts out of internal scrolling, allow page scrolling
-      // so the user can view all content. For regular modals, keep body
-      // overflow hidden to prevent background scroll.
       document.body.style.overflow = noScroll ? 'auto' : 'hidden';
     }
 
@@ -35,46 +36,58 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', noScroll 
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, noScroll]);
 
   if (!isOpen) return null;
 
-  const sizes = {
+  const sizes: Record<NonNullable<ModalProps['size']>, string> = {
     sm: 'max-w-md',
     md: 'max-w-lg',
     lg: 'max-w-2xl',
     xl: 'max-w-4xl',
+    xxl: 'max-w-5xl',
   };
+
+  const panelClass = fullscreen
+    ? 'h-[86vh] w-full max-w-6xl rounded-xl'
+    : `w-full ${sizes[size]} rounded-lg ${noScroll ? '' : 'max-h-[90vh]'}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div 
+      <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      
-      {/* Modal */}
+
+      {/* Panel */}
       <div
         ref={modalRef}
-        className={`relative bg-gray-50 rounded-lg shadow-xl w-full ${sizes[size]} ${noScroll ? '' : 'max-h-[90vh]'} flex flex-col`}
+        className={`relative bg-gray-50 shadow-xl flex flex-col overflow-hidden ${panelClass}`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-semibold">{title}</h2>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+          <h2 className="text-base font-semibold">{title}</h2>
           <button
             onClick={onClose}
             className="p-1 hover:bg-gray-200 rounded-md transition-colors"
+            aria-label="Cerrar"
+            type="button"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className={`flex-1 ${noScroll ? 'overflow-visible' : 'overflow-y-auto'} p-4 bg-white`}>
-          {children}
+        <div
+          className={`flex-1 min-h-0 bg-white ${
+            noScroll ? 'overflow-visible' : 'overflow-y-auto'
+          } text-sm`}
+        >
+          <div className="p-3">{children}</div>
         </div>
       </div>
     </div>
   );
 }
+

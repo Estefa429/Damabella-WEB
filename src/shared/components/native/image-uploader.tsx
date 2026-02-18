@@ -76,7 +76,7 @@ export function ImageUploader({ value, onChange, accept = 'image/*', maxSizeMB =
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <div className="flex-1">
-              <div className="text-sm text-gray-600">Arrastra la imagen aquí o</div>
+              <div className="text-sm text-gray-600"></div>
               <button
                 type="button"
                 className="text-sm text-gray-700 hover:underline"
