@@ -749,11 +749,42 @@ export default function PedidosManager() {
       },
     });
 
-    if (resultado.exitoso && resultado.pedidoActualizado) {
-      setPedidos(pedidos.map(p =>
-        p.id === pedido.id ? resultado.pedidoActualizado! : p
-      ));
+    if (resultado.exitoso) {
+      setPedidos((prev) =>
+        prev.map((p) => {
+          if (p.id !== pedido.id) return p;
+
+          const base = resultado.pedidoActualizado ?? p;
+          const ventaRelacionada = (resultado as any).ventaCreada?.numeroVenta || base.venta_id || null;
+
+          return {
+            ...base,
+            // asegurar relación explícita pedido → venta cuando se convierte
+            venta_id: nuevoEstado === 'Completada' ? ventaRelacionada : base.venta_id,
+          };
+        })
+      );
+
+      // reforzar sincronización entre módulos
+      window.dispatchEvent(new Event('salesUpdated'));
+      window.dispatchEvent(new Event('ordersUpdated'));
     }
+  };
+
+  const confirmarCambioEstado = (pedido: Pedido, estadoDestino: EstadoPedido) => {
+    if (estadoDestino === 'Completada') {
+      setConfirmMessage(`¿Confirmas convertir el pedido ${pedido.numeroPedido} a venta?`);
+      setConfirmAction(() => () => {
+        cambiarEstado(pedido, 'Completada');
+        setShowEstadoModal(false);
+        setShowConfirmModal(false);
+      });
+      setShowConfirmModal(true);
+      return;
+    }
+
+    cambiarEstado(pedido, estadoDestino);
+    setShowEstadoModal(false);
   };
 
   const handleCrearCliente = () => {
@@ -996,7 +1027,7 @@ DAMABELLA - Moda Femenina
           </Button>
           <Button onClick={handleCreate} variant="primary" className="flex items-center gap-2">
             <Plus size={20} />
-            Nuevo Pedido
+            Agregar Pedido
           </Button>
         </div>
       </div>
@@ -1106,25 +1137,6 @@ DAMABELLA - Moda Femenina
                           <Pencil size={18} />
                         </button>
 
-                        {/* ✅ Anular (bloqueado si tiene ventaId) */}
-                        <button
-                          onClick={() => handleAnular(pedido)}
-                          disabled={!puedeTransicionar(pedido.estado, 'Anulado') || !!pedido.venta_id}
-                          className={`p-2 rounded-lg transition-colors ${
-                            !puedeTransicionar(pedido.estado, 'Anulado') || !!pedido.venta_id
-                              ? 'text-gray-300 cursor-not-allowed'
-                              : 'hover:bg-red-50 text-red-600'
-                          }`}
-                          title={
-                            !!pedido.venta_id
-                              ? 'Pedido bloqueado: tiene una venta asociada'
-                              : !puedeTransicionar(pedido.estado, 'Anulado')
-                              ? `No se puede anular en estado ${pedido.estado}`
-                              : 'Anular'
-                          }
-                        >
-                          <Ban size={18} />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1183,147 +1195,180 @@ DAMABELLA - Moda Femenina
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         title={editingPedido ? `Editar Pedido` : 'Nuevo Pedido'}
+        size="xxl"
+        noScroll
       >
-        <div className="space-y-0 p-0 -mt-4">
-          {/* Cliente */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-gray-700">Cliente *</label>
-              <button
-                onClick={() => setShowClienteModal(true)}
-                className="text-gray-600 hover:text-gray-900 flex items-center gap-1 text-sm"
-              >
-                <UserPlus size={14} />
-                Nuevo Cliente
-              </button>
-            </div>
+        <div className="w-[95vw] max-h-[95vh] text-[10px] leading-tight overflow-hidden">
+          <div className="space-y-1 pb-1">
+            <div className="border border-gray-200 rounded-md bg-white p-1">
+              <h3 className="text-center text-[11px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-200">DAMABELLA</h3>
 
-            <div className="relative" onClick={(e) => e.stopPropagation()}>
-              <Input
-                value={clienteQuery}
-                onChange={(e) => {
-                  const value = e.target.value;
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-1 mb-1">
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">Número de pedido</label>
+                  <Input
+                    value={editingPedido ? editingPedido.numeroPedido : generarNumeroPedido()}
+                    readOnly
+                    disabled
+                    className="h-7 px-2 text-[10px] bg-gray-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">Fecha de creación</label>
+                  <Input
+                    type="date"
+                    value={formData.fechaPedido}
+                    onChange={(e) => handleFieldChange('fechaPedido', e.target.value)}
+                    required
+                    disabled={!!editingPedido}
+                    className="h-7 px-2 text-[10px] bg-gray-50"
+                  />
+                  {formErrors.fechaPedido && <p className="text-red-500 text-[10px] mt-0.5">{formErrors.fechaPedido}</p>}
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    onClick={() => setShowClienteModal(true)}
+                    variant="secondary"
+                    className="w-full h-7 px-2 text-[10px]"
+                  >
+                    <UserPlus size={14} />
+                    Crear nuevo cliente
+                  </Button>
+                </div>
+              </div>
 
-                  setClienteQuery(value);
-                  setShowClienteDropdown(true);
+              <div>
+                <label className="block text-gray-700 mb-0.5 text-[10px]">Cliente *</label>
 
-                  // ✅ Solo limpiar clienteId si el texto YA no es el del cliente seleccionado
-                  const sigueIgual = value.trim() === selectedClienteNombre.trim();
-                  if (!sigueIgual) {
-                    handleFieldChange('clienteId', '');
-                    setSelectedClienteNombre('');
-                  }
+                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <Input
+                    value={clienteQuery}
+                    onChange={(e) => {
+                      const value = e.target.value;
 
-                  // si quedó vacío, sí o sí limpiar
-                  if (value.trim() === '') {
-                    handleFieldChange('clienteId', '');
-                    setSelectedClienteNombre('');
-                  }
-                }}
+                      setClienteQuery(value);
+                      setShowClienteDropdown(true);
 
-                onFocus={() => setShowClienteDropdown(true)}
-                placeholder="Buscar cliente por nombre, documento o teléfono..."
-              />
+                      // ✅ Solo limpiar clienteId si el texto YA no es el del cliente seleccionado
+                      const sigueIgual = value.trim() === selectedClienteNombre.trim();
+                      if (!sigueIgual) {
+                        handleFieldChange('clienteId', '');
+                        setSelectedClienteNombre('');
+                      }
 
-              {showClienteDropdown && (
-                <div className="absolute z-[9999] mt-1 w-full max-h-[40vh] bg-white border border-gray-200 rounded-lg shadow-lg">
-                  {clientesFiltradosSelect.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
-                  ) : (
-                    clientesFiltradosSelect.map((cliente: any) => (
-                      <button
-                        type="button"
-                        key={cliente.id}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-50"
-                        onClick={() => {
-                          handleFieldChange('clienteId', cliente.id.toString());
+                      // si quedó vacío, sí o sí limpiar
+                      if (value.trim() === '') {
+                        handleFieldChange('clienteId', '');
+                        setSelectedClienteNombre('');
+                      }
+                    }}
 
-                          const label = `${cliente.nombre} - ${cliente.numeroDoc}`;
-                          setClienteQuery(label);
+                    onFocus={() => setShowClienteDropdown(true)}
+                    placeholder="Buscar cliente por nombre, documento o teléfono..."
+                    className="h-7 px-2 text-[10px]"
+                  />
 
-                          setSelectedClienteNombre(label);
+                  {showClienteDropdown && (
+                    <div className="absolute z-[9999] mt-1 w-full max-h-[32vh] bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
+                      {clientesFiltradosSelect.length === 0 ? (
+                        <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
+                      ) : (
+                        clientesFiltradosSelect.map((cliente: any) => (
+                          <button
+                            type="button"
+                            key={cliente.id}
+                            className="w-full text-left px-2 py-1 hover:bg-gray-50"
+                            onClick={() => {
+                              handleFieldChange('clienteId', cliente.id.toString());
 
-                          setShowClienteDropdown(false);
-                        }}
+                              const label = `${cliente.nombre} - ${cliente.numeroDoc}`;
+                              setClienteQuery(label);
 
-                      >
-                        <div className="text-sm text-gray-900">{cliente.nombre}</div>
-                        <div className="text-xs text-gray-500">
-                          {cliente.numeroDoc} {cliente.telefono ? `• ${cliente.telefono}` : ''}
-                        </div>
-                      </button>
-                    ))
+                              setSelectedClienteNombre(label);
+
+                              setShowClienteDropdown(false);
+                            }}
+
+                          >
+                            <div className="text-[10px] text-gray-900">{cliente.nombre}</div>
+                            <div className="text-[10px] text-gray-500">
+                              {cliente.numeroDoc} {cliente.telefono ? `• ${cliente.telefono}` : ''}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {formErrors.clienteId && <p className="text-red-500 text-sm mt-1">{formErrors.clienteId}</p>}
-          </div>
+                {formErrors.clienteId && <p className="text-red-500 text-[10px] mt-0.5">{formErrors.clienteId}</p>}
 
-          <div className="grid grid-cols-4 gap-2">
-            <div>
-              <label className="block text-gray-700 mb-1">Fecha *</label>
-              <Input
-                type="date"
-                value={formData.fechaPedido}
-                onChange={(e) => handleFieldChange('fechaPedido', e.target.value)}
-                required
-                disabled={!!editingPedido}
-              />
-              {formErrors.fechaPedido && <p className="text-red-500 text-sm mt-1">{formErrors.fechaPedido}</p>}
-            </div>
-
-            <div>
-              <label className="block text-gray-700 mb-1">Método de Pago *</label>
-              {saldoDisponible > 0 && formData.clienteId && (
-                <div className="mb-2 rounded-lg border border-green-300 bg-green-50 p-2 text-sm">
-                  <div className="text-green-800 font-semibold">
-                    ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
+                {clienteSeleccionado && (
+                  <div className="mt-1 border border-gray-200 rounded-md p-1 bg-gray-50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1 text-[10px] leading-tight">
+                    <div><span className="text-gray-500">Nombre:</span><div className="text-gray-900 font-medium truncate">{clienteSeleccionado.nombre || '-'}</div></div>
+                    <div><span className="text-gray-500">Documento:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.numeroDoc || '-'}</div></div>
+                    <div><span className="text-gray-500">Teléfono:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.telefono || '-'}</div></div>
+                    <div><span className="text-gray-500">Ciudad:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.ciudad || clienteSeleccionado.direccion || '-'}</div></div>
                   </div>
+                )}
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-md bg-white p-1">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-1">
+                <div>
+                  <label className="block text-gray-700 mb-0.5 text-[10px]">Método de Pago *</label>
+                  {saldoDisponible > 0 && formData.clienteId && (
+                    <div className="mb-1 rounded-md border border-green-300 bg-green-50 p-1 text-[10px]">
+                      <div className="text-green-800 font-semibold">
+                        ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+
+                  <select
+                    value={formData.metodoPago}
+                    onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
+                    className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                    required
+                  >
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Tarjeta">Tarjeta</option>
+                    <option value="Nequi">Nequi</option>
+                    <option value="Daviplata">Daviplata</option>
+                  </select>
                 </div>
-              )}
 
-              <select
-                value={formData.metodoPago}
-                onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                required
-              >
-                <option value="Efectivo">Efectivo</option>
-                <option value="Transferencia">Transferencia</option>
-                <option value="Tarjeta">Tarjeta</option>
-                <option value="Nequi">Nequi</option>
-                <option value="Daviplata">Daviplata</option>
-              </select>
-            </div>
+                <div>
+                  <label className="block text-gray-700 mb-0.5 text-[10px]">Dirección de Envío</label>
+                  <Input
+                    value={(formData as any).direccionEnvio}
+                    onChange={(e) => handleFieldChange('direccionEnvio', e.target.value)}
+                    placeholder="Dirección de envío (opcional)"
+                    className="h-7 px-2 text-[10px]"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-gray-700 mb-1">Dirección de Envío</label>
-              <Input
-                value={(formData as any).direccionEnvio}
-                onChange={(e) => handleFieldChange('direccionEnvio', e.target.value)}
-                placeholder="Dirección de envío (opcional)"
-              />
+                <div>
+                  <label className="block text-gray-700 mb-0.5 text-[10px]">Persona que recibe</label>
+                  <Input
+                    value={(formData as any).personaRecibe}
+                    onChange={(e) => handleFieldChange('personaRecibe', e.target.value)}
+                    placeholder="Nombre de la persona que recibe (opcional)"
+                    className="h-7 px-2 text-[10px]"
+                  />
+                </div>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-gray-700 mb-1">Persona que recibe</label>
-              <Input
-                value={(formData as any).personaRecibe}
-                onChange={(e) => handleFieldChange('personaRecibe', e.target.value)}
-                placeholder="Nombre de la persona que recibe (opcional)"
-              />
-            </div>
-          </div>
 
           {/* Productos */}
-          <div className="border-t pt-1">
-            <h4 className="text-gray-900 mb-1">Agregar Productos</h4>
+          <div className="border border-gray-200 rounded-md bg-white p-1">
+            <h4 className="text-gray-900 mb-0.5 text-[10px] font-semibold">Agregar Productos</h4>
 
-            <div className="bg-gray-50 rounded-lg p-1 mb-1 space-y-1">
+            <div className="bg-gray-50 rounded-md p-1 mb-1 space-y-1">
               <div>
-                <label className="block text-gray-700 mb-1 text-sm">Producto</label>
+                <label className="block text-gray-700 mb-0.5 text-[10px]">Producto</label>
 
                 <div className="relative" onClick={(e) => e.stopPropagation()}>
                   <Input
@@ -1339,18 +1384,19 @@ DAMABELLA - Moda Femenina
                     }}
                     onFocus={() => setShowProductoDropdown(true)}
                     placeholder="Buscar producto por nombre, ref o código..."
+                    className="h-7 px-2 text-[10px]"
                   />
 
                   {showProductoDropdown && (
-                    <div className="absolute z-[9999] mt-1 w-full max-h-[40vh] bg-white border border-gray-200 rounded-lg shadow-lg">
+                    <div className="absolute z-[9999] mt-1 w-full max-h-[32vh] bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
                       {productosFiltradosSelect.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-gray-500">No hay resultados</div>
+                        <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
                       ) : (
                         productosFiltradosSelect.map((producto: any) => (
                           <button
                             type="button"
                             key={producto.id}
-                            className="w-full text-left px-4 py-2 hover:bg-gray-50"
+                            className="w-full text-left px-2 py-1 hover:bg-gray-50"
                             onClick={() => {
                               handleNuevoItemChange('productoId', producto.id.toString());
                               const label = `${producto.nombre}${producto.referencia ? ` (REF: ${producto.referencia})` : ''}${producto.codigoInterno ? ` [${producto.codigoInterno}]` : ''} - $${(producto.precioVenta || 0).toLocaleString()}`;
@@ -1358,8 +1404,8 @@ DAMABELLA - Moda Femenina
                               setShowProductoDropdown(false);
                             }}
                           >
-                            <div className="text-sm text-gray-900">{producto.nombre}</div>
-                            <div className="text-xs text-gray-500">
+                            <div className="text-[10px] text-gray-900">{producto.nombre}</div>
+                            <div className="text-[10px] text-gray-500">
                               {producto.referencia ? `REF: ${producto.referencia}` : 'REF: N/A'}
                               {producto.codigoInterno ? ` • ${producto.codigoInterno}` : ''}
                               {` • $${(producto.precioVenta || 0).toLocaleString()}`}
@@ -1377,11 +1423,11 @@ DAMABELLA - Moda Femenina
                   <div className="grid grid-cols-2 gap-1">
                     <div className="grid grid-cols-2 gap-1">
                       <div>
-                        <label className="block text-gray-700 mb-1 text-sm">Talla</label>
+                        <label className="block text-gray-700 mb-0.5 text-[10px]">Talla</label>
                         <select
                           value={nuevoItem.talla}
                           onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                          className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                         >
                           <option value="">Seleccionar...</option>
                           {getTallasDisponibles().map((talla: string) => (
@@ -1391,11 +1437,11 @@ DAMABELLA - Moda Femenina
                       </div>
 
                       <div>
-                        <label className="block text-gray-700 mb-1 text-sm">Color</label>
+                        <label className="block text-gray-700 mb-0.5 text-[10px]">Color</label>
                         <select
                           value={nuevoItem.color}
                           onChange={(e) => handleNuevoItemChange('color', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                          className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                           disabled={!nuevoItem.talla}
                         >
                           <option value="">Seleccionar...</option>
@@ -1410,7 +1456,7 @@ DAMABELLA - Moda Femenina
 
                   {/* 🔒 Mostrar stock disponible */}
                   {nuevoItem.color && stockDisponible !== null && (
-                    <div className={`rounded-lg p-3 text-sm ${
+                    <div className={`rounded-md p-1 text-[10px] ${
                       stockDisponible > 0
                         ? 'bg-blue-50 border border-blue-200 text-blue-800'
                         : 'bg-red-50 border border-red-200 text-red-800'
@@ -1428,7 +1474,7 @@ DAMABELLA - Moda Femenina
                   )}
 
                   <div>
-                    <label className="block text-gray-700 mb-1 text-sm">Cantidad</label>
+                    <label className="block text-gray-700 mb-0.5 text-[10px]">Cantidad</label>
                     <Input
                       type="number"
                       min="1"
@@ -1437,13 +1483,14 @@ DAMABELLA - Moda Femenina
                       onChange={(e) => handleNuevoItemChange('cantidad', e.target.value)}
                       placeholder="1"
                       disabled={!nuevoItem.color || stockDisponible === 0}
+                      className="h-7 px-2 text-[10px]"
                     />
-                    {formErrors['nuevoItem_cantidad'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoItem_cantidad']}</p>}
+                    {formErrors['nuevoItem_cantidad'] && <p className="text-red-500 text-[10px] mt-0.5">{formErrors['nuevoItem_cantidad']}</p>}
                   </div>
                 </>
               )}
 
-              <Button onClick={agregarItem} variant="secondary" className="w-full">
+              <Button onClick={agregarItem} variant="secondary" className="w-full h-7 text-[10px]">
                 <Plus size={16} />
                 Agregar Producto
               </Button>
@@ -1453,10 +1500,10 @@ DAMABELLA - Moda Femenina
             {formData.items.length > 0 && (
               <div className="space-y-1">
                 {formData.items.map((item) => (
-                  <div key={item.id} className="border border-gray-200 rounded-lg p-1 bg-white flex items-center justify-between text-sm">
+                  <div key={item.id} className="border border-gray-200 rounded-md p-1 bg-white flex items-center justify-between text-[10px] leading-tight">
                     <div className="flex-1">
-                      <div className="text-gray-900">{item.productoNombre}</div>
-                      <div className="text-sm text-gray-600">
+                      <div className="text-gray-900 truncate">{item.productoNombre}</div>
+                      <div className="text-[10px] text-gray-600">
                         Talla: {item.talla} | Color: {item.color} | Cant: {item.cantidad} x ${item.precioUnitario.toLocaleString()}
                       </div>
                     </div>
@@ -1477,44 +1524,35 @@ DAMABELLA - Moda Femenina
 
           {/* Totales */}
           {formData.items.length > 0 && (
-            <div className="border-t pt-2 bg-gray-50 rounded-lg p-2">
+            <div className="border border-gray-200 bg-gray-50 rounded-md p-1.5">
               <div className="space-y-1">
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between text-gray-600 text-[10px]">
                   <span>Subtotal:</span>
-                  <span>${totales.subtotal.toLocaleString()}</span>
+                  <span className="tabular-nums">${totales.subtotal.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between text-gray-600 text-[10px]">
                   <span>IVA (19%):</span>
-                  <span>${totales.iva.toLocaleString()}</span>
+                  <span className="tabular-nums">${totales.iva.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 pt-1 border-t">
+                <div className="flex justify-between text-gray-900 text-[11px] font-semibold pt-1 border-t border-gray-200">
                   <span>Total:</span>
-                  <span>${totales.total.toLocaleString()}</span>
+                  <span className="tabular-nums">${totales.total.toLocaleString()}</span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Observaciones */}
-          <div>
-            <label className="block text-gray-700 mb-1">Observaciones</label>
-            <textarea
-              value={formData.observaciones}
-              onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-              rows={2}
-              placeholder="Notas adicionales..."
-            />
-          </div>
-
-          <div className="flex gap-2 justify-end pt-2 border-t">
-            <Button onClick={() => setShowModal(false)} variant="secondary">
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-1 mt-1">
+            <div className="flex gap-2.5 justify-end pt-1">
+              <Button onClick={() => setShowModal(false)} variant="secondary" className="h-7 px-3 text-[10px]">
               Cancelar
-            </Button>
-            <Button onClick={handleSave} variant="primary">
-              {editingPedido ? 'Guardar Cambios' : `Crear ${formData.tipo}`}
-            </Button>
+              </Button>
+              <Button onClick={handleSave} variant="primary" className="h-7 px-3 text-[10px]">
+                {editingPedido ? 'Guardar Cambios' : `Crear ${formData.tipo}`}
+              </Button>
+            </div>
           </div>
+        </div>
         </div>
       </Modal>
 
@@ -1835,6 +1873,7 @@ DAMABELLA - Moda Femenina
                         <div className="grid grid-cols-2 gap-2">
                           {(['Pendiente', 'Completada', 'Anulado'] as const).map((estado) => {
                             const esTransicionValida = puedeTransicionar(pedidoParaCambiarEstado.estado, estado);
+                            const labelEstado = estado === 'Completada' ? 'Convertir a venta' : estado;
                             
                             return (
                               <button
@@ -1854,7 +1893,7 @@ DAMABELLA - Moda Femenina
                                 }`}
                                 title={!esTransicionValida ? `No puedes pasar de ${pedidoParaCambiarEstado.estado} a ${estado}` : undefined}
                               >
-                                {estado}
+                                {labelEstado}
                               </button>
                             );
                           })}
@@ -1874,8 +1913,7 @@ DAMABELLA - Moda Femenina
                         <Button
                           onClick={() => {
                             if (pedidoParaCambiarEstado) {
-                              cambiarEstado(pedidoParaCambiarEstado, nuevoEstado);
-                              setShowEstadoModal(false);
+                              confirmarCambioEstado(pedidoParaCambiarEstado, nuevoEstado);
                             }
                           }}
                           variant="primary"
