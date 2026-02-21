@@ -45,12 +45,12 @@ export function Modal({
     md: 'max-w-lg',
     lg: 'max-w-2xl',
     xl: 'max-w-4xl',
-    xxl: 'max-w-5xl',
+    xxl: 'max-w-[95vw]',
   };
 
   const panelClass = fullscreen
     ? 'h-[86vh] w-full max-w-6xl rounded-xl'
-    : `w-full ${sizes[size]} rounded-lg ${noScroll ? '' : 'max-h-[90vh]'}`;
+    : `w-full ${sizes[size]} rounded-lg max-h-[95vh]`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

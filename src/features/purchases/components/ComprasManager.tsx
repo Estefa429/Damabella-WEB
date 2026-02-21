@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Truck, Eye, X, Ban, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Truck, Eye, X, Trash2, Ban, AlertTriangle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 import ImageUploader from '../../../shared/components/native/image-uploader';
 import { ProveedoresManager } from '../../suppliers/components/ProveedoresManager';
@@ -334,6 +334,47 @@ export function ComprasManager() {
     }
     return [];
   });
+
+  const agregarTallaGlobal = (tallaRaw: string) => {
+    const tallaNormalizada = String(tallaRaw || '').trim().toUpperCase();
+    if (!tallaNormalizada) return;
+    if (tallas.includes(tallaNormalizada)) return;
+    const updated = [...tallas, tallaNormalizada];
+    setTallas(updated);
+    localStorage.setItem('damabella_tallas', JSON.stringify(updated));
+  };
+
+  const eliminarTallaGlobal = (talla: string) => {
+    const target = String(talla || '').trim().toUpperCase();
+    if (!target) return;
+    const updated = tallas.filter((t) => String(t).trim().toUpperCase() !== target);
+    setTallas(updated);
+    localStorage.setItem('damabella_tallas', JSON.stringify(updated));
+    if (String(nuevoItem.talla || '').trim().toUpperCase() === target) {
+      setNuevoItem((prev) => ({ ...prev, talla: '' }));
+    }
+  };
+
+  const agregarColorGlobal = (colorRaw: string) => {
+    const colorNormalizado = String(colorRaw || '').trim();
+    if (!colorNormalizado) return;
+    const existe = coloresDisponibles.some((c) => c.toLowerCase() === colorNormalizado.toLowerCase());
+    if (existe) return;
+    const updated = [...coloresDisponibles, colorNormalizado];
+    setColoresDisponibles(updated);
+    localStorage.setItem('damabella_colores', JSON.stringify(updated.map((name) => ({ name }))));
+  };
+
+  const eliminarColorGlobal = (color: string) => {
+    const target = String(color || '').trim().toLowerCase();
+    if (!target) return;
+    const updated = coloresDisponibles.filter((c) => String(c).trim().toLowerCase() !== target);
+    setColoresDisponibles(updated);
+    localStorage.setItem('damabella_colores', JSON.stringify(updated.map((name) => ({ name }))));
+    if (String(nuevoItem.color || '').trim().toLowerCase() === target) {
+      setNuevoItem((prev) => ({ ...prev, color: '' }));
+    }
+  };
 
   const [categorias, setcategorias] = useState(() => {
     const stored = localStorage.getItem(CATEGORIAS_KEY);
@@ -1407,6 +1448,26 @@ export function ComprasManager() {
     setShowConfirmModal(true);
   };
 
+  const eliminarCompra = (id: number) => {
+    const compraAEliminar = compras.find(c => c.id === id);
+    if (!compraAEliminar) {
+      setNotificationMessage('❌ Compra no encontrada');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    setConfirmMessage(`¿Está seguro de eliminar la compra ${compraAEliminar.numeroCompra}?\n\nEsta acción no se puede deshacer.`);
+    setConfirmAction(() => () => {
+      setCompras(compras.filter(c => c.id !== id));
+      setShowConfirmModal(false);
+      setNotificationMessage(`✅ Compra ${compraAEliminar.numeroCompra} eliminada correctamente.`);
+      setNotificationType('success');
+      setShowNotificationModal(true);
+    });
+    setShowConfirmModal(true);
+  };
+
   const filteredCompras = compras.filter(c =>
     (c.numeroCompra?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
     (c.proveedorNombre?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
@@ -1422,30 +1483,12 @@ export function ComprasManager() {
         </div>
         <Button onClick={handleCreate} variant="primary">
           <Plus size={20} />
-          Nueva Compra
+          Agregar Compra
         </Button>
       </div>
 
       {/* 🔒 Historial de Compras por Proveedor */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 font-semibold mb-2">Historial de Compras por Proveedor</h3>
-        
-        <div className="mb-2">
-          <label className="block text-sm text-gray-700 mb-2">Seleccionar proveedor</label>
-          <select
-            value={proveedorSeleccionadoHistorial}
-            onChange={(e) => setProveedorSeleccionadoHistorial(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">-- Seleccionar un proveedor --</option>
-            {proveedores.map((proveedor) => (
-              <option key={proveedor.id} value={proveedor.id}>
-                {proveedor.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-
+      <div className={`bg-white rounded-xl shadow-sm border border-gray-200 p-6 ${!proveedorSeleccionadoHistorial ? 'hidden' : ''}`}>
         {proveedorSeleccionadoHistorial && (() => {
           const comprasProveedor = filtrarComprasPorProveedor(proveedorSeleccionadoHistorial); 
           const comprasOrdenadas = ordenarComprasPorFecha(comprasProveedor);
@@ -1633,15 +1676,24 @@ export function ComprasManager() {
                         {(() => {
                           const isAnulada = compra.estado === 'Anulada';
                           return (
-                            <button
-                              onClick={() => { if (!isAnulada) anularCompra(compra.id); }}
-                              className={`p-2 rounded-lg transition-colors ${isAnulada ? 'text-red-400 opacity-50 cursor-not-allowed' : 'hover:bg-red-50 text-red-600'}`}
-                              title="Anular compra"
-                              disabled={isAnulada}
-                              aria-disabled={isAnulada}
-                            >
-                              <Ban size={18} />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => { if (!isAnulada) anularCompra(compra.id); }}
+                                className={`p-2 rounded-lg transition-colors ${isAnulada ? 'text-red-400 opacity-50 cursor-not-allowed' : 'hover:bg-red-50 text-red-600'}`}
+                                title="Anular compra"
+                                disabled={isAnulada}
+                                aria-disabled={isAnulada}
+                              >
+                                <Ban size={18} />
+                              </button>
+                              <button
+                                onClick={() => eliminarCompra(compra.id)}
+                                className="p-2 rounded-lg transition-colors hover:bg-red-50 text-red-600"
+                                title="Eliminar compra"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </>
                           );
                         })()}
                       </div>
@@ -1660,13 +1712,17 @@ export function ComprasManager() {
         onClose={() => setShowModal(false)}
         title="Nueva Compra"
         size="xxl"
+        noScroll
       >
 
-        <div className="space-y-3" style={{ fontSize: '13px' }}>
+        <div className="w-[95vw] max-h-[95vh] overflow-hidden text-[10px] leading-tight">
+          <div className="space-y-1.5 pb-1">
           {/* Datos generales */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start justify-items-center">
-            <div className="flex flex-col items-center">
-              <label className="block text-gray-700 mb-2 text-center">Proveedor *</label>
+          <div className="border border-gray-200 rounded-lg bg-white p-2">
+          <h3 className="text-center text-[12px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-100">DAMABELLA</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 items-start">
+            <div>
+              <label className="block text-gray-700 mb-0.5 text-[10px]">Proveedor *</label>
               <select
                   value={formData.proveedorId}
                   onChange={(e) => {
@@ -1680,7 +1736,7 @@ export function ComprasManager() {
                     setFormErrors({ ...formErrors, proveedorId: undefined });
                   }}
                   disabled={!!nuevoItem.productoId}
-                  className={`w-64 px-3 py-2 border rounded-lg focus:outline-none ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
+                  className={`w-full h-7 px-2 border rounded-md focus:outline-none text-[10px] ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
                 >
                 <option value="">Seleccionar proveedor...</option>
                           {/* Opción para añadir proveedor ahora via botón debajo */}
@@ -1699,7 +1755,7 @@ export function ComprasManager() {
                 <button
                   type="button"
                   onClick={() => setShowProveedorModal(true)}
-                  className="text-sm text-gray-700 text-center underline underline-offset-2"
+                  className="text-[10px] text-gray-700 underline underline-offset-2"
                 >
                   Agregar nuevo proveedor
                 </button>
@@ -1714,14 +1770,14 @@ export function ComprasManager() {
               <ProveedoresManager onlyModal openOnMount />
             )}
 
-            <div className="flex flex-col items-center">
-              <label className="block text-gray-700 mb-2 text-center">Fecha de Compra *</label>
-              <div className="w-64">
+            <div>
+              <label className="block text-gray-700 mb-0.5 text-[10px]">Fecha de Compra *</label>
+              <div className="w-full">
                 <Input
                   type="date"
                   value={formData.fechaCompra}
                   onChange={(e) => handleFieldChange('fechaCompra', e.target.value)}
-                  className={formErrors.fechaCompra ? 'border-red-500' : ''}
+                  className={`${formErrors.fechaCompra ? 'border-red-500' : ''} h-7 text-[10px] px-2`}
                   required
                   readOnly
                 />
@@ -1732,16 +1788,16 @@ export function ComprasManager() {
               )}
             </div>
 
-            <div className="flex flex-col items-center">
-              <label className="block text-gray-700 mb-2 text-center">IVA (%) *</label>
+            <div>
+              <label className="block text-gray-700 mb-0.5 text-[10px]">IVA (%) *</label>
 
-              <div className="w-64">
+              <div className="w-full">
                 <Input
                   type="number"
                   value={formData.iva}
                   onChange={(e) => handleFieldChange('iva', e.target.value)}
                   placeholder="19"
-                  className={formErrors.iva ? 'border-red-500' : ''}
+                  className={`${formErrors.iva ? 'border-red-500' : ''} h-7 text-[10px] px-2`}
                   required
                 />
               </div>
@@ -1751,11 +1807,12 @@ export function ComprasManager() {
               )}
             </div>
           </div>
+          </div>
 
 
           {/* Agregar productos */}
-          <div className="border-t pt-3">
-            <h4 className="text-gray-900 mb-3 text-2xl font-bold text-center w-full">Agregar productos a la compra</h4>
+          <div className="border border-gray-200 rounded-lg bg-white p-2">
+            <h4 className="text-gray-900 mb-2 text-[11px] font-semibold">Agregar productos</h4>
             
             {itemsError && (
               <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-2">
@@ -1764,11 +1821,11 @@ export function ComprasManager() {
               </div>
             )}
             
-            <div className="space-y-3 mb-2">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3 items-start">
-                <div>
-                <label className="block text-gray-700 mb-2 text-sm">Nombre del Producto *</label>
-                <div className="w-64">
+            <div className="space-y-1.5 mb-1">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-1.5 items-start">
+                <div className="md:col-span-2">
+                <label className="block text-gray-700 mb-1 text-[10px]">Producto *</label>
+                <div className="w-full">
                   <input
                     type="text"
                     list="productos-existentes"
@@ -1885,7 +1942,7 @@ export function ComprasManager() {
                         setProveedorSearchTerm(proveedorNombreFound || '');
                       }
                     }}
-                    className="w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+                    className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                   />
                   <datalist id="productos-existentes">
                     {productos
@@ -1900,17 +1957,15 @@ export function ComprasManager() {
               </div>
 
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Talla *</label>
-                  <div className="w-64">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Talla *</label>
+                  <div className="w-full">
                     {(() => {
                       const tallaNormalizada = (nuevoItem.talla || '').trim().toUpperCase();
                       const tallaExiste = !!tallaNormalizada && tallas.includes(tallaNormalizada);
 
                       const agregarNuevaTalla = () => {
                         if (!tallaNormalizada || tallaExiste) return;
-                        const updated = [...tallas, tallaNormalizada];
-                        setTallas(updated);
-                        localStorage.setItem('damabella_tallas', JSON.stringify(updated));
+                        agregarTallaGlobal(tallaNormalizada);
                         setNuevoItem({ ...nuevoItem, talla: tallaNormalizada });
                       };
 
@@ -1928,7 +1983,7 @@ export function ComprasManager() {
                           agregarNuevaTalla();
                         }
                       }}
-                      className="w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                     />
                     <datalist id="tallas-existentes">
                       {tallas.map((talla) => (
@@ -1943,13 +1998,27 @@ export function ComprasManager() {
                       );
                     })()}
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Tallas globales disponibles: {tallas.join(', ')}
-                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">Tallas globales</p>
+                  {tallas.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {tallas.map((talla) => (
+                        <button
+                          key={talla}
+                          type="button"
+                          onClick={() => eliminarTallaGlobal(talla)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-300 text-[10px] text-gray-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                          title={`Eliminar talla ${talla}`}
+                        >
+                          {talla}
+                          <X size={10} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
-                <label className="block text-gray-700 mb-2 text-sm">Color *</label>
-                <div className="w-64">
+                <label className="block text-gray-700 mb-1 text-[10px]">Color *</label>
+                <div className="w-full">
                   <input
                     type="text"
                     list="colores-existentes"
@@ -1964,12 +2033,10 @@ export function ComprasManager() {
                           !!colorNormalizado &&
                           coloresDisponibles.some((c) => c.toLowerCase() === colorNormalizado.toLowerCase());
                         if (!colorNormalizado || colorExiste) return;
-                        const updated = [...coloresDisponibles, colorNormalizado];
-                        setColoresDisponibles(updated);
-                        localStorage.setItem('damabella_colores', JSON.stringify(updated.map((name) => ({ name }))));
+                        agregarColorGlobal(colorNormalizado);
                       }
                     }}
-                    className={`w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm ${
+                    className={`w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px] ${
                       formErrors?.color ? 'border-red-500' : ''
                     }`}
                   />
@@ -1978,51 +2045,112 @@ export function ComprasManager() {
                       <option key={color} value={color} />
                     ))}
                   </datalist>
+                  {coloresDisponibles.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {coloresDisponibles.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => eliminarColorGlobal(color)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-300 text-[10px] text-gray-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                          title={`Eliminar color ${color}`}
+                        >
+                          {color}
+                          <X size={10} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-700 mb-2 text-sm">Cantidad</label>
-                <div className="w-64">
+                <label className="block text-gray-700 mb-1 text-[10px]">Cantidad</label>
+                <div className="w-full">
                   <Input
                     type="number"
                     value={nuevoItem.cantidad}
                     onChange={(e) => setNuevoItem({ ...nuevoItem, cantidad: e.target.value })}
                     placeholder="0"
+                    className="h-7 text-[10px] px-2"
                   />
                 </div>
               </div>
-            </div>
+              </div>
+
+              <div className="flex justify-end">
+              <Button onClick={() => {
+                // Obtener el categoriaId directamente del select (más confiable que el state)
+                const selectValue = categoriaSelectRef.current?.value || '';
+                const cat = categorias.find(c => c.id === selectValue);
+                
+                console.log('📋 [ComprasManager] ANTES de agregarItem:', {
+                  categoriaId_state: nuevoItem.categoriaId,
+                  categoriaId_select: selectValue,
+                  categoriaNombre_select: cat?.name,
+                  nuevoItem: JSON.stringify(nuevoItem, null, 2)
+                });
+                
+                // Si el select tiene valor pero el state no, actualizar state
+                if (selectValue && !nuevoItem.categoriaId) {
+                  console.log('🔧 [ComprasManager] Actualizando estado con categoría del select...');
+                  const updatedItem = {
+                    ...nuevoItem,
+                    categoriaId: selectValue,
+                    categoriaNombre: cat?.name || ''
+                  };
+                  setNuevoItem(updatedItem);
+                  // Esperar a que se actualice y luego agregar
+                  setTimeout(() => agregarItem(), 50);
+                } else if (selectValue && nuevoItem.categoriaId !== selectValue) {
+                  console.log('🔧 [ComprasManager] Sincronizando categoría del select...');
+                  const updatedItem = {
+                    ...nuevoItem,
+                    categoriaId: selectValue,
+                    categoriaNombre: cat?.name || ''
+                  };
+                  setNuevoItem(updatedItem);
+                  setTimeout(() => agregarItem(), 50);
+                } else {
+                  agregarItem();
+                }
+              }} variant="secondary" className="h-7 px-3 text-[10px]">
+                <Plus size={14} />
+                Agregar producto
+              </Button>
+              </div>
 
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-1.5 pt-1 border-t border-gray-100">
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Precio Compra</label>
-                  <div className="w-64">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Precio compra</label>
+                  <div className="w-full">
                     <Input
                       type="number"
                       value={nuevoItem.precioCompra}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, precioCompra: e.target.value })}
                       placeholder="0"
                       readOnly={!!nuevoItem.productoId}
+                      className="h-7 text-[10px] px-2"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Precio Venta</label>
-                  <div className="w-64">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Precio venta</label>
+                  <div className="w-full">
                     <Input
                       type="number"
                       value={nuevoItem.precioVenta}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, precioVenta: e.target.value })}
                       placeholder="0"
+                      className="h-7 text-[10px] px-2"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Categoría del Producto</label>
+                  <label className="block text-gray-700 mb-1 text-[10px]">Categoría</label>
                   <select
                     ref={categoriaSelectRef}
                     value={nuevoItem.categoriaId || ''}
@@ -2039,7 +2167,7 @@ export function ComprasManager() {
                         categoriaNombre: cat?.name || ''
                       }));
                     }}
-                    className="w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+                    className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                   >
                     <option value="">Seleccionar categoría...</option>
                     {categorias.map((cat) => (
@@ -2052,8 +2180,8 @@ export function ComprasManager() {
                 </div>
 
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Imagen del Producto</label>
-                  <div className="w-64 max-w-full">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Imagen del Producto</label>
+                  <div className="w-full max-w-full">
                       <ImageUploader
                         value={nuevoItem.imagen}
                         onChange={(b64) => setNuevoItem({ ...nuevoItem, imagen: b64 })}
@@ -2062,70 +2190,23 @@ export function ComprasManager() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                ...
-              </div>
-
-
-            </div>
-
-            <div className="flex justify-center">
-            <Button onClick={() => {
-              // Obtener el categoriaId directamente del select (más confiable que el state)
-              const selectValue = categoriaSelectRef.current?.value || '';
-              const cat = categorias.find(c => c.id === selectValue);
-              
-              console.log('📋 [ComprasManager] ANTES de agregarItem:', {
-                categoriaId_state: nuevoItem.categoriaId,
-                categoriaId_select: selectValue,
-                categoriaNombre_select: cat?.name,
-                nuevoItem: JSON.stringify(nuevoItem, null, 2)
-              });
-              
-              // Si el select tiene valor pero el state no, actualizar state
-              if (selectValue && !nuevoItem.categoriaId) {
-                console.log('🔧 [ComprasManager] Actualizando estado con categoría del select...');
-                const updatedItem = {
-                  ...nuevoItem,
-                  categoriaId: selectValue,
-                  categoriaNombre: cat?.name || ''
-                };
-                setNuevoItem(updatedItem);
-                // Esperar a que se actualice y luego agregar
-                setTimeout(() => agregarItem(), 50);
-              } else if (selectValue && nuevoItem.categoriaId !== selectValue) {
-                console.log('🔧 [ComprasManager] Sincronizando categoría del select...');
-                const updatedItem = {
-                  ...nuevoItem,
-                  categoriaId: selectValue,
-                  categoriaNombre: cat?.name || ''
-                };
-                setNuevoItem(updatedItem);
-                setTimeout(() => agregarItem(), 50);
-              } else {
-                agregarItem();
-              }
-            }} variant="primary" className="w-96 mb-2 text-lg py-3">
-              <Plus size={18} />
-              Agregar Producto
-            </Button>
             </div>
 
             {/* Lista de productos agregados */}
             {formData.items.length > 0 && (
               <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full text-[10px] leading-tight">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="text-left py-2 px-3 text-gray-600">Producto</th>
-                      <th className="text-left py-2 px-3 text-gray-600">Categoría</th>
-                      <th className="text-left py-2 px-3 text-gray-600">Talla</th>
-                      <th className="text-left py-2 px-3 text-gray-600">Color</th>
-                      <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
-                      <th className="text-right py-2 px-3 text-gray-600">P. Compra</th>
-                      <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
-                      <th className="text-right py-2 px-3 text-gray-600">Subtotal</th>
-                      <th className="py-2 px-3"></th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Producto</th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Categoría</th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Talla</th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Color</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">Cant.</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">P. Compra</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">P. Venta</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">Subtotal</th>
+                      <th className="py-1.5 px-2"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -2133,14 +2214,14 @@ export function ComprasManager() {
                       const colorHex = (COLOR_MAP as any)[item.color] || item.color;
                       return (
                       <tr key={item.id}>
-                        <td className="py-2 px-3 text-gray-900">{item.productoNombre}</td>
-                        <td className="py-2 px-3 text-gray-700">
+                        <td className="py-1.5 px-2 text-gray-900">{item.productoNombre}</td>
+                        <td className="py-1.5 px-2 text-gray-700">
                           <span className="inline-block bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-medium">
                             {item.categoriaNombre || '⚠️ ERROR: Sin asignar'}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-gray-700">{item.talla || '-'}</td>
-                        <td className="py-2 px-3 text-gray-700">
+                        <td className="py-1.5 px-2 text-gray-700">{item.talla || '-'}</td>
+                        <td className="py-1.5 px-2 text-gray-700">
                           <div className="flex items-center gap-2">
                             {item.color && (
                               <div
@@ -2152,11 +2233,11 @@ export function ComprasManager() {
                             <span>{item.color || '-'}</span>
                           </div>
                         </td>
-                        <td className="py-2 px-3 text-right text-gray-700">{item.cantidad}</td>
-                        <td className="py-2 px-3 text-right text-gray-700">${(item.precioCompra || 0).toLocaleString()}</td>
-                        <td className="py-2 px-3 text-right text-gray-700">${(item.precioVenta || 0).toLocaleString()}</td>
-                        <td className="py-2 px-3 text-right text-gray-900">${(item.subtotal || 0).toLocaleString()}</td>
-                        <td className="py-2 px-3">
+                        <td className="py-1.5 px-2 text-right text-gray-700 tabular-nums">{item.cantidad}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-700 tabular-nums">${(item.precioCompra || 0).toLocaleString()}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-700 tabular-nums">${(item.precioVenta || 0).toLocaleString()}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-900 tabular-nums">${(item.subtotal || 0).toLocaleString()}</td>
+                        <td className="py-1.5 px-2">
                           <button
                             onClick={() => eliminarItem(item.id)}
                             className="text-red-600 hover:bg-red-50 p-1 rounded"
@@ -2174,30 +2255,33 @@ export function ComprasManager() {
 
             {/* Totales */}
             {formData.items.length > 0 && (
-              <div className="mt-4 bg-gray-50 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-gray-700">
+              <div className="mt-2 bg-gray-50 rounded-lg border border-gray-200 p-2 space-y-1">
+                <div className="flex justify-between text-gray-700 text-[10px]">
                   <span>Subtotal:</span>
-                  <span>${calcularSubtotal().toLocaleString()}</span>
+                  <span className="tabular-nums">${calcularSubtotal().toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-700">
+                <div className="flex justify-between text-gray-700 text-[10px]">
                   <span>IVA ({formData.iva}%):</span>
-                  <span>${calcularIVA().toLocaleString()}</span>
+                  <span className="tabular-nums">${calcularIVA().toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 pt-2 border-t border-gray-300">
-                  <span className="text-lg font-semibold">Total:</span>
-                  <span className="text-lg font-semibold">${calcularTotal().toLocaleString()}</span>
+                <div className="flex justify-between text-gray-900 pt-1 border-t border-gray-300 text-[11px] font-semibold">
+                  <span>Total:</span>
+                  <span className="tabular-nums">${calcularTotal().toLocaleString()}</span>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="flex gap-3 justify-end pt-3 border-t">
-            <Button onClick={() => setShowModal(false)} variant="secondary">
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-1.5 mt-1">
+          <div className="flex gap-2.5 justify-end">
+            <Button onClick={() => setShowModal(false)} variant="secondary" className="h-7 px-3 text-[10px]">
               Cancelar
             </Button>
-            <Button onClick={handleSave} variant="primary">
+            <Button onClick={handleSave} variant="primary" className="h-7 px-3 text-[10px]">
               Crear Compra
             </Button>
+          </div>
+          </div>
           </div>
         </div>
       </Modal>

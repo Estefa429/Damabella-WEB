@@ -195,6 +195,20 @@ export function DevolucionesManager() {
     });
   };
 
+  const getCantidadMaximaDevolucion = (item: any) => {
+    const cantidadDirecta = Number(item?.cantidad ?? 0);
+    if (Number.isFinite(cantidadDirecta) && cantidadDirecta > 0) return cantidadDirecta;
+
+    const subtotal = Number(item?.subtotal ?? 0);
+    const precio = Number(item?.precioUnitario ?? 0);
+    if (Number.isFinite(subtotal) && Number.isFinite(precio) && precio > 0) {
+      const estimada = Math.floor(subtotal / precio);
+      if (estimada > 0) return estimada;
+    }
+
+    return 1;
+  };
+
 
 
 
@@ -1000,6 +1014,19 @@ DAMABELLA - Moda Femenina
                   </option>
                 ))}
               </select>
+
+              {selectedVenta && (() => {
+                const clientes = JSON.parse(localStorage.getItem('damabella_clientes') || '[]');
+                const cliente = clientes.find((c: any) => String(c.id) === String(selectedVenta.clienteId));
+                const saldoDisponible = Number(cliente?.saldoAFavor || 0);
+                return (
+                  <div className="mt-2 rounded-lg border border-green-200 bg-green-50 p-2">
+                    <div className="text-sm text-green-800 font-medium">
+                      Saldo disponible: ${saldoDisponible.toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Productos de la Venta Seleccionada */}
@@ -1040,18 +1067,19 @@ DAMABELLA - Moda Femenina
                             <input
                               type="number"
                               min="0"
-                              max={Number(item.cantidad || 0)}
+                              max={getCantidadMaximaDevolucion(item)}
                               value={cantidadDevuelta}
                               onChange={(e) => {
-                                const max = Number(item.cantidad || 0);
+                                const max = getCantidadMaximaDevolucion(item);
                                 const val = parseInt(e.target.value, 10) || 0;
                                 const safe = Math.max(0, Math.min(max, val));
                                 handleToggleItemDevolucion(String(item.id), safe);
                               }}
+                              step="1"
                               className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                             />
 
-                            <span className="text-xs text-gray-600">de {item.cantidad}</span>
+                            <span className="text-xs text-gray-600">de {getCantidadMaximaDevolucion(item)}</span>
 
                             {cantidadDevuelta > 0 && (
                               <span className="ml-auto text-xs text-green-700 font-medium">
@@ -1140,7 +1168,7 @@ DAMABELLA - Moda Femenina
                     const item = selectedVenta.items.find((i: any) => String(i.id) === String(sel.itemId));
                     if (!item) return sum;
 
-                    const cantidadVendida = Number(item.cantidad || 0);
+                    const cantidadVendida = getCantidadMaximaDevolucion(item);
                     const cantidad = Math.max(0, Math.min(cantidadVendida, Number(sel.cantidad || 0)));
                     return sum + (cantidad * Number(item.precioUnitario || 0));
                   }, 0);

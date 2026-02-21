@@ -462,7 +462,7 @@ export default function ClientesManager() {
         </div>
         <Button onClick={handleCreate} variant="primary">
           <Plus size={20} />
-          Nuevo Cliente
+          Agregar Cliente
         </Button>
       </div>
 

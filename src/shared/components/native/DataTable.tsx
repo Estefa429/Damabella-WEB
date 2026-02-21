@@ -51,7 +51,7 @@ export function DataTable<T extends { id: string | number }>(
               setSearch(e.target.value);
               setCurrentPage(1);
             }}
-            className="pl-10 w-full"
+            className="pl-10 w-full h-10 py-0 text-sm"
           />
         </div>
         <div className="text-sm text-gray-600">
@@ -68,6 +68,7 @@ export function DataTable<T extends { id: string | number }>(
                 <TableHeader
                   key={column.key}
                   style={column.width ? { width: column.width } : {}}
+                  className={column.key === 'actions' ? 'text-right pr-6' : ''}
                 >
                   {column.key === 'actions' ? (
                     <span className="float-right">{column.label}</span>
