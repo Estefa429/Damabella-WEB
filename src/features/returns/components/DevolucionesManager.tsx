@@ -433,7 +433,9 @@ DAMABELLA - Moda Femenina
       return;
     }
 
-    if (!productoNuevoTalla || !productoNuevoColor) {
+    const esSaldoAFavor = productoNuevoId === 'saldo_a_favor';
+
+    if (!esSaldoAFavor && (!productoNuevoTalla || !productoNuevoColor)) {
       setShowNotificationModal(true);
       setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
       setNotificationType('error');
@@ -483,15 +485,18 @@ DAMABELLA - Moda Femenina
       0
     );
 
-    const productoNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
-    if (!productoNuevo) {
+    const productoNuevo = esSaldoAFavor
+      ? null
+      : productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
+
+    if (!esSaldoAFavor && !productoNuevo) {
       setShowNotificationModal(true);
       setNotificationMessage('Producto de cambio no encontrado');
       setNotificationType('error');
       return;
     }
 
-    const precioProductoNuevo = Number(productoNuevo.precioVenta || 0);
+    const precioProductoNuevo = esSaldoAFavor ? 0 : Number(productoNuevo?.precioVenta || 0);
     const diferencia = precioProductoNuevo - totalDevolucion;
 
     const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
@@ -518,13 +523,15 @@ DAMABELLA - Moda Femenina
       total: totalDevolucion,
       createdAt: new Date().toISOString(),
       estadoGestion: 'Cambiado',
-      productoNuevo: {
-        id: productoNuevo.id,
-        nombre: productoNuevo.nombre,
-        precio: precioProductoNuevo,
-      },
-      productoNuevoTalla,
-      productoNuevoColor,
+      productoNuevo: esSaldoAFavor
+        ? null
+        : {
+            id: productoNuevo!.id,
+            nombre: productoNuevo!.nombre,
+            precio: precioProductoNuevo,
+          },
+      productoNuevoTalla: esSaldoAFavor ? undefined : productoNuevoTalla,
+      productoNuevoColor: esSaldoAFavor ? undefined : productoNuevoColor,
       saldoAFavor,
       diferenciaPagar,
       medioPagoExcedente: diferenciaPagar > 0 ? medioPagoExcedente : undefined,
@@ -1116,6 +1123,7 @@ DAMABELLA - Moda Femenina
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     >
                       <option value="">-- Selecciona el producto nuevo --</option>
+                      <option value="saldo_a_favor">Saldo a favor (sin producto de cambio)</option>
                       {productos.filter((p: any) => p.activo).map((p: any) => (
                         <option key={p.id} value={p.id}>
                           {p.nombre} - ${(p.precioVenta || 0).toLocaleString()}
@@ -1124,7 +1132,7 @@ DAMABELLA - Moda Femenina
                     </select>
 
                     {/* talla / color */}
-                    {productoNuevoId && (
+                    {productoNuevoId && productoNuevoId !== 'saldo_a_favor' && (
                       <div className="grid grid-cols-2 gap-3 mt-3">
                         <div>
                           <label className="text-xs text-gray-600 mb-1 block">Talla *</label>
@@ -1173,7 +1181,10 @@ DAMABELLA - Moda Femenina
                     return sum + (cantidad * Number(item.precioUnitario || 0));
                   }, 0);
 
-                  const prodNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
+                  const esSaldoAFavor = productoNuevoId === 'saldo_a_favor';
+                  const prodNuevo = esSaldoAFavor
+                    ? null
+                    : productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
                   const precioProductoNuevo = prodNuevo ? Number(prodNuevo.precioVenta || 0) : 0;
 
                   const diferencia = precioProductoNuevo - totalDevuelto;

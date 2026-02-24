@@ -467,133 +467,139 @@ export function RolesPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={editingRole ? 'Editar Rol' : 'Nuevo Rol'}
-        size="lg"
+        size="xl" 
       >
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Nombre del Rol</Label>
+        {/* Contenedor general sin scroll */}
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col h-full min-h-0 gap-2 text-[11px] leading-tight"
+        >
+          {/* A) TOP (no scroll) */}
+          <div className="flex-shrink-0 grid grid-cols-1 md:grid-cols-2 gap-2">
+            {/* Nombre */}
+            <div className="space-y-1">
+              <Label htmlFor="name" className="text-[10px]">Nombre del Rol</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => handleFieldChange('name', e.target.value)}
                 placeholder="Ej: Supervisor, Vendedor"
+                className="h-8 text-[11px] px-2"
                 required
               />
               {formErrors.name && (
-                <div className="flex items-start gap-2 mt-2">
-                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                  <p className="text-red-500 text-sm">{formErrors.name}</p>
+                <div className="flex items-start gap-1 mt-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-[10px]">{formErrors.name}</p>
                 </div>
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="description">Descripción</Label>
+            {/* Descripción (más pequeña) */}
+            <div className="space-y-1">
+              <Label htmlFor="description" className="text-[10px]">Descripción</Label>
               <Textarea
                 id="description"
                 value={formData.description}
                 onChange={(e) => handleFieldChange('description', e.target.value)}
                 placeholder="Descripción del rol"
+                rows={1}
+                className="text-[10px] px-2 py-1 leading-snug h-10 resize-none"
                 required
               />
               {formErrors.description && (
-                <div className="flex items-start gap-2 mt-2">
-                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                  <p className="text-red-500 text-sm">{formErrors.description}</p>
+                <div className="flex items-start gap-1 mt-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-500 text-[10px]">{formErrors.description}</p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Permisos por módulo */}
-          <div className="space-y-3">
-            <Label>Permisos por Módulo</Label>
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700">Módulo</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-700">Ver</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-700">Crear</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-700">Editar</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-700">Eliminar</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-700">Todos</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {formData.permissions.map((permission, index) => (
-                    <tr key={permission.module} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium">{permission.module}</td>
-                      <td className="px-4 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={permission.canView}
-                          onChange={(e) => handlePermissionChange(index, 'canView', e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-gray-700"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={permission.canCreate}
-                          onChange={(e) => handlePermissionChange(index, 'canCreate', e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-gray-700"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={permission.canEdit}
-                          onChange={(e) => handlePermissionChange(index, 'canEdit', e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-gray-700"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={permission.canDelete}
-                          onChange={(e) => handlePermissionChange(index, 'canDelete', e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-gray-700"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => toggleAllPermissions(index, true)}
-                            className="p-1 hover:bg-green-50 rounded"
-                            title="Habilitar todos"
-                          >
-                            <Check className="h-4 w-4 text-green-600" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleAllPermissions(index, false)}
-                            className="p-1 hover:bg-red-50 rounded"
-                            title="Deshabilitar todos"
-                          >
-                            <X className="h-4 w-4 text-red-600" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {/* B) MIDDLE (la tabla ocupa lo que reste, con scroll interno) */}
+          <div className="space-y-1 flex-1 min-h-0">
+  <Label className="text-[10px]">Permisos por Módulo</Label>
 
-          <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>
+  <div className="border border-gray-200 rounded-md overflow-auto flex-1 min-h-0">
+    <table className="w-full min-w-[560px]">
+      <thead className="bg-gray-50 sticky top-0 z-10">
+        <tr>
+          <th className="px-2 py-1 text-left text-[9.5px] font-medium text-gray-700">Módulo</th>
+          <th className="px-2 py-1 text-center text-[9.5px] font-medium text-gray-700">Ver</th>
+          <th className="px-2 py-1 text-center text-[9.5px] font-medium text-gray-700">Crear</th>
+          <th className="px-2 py-1 text-center text-[9.5px] font-medium text-gray-700">Editar</th>
+          <th className="px-2 py-1 text-center text-[9.5px] font-medium text-gray-700">Eliminar</th>
+          <th className="px-2 py-1 text-center text-[9.5px] font-medium text-gray-700">Todos</th>
+        </tr>
+      </thead>
+
+      <tbody className="divide-y divide-gray-200">
+        {formData.permissions.map((permission, index) => (
+          <tr key={permission.module} className="hover:bg-gray-50">
+            <td className="px-2 py-[6px] text-[9.5px] font-medium whitespace-nowrap">
+              {permission.module}
+            </td>
+
+            {/* Checkboxes más compactos */}
+            {(['canView','canCreate','canEdit','canDelete'] as const).map((k) => (
+              <td key={k} className="px-2 py-[6px] text-center">
+                <input
+                  type="checkbox"
+                  checked={(permission as any)[k]}
+                  onChange={(e) => handlePermissionChange(index, k, e.target.checked)}
+                  className="h-3 w-3 rounded border-gray-300 text-gray-700 focus:ring-gray-700"
+                />
+              </td>
+            ))}
+
+            <td className="px-2 py-[6px] text-center">
+              <div className="flex justify-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleAllPermissions(index, true)}
+                  className="p-0.5 hover:bg-green-50 rounded transition"
+                  title="Habilitar todos"
+                >
+                  <Check className="h-3 w-3 text-green-600" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleAllPermissions(index, false)}
+                  className="p-0.5 hover:bg-red-50 rounded transition"
+                  title="Deshabilitar todos"
+                >
+                  <X className="h-3 w-3 text-red-600" />
+                </button>
+              </div>
+            </td>
+
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+          {/* C) BOTTOM (no scroll, siempre visible) */}
+          <div className="flex-shrink-0 flex justify-end gap-2 pt-2 mt-2 border-t border-gray-100 bg-white">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsModalOpen(false)}
+              className="h-8 px-3 text-[11px]"
+            >
               Cancelar
             </Button>
-            <Button type="submit">
+            <Button type="submit" className="h-8 px-3 text-[11px]">
               {editingRole ? 'Actualizar' : 'Crear'}
             </Button>
           </div>
         </form>
+
       </Modal>
+
 
         <Modal
           isOpen={isStatusModalOpen}

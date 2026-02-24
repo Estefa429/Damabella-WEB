@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Truck, Eye, X, Trash2, Ban, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Truck, Eye, X, Ban, AlertTriangle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 import ImageUploader from '../../../shared/components/native/image-uploader';
 import { ProveedoresManager } from '../../suppliers/components/ProveedoresManager';
@@ -1691,7 +1691,7 @@ export function ComprasManager() {
                                 className="p-2 rounded-lg transition-colors hover:bg-red-50 text-red-600"
                                 title="Eliminar compra"
                               >
-                                <Trash2 size={18} />
+                                <X size={18} />
                               </button>
                             </>
                           );
@@ -1715,15 +1715,25 @@ export function ComprasManager() {
         noScroll
       >
 
-        <div className="w-[95vw] max-h-[95vh] overflow-hidden text-[10px] leading-tight">
+        <div className="w-[95vw] h-[86vh] overflow-hidden text-[10px] leading-tight flex flex-col gap-2">
           <div className="space-y-1.5 pb-1">
           {/* Datos generales */}
           <div className="border border-gray-200 rounded-lg bg-white p-2">
-          <h3 className="text-center text-[12px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-100">DAMABELLA</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 items-start">
-            <div>
-              <label className="block text-gray-700 mb-0.5 text-[10px]">Proveedor *</label>
-              <select
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-100">
+              <div>
+                <h3 className="text-[12px] font-semibold text-gray-900">Nueva Compra</h3>
+                <p className="text-[10px] text-gray-500">DAMABELLA</p>
+              </div>
+              <div className="text-[10px] text-gray-500">
+                {formData.items?.length || 0} items
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
+              {/* Proveedor */}
+              <div>
+                <label className="block text-gray-700 mb-0.5 text-[10px]">Proveedor *</label>
+                <select
                   value={formData.proveedorId}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -1736,83 +1746,78 @@ export function ComprasManager() {
                     setFormErrors({ ...formErrors, proveedorId: undefined });
                   }}
                   disabled={!!nuevoItem.productoId}
-                  className={`w-full h-7 px-2 border rounded-md focus:outline-none text-[10px] ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
+                  className={`w-full h-8 px-2 border rounded-md focus:outline-none text-[10px] bg-white ${
+                    formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 >
-                <option value="">Seleccionar proveedor...</option>
-                          {/* Opción para añadir proveedor ahora via botón debajo */}
-                {/** Si el proveedor fue prellenado pero no está en la lista, mostrarlo como opción fallback */}
-                {formData.proveedorId && !proveedores.some((p: any) => String(p.id) === String(formData.proveedorId)) && (
-                  <option value={String(formData.proveedorId)}>{formData.proveedorNombre || formData.proveedorId}</option>
-                )}
-                {proveedores
-                  .filter((p: any) => p.activo && p.nombre)
-                  .map((p: any) => (
-                    <option key={p.id} value={String(p.id)}>{p.nombre}</option>
-                  ))}
-              </select>
-              {/* Botón pequeño para abrir el modal de Proveedores y agregar uno nuevo */}
-              <div className="mt-1">
+                  <option value="">Seleccionar proveedor...</option>
+
+                  {formData.proveedorId &&
+                    !proveedores.some((p: any) => String(p.id) === String(formData.proveedorId)) && (
+                      <option value={String(formData.proveedorId)}>
+                        {formData.proveedorNombre || formData.proveedorId}
+                      </option>
+                    )}
+
+                  {proveedores
+                    .filter((p: any) => p.activo && p.nombre)
+                    .map((p: any) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.nombre}
+                      </option>
+                    ))}
+                </select>
+
                 <button
                   type="button"
                   onClick={() => setShowProveedorModal(true)}
-                  className="text-[10px] text-gray-700 underline underline-offset-2"
+                  className="mt-1 text-[10px] text-gray-600 hover:text-gray-900 underline underline-offset-2"
                 >
-                  Agregar nuevo proveedor
+                  + Agregar proveedor
                 </button>
+
+                {formErrors.proveedorId && <p className="text-red-600 text-[10px] mt-1">{formErrors.proveedorId}</p>}
               </div>
-              {formErrors.proveedorId && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.proveedorId}</p>
-              )}
-            </div>
 
-            {/* Montar ProveedoresManager solo cuando el estado lo pida. Se usa onlyModal para mostrar únicamente el modal existente */}
-            {showProveedorModal && (
-              <ProveedoresManager onlyModal openOnMount />
-            )}
-
-            <div>
-              <label className="block text-gray-700 mb-0.5 text-[10px]">Fecha de Compra *</label>
-              <div className="w-full">
+              {/* Fecha */}
+              <div>
+                <label className="block text-gray-700 mb-0.5 text-[10px]">Fecha *</label>
                 <Input
                   type="date"
                   value={formData.fechaCompra}
                   onChange={(e) => handleFieldChange('fechaCompra', e.target.value)}
-                  className={`${formErrors.fechaCompra ? 'border-red-500' : ''} h-7 text-[10px] px-2`}
+                  className={`${formErrors.fechaCompra ? 'border-red-500' : ''} h-8 text-[10px] px-2`}
                   required
                   readOnly
                 />
+                {formErrors.fechaCompra && <p className="text-red-600 text-[10px] mt-1">{formErrors.fechaCompra}</p>}
               </div>
 
-              {formErrors.fechaCompra && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.fechaCompra}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-gray-700 mb-0.5 text-[10px]">IVA (%) *</label>
-
-              <div className="w-full">
+              {/* IVA */}
+              <div>
+                <label className="block text-gray-700 mb-0.5 text-[10px]">IVA (%) *</label>
                 <Input
                   type="number"
                   value={formData.iva}
                   onChange={(e) => handleFieldChange('iva', e.target.value)}
                   placeholder="19"
-                  className={`${formErrors.iva ? 'border-red-500' : ''} h-7 text-[10px] px-2`}
+                  className={`${formErrors.iva ? 'border-red-500' : ''} h-8 text-[10px] px-2`}
                   required
                 />
+                {formErrors.iva && <p className="text-red-600 text-[10px] mt-1">{formErrors.iva}</p>}
               </div>
-
-              {formErrors.iva && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.iva}</p>
-              )}
             </div>
           </div>
-          </div>
+
 
 
           {/* Agregar productos */}
           <div className="border border-gray-200 rounded-lg bg-white p-2">
-            <h4 className="text-gray-900 mb-2 text-[11px] font-semibold">Agregar productos</h4>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-gray-900 text-[11px] font-semibold">Agregar producto</h4>
+              <span className="text-[10px] text-gray-500">Complete los campos y agregue al listado</span>
+            </div>
+
             
             {itemsError && (
               <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-2">
@@ -2078,47 +2083,32 @@ export function ComprasManager() {
               </div>
               </div>
 
-              <div className="flex justify-end">
-              <Button onClick={() => {
-                // Obtener el categoriaId directamente del select (más confiable que el state)
-                const selectValue = categoriaSelectRef.current?.value || '';
-                const cat = categorias.find(c => c.id === selectValue);
-                
-                console.log('📋 [ComprasManager] ANTES de agregarItem:', {
-                  categoriaId_state: nuevoItem.categoriaId,
-                  categoriaId_select: selectValue,
-                  categoriaNombre_select: cat?.name,
-                  nuevoItem: JSON.stringify(nuevoItem, null, 2)
-                });
-                
-                // Si el select tiene valor pero el state no, actualizar state
-                if (selectValue && !nuevoItem.categoriaId) {
-                  console.log('🔧 [ComprasManager] Actualizando estado con categoría del select...');
-                  const updatedItem = {
-                    ...nuevoItem,
-                    categoriaId: selectValue,
-                    categoriaNombre: cat?.name || ''
-                  };
-                  setNuevoItem(updatedItem);
-                  // Esperar a que se actualice y luego agregar
-                  setTimeout(() => agregarItem(), 50);
-                } else if (selectValue && nuevoItem.categoriaId !== selectValue) {
-                  console.log('🔧 [ComprasManager] Sincronizando categoría del select...');
-                  const updatedItem = {
-                    ...nuevoItem,
-                    categoriaId: selectValue,
-                    categoriaNombre: cat?.name || ''
-                  };
-                  setNuevoItem(updatedItem);
-                  setTimeout(() => agregarItem(), 50);
-                } else {
-                  agregarItem();
-                }
-              }} variant="secondary" className="h-7 px-3 text-[10px]">
-                <Plus size={14} />
-                Agregar producto
-              </Button>
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={() => {
+                    const selectValue = categoriaSelectRef.current?.value || '';
+                    const cat = categorias.find(c => c.id === selectValue);
+
+                    if (selectValue && (!nuevoItem.categoriaId || nuevoItem.categoriaId !== selectValue)) {
+                      const updatedItem = {
+                        ...nuevoItem,
+                        categoriaId: selectValue,
+                        categoriaNombre: cat?.name || ''
+                      };
+                      setNuevoItem(updatedItem);
+                      setTimeout(() => agregarItem(), 50);
+                    } else {
+                      agregarItem();
+                    }
+                  }}
+                  variant="secondary"
+                  className="h-8 px-4 text-[10px]"
+                >
+                  <Plus size={14} />
+                  Agregar producto
+                </Button>
               </div>
+
 
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-1.5 pt-1 border-t border-gray-100">
@@ -2194,7 +2184,9 @@ export function ComprasManager() {
 
             {/* Lista de productos agregados */}
             {formData.items.length > 0 && (
-              <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+              <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+                <div className="max-h-[28vh] overflow-auto">
+
                 <table className="w-full text-[10px] leading-tight">
                   <thead className="bg-gray-50">
                     <tr>
@@ -2251,7 +2243,10 @@ export function ComprasManager() {
                   </tbody>
                 </table>
               </div>
-            )}
+                  </div>
+)}
+
+            
 
             {/* Totales */}
             {formData.items.length > 0 && (
@@ -2330,7 +2325,7 @@ export function ComprasManager() {
               <h4 className="text-gray-900 font-semibold mb-3">Productos</h4>
               <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
                       <th className="text-left py-2 px-3 text-gray-600">Producto</th>
                       <th className="text-left py-2 px-3 text-gray-600">Talla</th>

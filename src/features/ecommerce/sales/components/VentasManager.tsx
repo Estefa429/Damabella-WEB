@@ -792,7 +792,9 @@ export default function VentasManager() {
       setShowNotificationModal(true);
       return;
     }
-    if (!devolucionData.productoNuevoTalla || !devolucionData.productoNuevoColor) {
+    const esSaldoAFavor = devolucionData.productoNuevoId === 'saldo_a_favor';
+
+    if (!esSaldoAFavor && (!devolucionData.productoNuevoTalla || !devolucionData.productoNuevoColor)) {
       setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
       setNotificationType('error');
       setShowNotificationModal(true);
@@ -819,15 +821,17 @@ export default function VentasManager() {
     }).filter(Boolean);
 
     const totalDevolucion = (itemsDevueltos as any[]).reduce((sum: number, item: any) => sum + item.subtotal, 0);
-    const productoNuevo = productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
-    if (!productoNuevo) {
+    const productoNuevo = esSaldoAFavor
+      ? null
+      : productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
+    if (!esSaldoAFavor && !productoNuevo) {
       setNotificationMessage('Producto de cambio no encontrado');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
 
-    const precioProductoNuevo = productoNuevo.precioVenta || 0;
+    const precioProductoNuevo = esSaldoAFavor ? 0 : (productoNuevo?.precioVenta || 0);
     const diferencia = precioProductoNuevo - totalDevolucion;
 
     const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
@@ -856,13 +860,15 @@ export default function VentasManager() {
 
       // NUEVO: estado y datos del cambio
       estadoGestion: 'Cambiado',
-      productoNuevo: {
-        id: productoNuevo.id,
-        nombre: productoNuevo.nombre,
-        precio: precioProductoNuevo,
-      },
-      productoNuevoTalla: devolucionData.productoNuevoTalla,
-      productoNuevoColor: devolucionData.productoNuevoColor,
+      productoNuevo: esSaldoAFavor
+        ? null
+        : {
+            id: productoNuevo!.id,
+            nombre: productoNuevo!.nombre,
+            precio: precioProductoNuevo,
+          },
+      productoNuevoTalla: esSaldoAFavor ? undefined : devolucionData.productoNuevoTalla,
+      productoNuevoColor: esSaldoAFavor ? undefined : devolucionData.productoNuevoColor,
 
       // NUEVO: balance
       saldoAFavor,
@@ -1353,28 +1359,29 @@ const paginatedVentas = useMemo(() => {
       >
         <div className="w-[95vw] max-h-[95vh] pr-0.5 text-[10px] leading-tight overflow-hidden">
           <div className="space-y-1 pb-1">
-            <div className="border border-gray-200 rounded-md bg-white p-1">
-              <h3 className="text-center text-[11px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-200">DAMABELLA</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-1 mb-1">
-                <div>
+            <div className="border border-gray-300 rounded-md bg-white p-1.5">
+              <h3 className="text-center text-[12px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-300">FACTURA DE VENTA – DAMABELLA</h3>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-1 mb-1 items-end">
+                <div className="md:col-span-4">
                   <label className="block text-[10px] text-gray-500 mb-0.5">Número de venta</label>
-                  <Input value={generarNumeroVenta()} readOnly disabled className="h-7 px-2 text-[10px] bg-gray-50" />
+                  <Input value={generarNumeroVenta()} readOnly disabled className="h-8 px-2 text-[10px] bg-gray-50 border-gray-300" />
                 </div>
-                <div>
+                <div className="md:col-span-4">
                   <label className="block text-[10px] text-gray-500 mb-0.5">Fecha de creación</label>
-                  <Input value={formData.fechaVenta} readOnly disabled className="h-7 px-2 text-[10px] bg-gray-50" />
+                  <Input value={formData.fechaVenta} readOnly disabled className="h-8 px-2 text-[10px] bg-gray-50 border-gray-300" />
                 </div>
-                <div className="flex items-end">
-                  <Button onClick={() => setShowClienteModal(true)} variant="secondary" className="w-full h-7 px-2 text-[10px]">
+                <div className="md:col-span-4 flex md:justify-end">
+                  <Button onClick={() => setShowClienteModal(true)} variant="secondary" className="w-full md:w-auto h-8 px-2 text-[10px]">
                     <UserPlus size={14} />
                     Crear nuevo cliente
                   </Button>
                 </div>
               </div>
 
-              <div>
+              <div className="border border-gray-200 rounded-md p-1 bg-gray-50/40">
                 <label className="block text-gray-700 mb-0.5 text-[10px]">Cliente *</label>
-                <div className="relative text-[10px]">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-1 items-end">
+                  <div className="md:col-span-12 relative text-[10px]">
                   <Input
                     value={clienteSearchTerm}
                     onChange={(e) => {
@@ -1396,17 +1403,17 @@ const paginatedVentas = useMemo(() => {
                     }}
                     onFocus={() => setShowClienteDropdown(true)}
                     placeholder="Buscar cliente por nombre o documento..."
-                    className={`h-7 px-2 text-[10px] leading-tight ${formErrors.clienteId ? 'border-red-500' : ''}`}
+                    className={`h-8 px-2 text-[10px] leading-tight bg-white ${formErrors.clienteId ? 'border-red-500' : 'border-gray-300'}`}
                   />
 
                   {showClienteDropdown && filteredClientes.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-md max-h-32 overflow-y-auto">
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-md max-h-28 overflow-y-auto">
                       {filteredClientes.map((c: any) => (
                         <button
                           key={c.id}
                           type="button"
                           onClick={() => handleSelectCliente(c.id.toString(), c.nombre)}
-                          className="w-full text-left px-2 py-1 hover:bg-gray-50 transition-colors"
+                            className="w-full text-left px-1.5 py-1 hover:bg-gray-50 transition-colors"
                         >
                           <div className="font-medium text-[10px] text-gray-900">{c.nombre}</div>
                           <div className="text-[10px] text-gray-600">{c.numeroDoc} - {c.telefono}</div>
@@ -1415,11 +1422,12 @@ const paginatedVentas = useMemo(() => {
                     </div>
                   )}
                 </div>
+              </div>
 
                 {formErrors.clienteId && <p className="text-red-600 text-xs mt-1">{formErrors.clienteId}</p>}
 
                 {clienteSeleccionado && (
-                  <div className="mt-1 border border-gray-200 rounded-md p-1 bg-gray-50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1 text-[10px] leading-tight">
+                  <div className="mt-1 border border-gray-200 rounded-md p-1 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0.5 text-[10px] leading-tight">
                     <div><span className="text-gray-500">Nombre:</span><div className="text-gray-900 font-medium truncate">{clienteSeleccionado.nombre || '-'}</div></div>
                     <div><span className="text-gray-500">Documento:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.numeroDoc || '-'}</div></div>
                     <div><span className="text-gray-500">Teléfono:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.telefono || '-'}</div></div>
@@ -1429,15 +1437,15 @@ const paginatedVentas = useMemo(() => {
               </div>
             </div>
 
-            <div className="border border-gray-200 rounded-md bg-white p-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-1">
-                <div>
+            <div className="border border-gray-300 rounded-md bg-white p-1.5">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-1 mb-1 items-end">
+                <div className="md:col-span-4">
                   <label className="block text-gray-700 mb-0.5 text-[10px]">Método de Pago *</label>
                   {(!usarSaldoAFavor || saldoAplicado <= 0) && (
                     <select
                       value={formData.metodoPago}
                       onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                        className="w-full h-8 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                       required
                     >
                       <option value="Efectivo">Efectivo</option>
@@ -1450,12 +1458,12 @@ const paginatedVentas = useMemo(() => {
                 </div>
 
                 {usarSaldoAFavor && restantePorPagar > 0 && (
-                  <div>
+                  <div className="md:col-span-4">
                     <label className="block text-gray-700 mb-0.5 text-[10px]">Medio de pago restante *</label>
                     <select
                       value={metodoPagoRestante}
                       onChange={(e) => setMetodoPagoRestante(e.target.value as MedioPago)}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      className="w-full h-8 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                       required
                     >
                       <option value="Efectivo">Efectivo</option>
@@ -1493,14 +1501,14 @@ const paginatedVentas = useMemo(() => {
               )}
 
               <h4 className="text-gray-900 text-[10px] font-semibold mb-0.5">Agregar productos</h4>
-              <div className="bg-gray-50 rounded-md p-1 mb-1">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-1">
-                  <div className="md:col-span-2">
+              <div className="bg-gray-50/50 rounded-md p-1 mb-1 border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-20 gap-1 items-end">
+                  <div className="md:col-span-10">
                     <label className="block text-gray-700 mb-0.5 text-[10px]">Producto</label>
                     <select
                       value={nuevoItem.productoId}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, productoId: e.target.value, talla: '', color: '' })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      className="w-full h-8 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                     >
                       <option value="">Seleccionar producto...</option>
                       {productos.filter((p: any) => p.activo).map((producto: any) => (
@@ -1511,12 +1519,12 @@ const paginatedVentas = useMemo(() => {
                     </select>
                   </div>
 
-                  <div>
+                  <div className="md:col-span-3">
                     <label className="block text-gray-700 mb-0.5 text-[10px]">Talla</label>
                     <select
                       value={nuevoItem.talla}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value, color: '' })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      className="w-full h-8 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                     >
                       <option value="">Seleccionar...</option>
                       {getTallasDisponibles().map((talla: string) => (
@@ -1525,12 +1533,12 @@ const paginatedVentas = useMemo(() => {
                     </select>
                   </div>
 
-                  <div>
+                  <div className="md:col-span-3">
                     <label className="block text-gray-700 mb-0.5 text-[10px]">Color</label>
                     <select
                       value={nuevoItem.color}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      className="w-full h-8 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                       disabled={!nuevoItem.talla}
                     >
                       <option value="">Seleccionar...</option>
@@ -1540,37 +1548,37 @@ const paginatedVentas = useMemo(() => {
                     </select>
                   </div>
 
-                  <div>
+                  <div className="md:col-span-2">
                     <label className="block text-gray-700 mb-0.5 text-[10px]">Cantidad</label>
                     <Input
                       type="number"
                       min="1"
                       value={nuevoItem.cantidad}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, cantidad: e.target.value })}
-                      className="h-7 px-2 text-[10px]"
+                      className="h-8 px-2 text-[10px]"
                     />
                   </div>
-                </div>
-                <div className="mt-1.5 flex justify-end">
-                  <Button onClick={agregarItem} variant="secondary" className="h-7 px-2.5 text-[10px]">
-                    <Plus size={14} />
-                    Agregar producto
-                  </Button>
+                  <div className="md:col-span-2">
+                    <Button onClick={agregarItem} variant="secondary" className="w-full h-8 px-2 text-[10px]">
+                      <Plus size={14} />
+                      Agregar producto
+                    </Button>
+                  </div>
                 </div>
               </div>
 
-              <div className="border border-gray-200 rounded-md">
+              <div className="border border-gray-300 rounded-md">
                 <table className="w-full table-fixed text-[10px] leading-tight">
-                  <thead className="bg-gray-50 border-b border-gray-200">
+                  <thead className="bg-gray-50 border-b border-gray-300">
                     <tr>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Num</th>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Nombre del producto</th>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Talla</th>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Color</th>
-                      <th className="text-right px-1 py-1 font-semibold text-gray-700 tabular-nums">Valor unitario</th>
-                      <th className="text-right px-1 py-1 font-semibold text-gray-700 tabular-nums">Cantidad</th>
-                      <th className="text-right px-1 py-1 font-semibold text-gray-700 tabular-nums">Valor total</th>
-                      <th className="text-center px-1 py-1 font-semibold text-gray-700">Acción</th>
+                      <th className="text-left px-1 py-0.5 font-semibold text-gray-700 w-[6%]">Num</th>
+                      <th className="text-left px-1 py-0.5 font-semibold text-gray-700 w-[34%]">Nombre del producto</th>
+                      <th className="text-left px-1 py-0.5 font-semibold text-gray-700 w-[10%]">Talla</th>
+                      <th className="text-left px-1 py-0.5 font-semibold text-gray-700 w-[10%]">Color</th>
+                      <th className="text-right px-1 py-0.5 font-semibold text-gray-700 tabular-nums w-[14%]">Valor unitario</th>
+                      <th className="text-right px-1 py-0.5 font-semibold text-gray-700 tabular-nums w-[10%]">Cantidad</th>
+                      <th className="text-right px-1 py-0.5 font-semibold text-gray-700 tabular-nums w-[12%]">Valor total</th>
+                      <th className="text-center px-1 py-0.5 font-semibold text-gray-700 w-[8%]">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1580,35 +1588,35 @@ const paginatedVentas = useMemo(() => {
                       </tr>
                     ) : (
                       formData.items.map((item, index) => (
-                        <tr key={item.id} className="border-b border-gray-100 last:border-b-0">
-                          <td className="px-1 py-1 text-gray-700">{index + 1}</td>
-                          <td className="px-1 py-1 text-gray-900 font-medium truncate">{item.productoNombre}</td>
-                          <td className="px-1 py-1 text-gray-700">{item.talla}</td>
-                          <td className="px-1 py-1 text-gray-700">{item.color}</td>
-                          <td className="px-1 py-1">
+                        <tr key={item.id} className="border-b border-gray-200 last:border-b-0">
+                          <td className="px-1 py-0.5 text-gray-700">{index + 1}</td>
+                          <td className="px-1 py-0.5 text-gray-900 font-medium truncate">{item.productoNombre}</td>
+                          <td className="px-1 py-0.5 text-gray-700">{item.talla}</td>
+                          <td className="px-1 py-0.5 text-gray-700">{item.color}</td>
+                          <td className="px-1 py-0.5">
                             <Input
                               type="number"
                               min="0"
                               step="1"
                               value={Number.isFinite(Number(item.precioUnitario)) ? item.precioUnitario : 0}
                               onChange={(e) => actualizarPrecioItem(item.id, e.target.value)}
-                              className="h-7 px-1.5 text-[10px] text-right tabular-nums"
+                              className="h-8 px-2 text-[10px] text-right tabular-nums"
                             />
                           </td>
-                          <td className="px-1 py-1">
+                          <td className="px-1 py-0.5">
                             <Input
                               type="number"
                               min="1"
                               step="1"
                               value={Number.isFinite(Number(item.cantidad)) ? item.cantidad : 1}
                               onChange={(e) => actualizarCantidadItem(item.id, e.target.value)}
-                              className="h-7 px-1.5 text-[10px] text-right tabular-nums"
+                              className="h-8 px-2 text-[10px] text-right tabular-nums"
                             />
                           </td>
-                          <td className="px-1 py-1 text-right tabular-nums font-semibold text-gray-900">
+                          <td className="px-1 py-0.5 text-right tabular-nums font-semibold text-gray-900">
                             ${((Number(item.precioUnitario) >= 0 ? Number(item.precioUnitario) : 0) * (Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1)).toLocaleString()}
                           </td>
-                          <td className="px-1 py-1 text-center">
+                          <td className="px-1 py-0.5 text-center">
                             <button
                               onClick={() => eliminarItem(item.id)}
                               className="text-red-600 hover:bg-red-50 p-1 rounded"
@@ -1627,9 +1635,9 @@ const paginatedVentas = useMemo(() => {
 
           </div>
 
-          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-1 mt-1">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
-              <div className="rounded-md bg-gray-50 border border-gray-200 p-1.5">
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-300 pt-1 mt-1">
+            <div className="flex flex-col items-end gap-1">
+              <div className="w-full md:w-[340px] rounded-md bg-gray-50 border border-gray-300 p-1">
                 <div className="flex justify-between text-gray-600 text-[10px]">
                   <span>Subtotal</span>
                   <span className="tabular-nums">${totales.subtotal.toLocaleString()}</span>
@@ -1638,15 +1646,15 @@ const paginatedVentas = useMemo(() => {
                   <span>IVA ({Math.round(IVA_RATE * 100)}%)</span>
                   <span className="tabular-nums">${totales.iva.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-1 pt-1 border-t border-gray-200">
+                <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-0.5 pt-0.5 border-t border-gray-200">
                   <span>Total a pagar</span>
                   <span className="tabular-nums">${totales.total.toLocaleString()}</span>
                 </div>
               </div>
 
-              <div className="flex gap-2 justify-end pt-1">
-                <Button onClick={() => setShowModal(false)} variant="secondary" className="h-7 px-3 text-[10px]">Cancelar</Button>
-                <Button onClick={handleSave} variant="primary" className="h-7 px-3 text-[10px]">Crear Venta</Button>
+              <div className="flex gap-2 justify-end pt-0.5">
+                <Button onClick={() => setShowModal(false)} variant="secondary" className="h-8 px-2.5 text-[10px]">Cancelar</Button>
+                <Button onClick={handleSave} variant="primary" className="h-8 px-2.5 text-[10px]">Crear Venta</Button>
               </div>
             </div>
           </div>
@@ -1810,7 +1818,8 @@ const paginatedVentas = useMemo(() => {
             const productoNuevo = productos.find(
               (p: any) => p.id.toString() === devolucionData.productoNuevoId
             );
-            const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) : 0;
+            const esSaldoAFavor = devolucionData.productoNuevoId === 'saldo_a_favor';
+            const precioProductoNuevo = esSaldoAFavor ? 0 : (productoNuevo ? (productoNuevo.precioVenta || 0) : 0);
 
             // diferencia > 0 => cliente debe pagar excedente
             // diferencia < 0 => cliente queda con saldo a favor
@@ -1938,6 +1947,7 @@ const paginatedVentas = useMemo(() => {
                         className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
                       >
                         <option value="">Seleccionar producto...</option>
+                        <option value="saldo_a_favor">Saldo a favor (sin producto de cambio)</option>
                         {productos
                           .filter((p: any) => p.activo)
                           .map((p: any) => (
@@ -1948,7 +1958,7 @@ const paginatedVentas = useMemo(() => {
                       </select>
                     </div>
 
-                    {productoNuevo && (
+                    {devolucionData.productoNuevoId !== 'saldo_a_favor' && productoNuevo && (
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-gray-700 mb-1 text-sm">Talla</label>

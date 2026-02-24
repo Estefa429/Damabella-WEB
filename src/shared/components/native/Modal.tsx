@@ -50,10 +50,10 @@ export function Modal({
 
   const panelClass = fullscreen
     ? 'h-[86vh] w-full max-w-6xl rounded-xl'
-    : `w-full ${sizes[size]} rounded-lg max-h-[95vh]`;
+    : `w-full ${sizes[size]} rounded-lg h-[90vh]`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-6">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
@@ -63,7 +63,7 @@ export function Modal({
       {/* Panel */}
       <div
         ref={modalRef}
-        className={`relative bg-gray-50 shadow-xl flex flex-col overflow-hidden ${panelClass}`}
+        className={`relative bg-gray-50 shadow-xl flex flex-col ${panelClass} overflow-hidden`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
@@ -79,13 +79,9 @@ export function Modal({
         </div>
 
         {/* Content */}
-        <div
-          className={`flex-1 min-h-0 bg-white ${
-            noScroll ? 'overflow-visible' : 'overflow-y-auto'
-          } text-sm`}
-        >
-          <div className="p-3">{children}</div>
-        </div>
+        <div className="flex-1 min-h-0 bg-white text-sm overflow-y-auto">
+        <div className="p-3">{children}</div>
+      </div>
       </div>
     </div>
   );
