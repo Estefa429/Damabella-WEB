@@ -422,7 +422,7 @@ export function RolesPage() {
           >
             <Edit className="h-4 w-4 text-gray-600" />
           </button>
-          {role.name !== 'Administrador' && (
+          {role.name !== 'Administrador' ? (
             <button
               onClick={() => handleDelete(role.id)}
               className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
@@ -430,7 +430,13 @@ export function RolesPage() {
             >
               <Trash2 className="h-4 w-4 text-red-600" />
             </button>
+          ) : (
+            // 👇 reserva el mismo espacio del botón eliminar sin mostrarlo
+            <span className="p-1.5 rounded-md opacity-0 pointer-events-none select-none">
+              <Trash2 className="h-4 w-4" />
+            </span>
           )}
+
         </div>
       ),
     },
@@ -445,7 +451,7 @@ export function RolesPage() {
         </div>
         <Button onClick={() => handleOpenModal()}>
           <Plus className="h-4 w-4 mr-2" />
-          Nuevo Rol
+          Agregar Rol
         </Button>
       </div>
 

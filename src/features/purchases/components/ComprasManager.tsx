@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Truck, Eye, X, Ban, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Truck, Eye, X, Trash2, Ban, AlertTriangle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 import ImageUploader from '../../../shared/components/native/image-uploader';
 import { ProveedoresManager } from '../../suppliers/components/ProveedoresManager';
 
+
+const compactInput = "h-9 px-3 py-1.5 text-xs";
+const compactSelect = "h-9 px-3 py-1.5 text-xs";
+const compactLabel = "text-xs mb-1";
 const STORAGE_KEY = 'damabella_compras';
 const PROVEEDORES_KEY = 'damabella_proveedores';
 const PRODUCTOS_KEY = 'damabella_productos';
@@ -330,6 +334,47 @@ export function ComprasManager() {
     }
     return [];
   });
+
+  const agregarTallaGlobal = (tallaRaw: string) => {
+    const tallaNormalizada = String(tallaRaw || '').trim().toUpperCase();
+    if (!tallaNormalizada) return;
+    if (tallas.includes(tallaNormalizada)) return;
+    const updated = [...tallas, tallaNormalizada];
+    setTallas(updated);
+    localStorage.setItem('damabella_tallas', JSON.stringify(updated));
+  };
+
+  const eliminarTallaGlobal = (talla: string) => {
+    const target = String(talla || '').trim().toUpperCase();
+    if (!target) return;
+    const updated = tallas.filter((t) => String(t).trim().toUpperCase() !== target);
+    setTallas(updated);
+    localStorage.setItem('damabella_tallas', JSON.stringify(updated));
+    if (String(nuevoItem.talla || '').trim().toUpperCase() === target) {
+      setNuevoItem((prev) => ({ ...prev, talla: '' }));
+    }
+  };
+
+  const agregarColorGlobal = (colorRaw: string) => {
+    const colorNormalizado = String(colorRaw || '').trim();
+    if (!colorNormalizado) return;
+    const existe = coloresDisponibles.some((c) => c.toLowerCase() === colorNormalizado.toLowerCase());
+    if (existe) return;
+    const updated = [...coloresDisponibles, colorNormalizado];
+    setColoresDisponibles(updated);
+    localStorage.setItem('damabella_colores', JSON.stringify(updated.map((name) => ({ name }))));
+  };
+
+  const eliminarColorGlobal = (color: string) => {
+    const target = String(color || '').trim().toLowerCase();
+    if (!target) return;
+    const updated = coloresDisponibles.filter((c) => String(c).trim().toLowerCase() !== target);
+    setColoresDisponibles(updated);
+    localStorage.setItem('damabella_colores', JSON.stringify(updated.map((name) => ({ name }))));
+    if (String(nuevoItem.color || '').trim().toLowerCase() === target) {
+      setNuevoItem((prev) => ({ ...prev, color: '' }));
+    }
+  };
 
   const [categorias, setcategorias] = useState(() => {
     const stored = localStorage.getItem(CATEGORIAS_KEY);
@@ -1403,13 +1448,33 @@ export function ComprasManager() {
     setShowConfirmModal(true);
   };
 
+  const eliminarCompra = (id: number) => {
+    const compraAEliminar = compras.find(c => c.id === id);
+    if (!compraAEliminar) {
+      setNotificationMessage('❌ Compra no encontrada');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    setConfirmMessage(`¿Está seguro de eliminar la compra ${compraAEliminar.numeroCompra}?\n\nEsta acción no se puede deshacer.`);
+    setConfirmAction(() => () => {
+      setCompras(compras.filter(c => c.id !== id));
+      setShowConfirmModal(false);
+      setNotificationMessage(`✅ Compra ${compraAEliminar.numeroCompra} eliminada correctamente.`);
+      setNotificationType('success');
+      setShowNotificationModal(true);
+    });
+    setShowConfirmModal(true);
+  };
+
   const filteredCompras = compras.filter(c =>
     (c.numeroCompra?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
     (c.proveedorNombre?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 text-sm">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1418,30 +1483,12 @@ export function ComprasManager() {
         </div>
         <Button onClick={handleCreate} variant="primary">
           <Plus size={20} />
-          Nueva Compra
+          Agregar Compra
         </Button>
       </div>
 
       {/* 🔒 Historial de Compras por Proveedor */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 font-semibold mb-4">Historial de Compras por Proveedor</h3>
-        
-        <div className="mb-4">
-          <label className="block text-sm text-gray-700 mb-2">Seleccionar proveedor</label>
-          <select
-            value={proveedorSeleccionadoHistorial}
-            onChange={(e) => setProveedorSeleccionadoHistorial(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">-- Seleccionar un proveedor --</option>
-            {proveedores.map((proveedor) => (
-              <option key={proveedor.id} value={proveedor.id}>
-                {proveedor.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-
+      <div className={`bg-white rounded-xl shadow-sm border border-gray-200 p-6 ${!proveedorSeleccionadoHistorial ? 'hidden' : ''}`}>
         {proveedorSeleccionadoHistorial && (() => {
           const comprasProveedor = filtrarComprasPorProveedor(proveedorSeleccionadoHistorial); 
           const comprasOrdenadas = ordenarComprasPorFecha(comprasProveedor);
@@ -1458,7 +1505,7 @@ export function ComprasManager() {
               </h4>
 
               {/* Resumen */}
-              <div className="grid grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
+              <div className="grid grid-cols-2 gap-3 bg-gray-50 rounded-lg p-4">
                 <div>
                   <p className="text-sm text-gray-600">Total de compras</p>
                   <p className="text-xl font-semibold text-gray-900">{totalCompras}</p>
@@ -1590,7 +1637,7 @@ export function ComprasManager() {
               {filteredCompras.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-gray-500">
-                    <Truck className="mx-auto mb-4 text-gray-300" size={48} />
+                    <Truck className="mx-auto mb-2 text-gray-300" size={48} />
                     <p>No se encontraron compras</p>
                   </td>
                 </tr>
@@ -1629,15 +1676,24 @@ export function ComprasManager() {
                         {(() => {
                           const isAnulada = compra.estado === 'Anulada';
                           return (
-                            <button
-                              onClick={() => { if (!isAnulada) anularCompra(compra.id); }}
-                              className={`p-2 rounded-lg transition-colors ${isAnulada ? 'text-red-400 opacity-50 cursor-not-allowed' : 'hover:bg-red-50 text-red-600'}`}
-                              title="Anular compra"
-                              disabled={isAnulada}
-                              aria-disabled={isAnulada}
-                            >
-                              <Ban size={18} />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => { if (!isAnulada) anularCompra(compra.id); }}
+                                className={`p-2 rounded-lg transition-colors ${isAnulada ? 'text-red-400 opacity-50 cursor-not-allowed' : 'hover:bg-red-50 text-red-600'}`}
+                                title="Anular compra"
+                                disabled={isAnulada}
+                                aria-disabled={isAnulada}
+                              >
+                                <Ban size={18} />
+                              </button>
+                              <button
+                                onClick={() => eliminarCompra(compra.id)}
+                                className="p-2 rounded-lg transition-colors hover:bg-red-50 text-red-600"
+                                title="Eliminar compra"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </>
                           );
                         })()}
                       </div>
@@ -1655,13 +1711,18 @@ export function ComprasManager() {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         title="Nueva Compra"
-        size="lg"
+        size="xxl"
+        noScroll
       >
-        <div className="space-y-6">
+
+        <div className="w-[95vw] max-h-[95vh] overflow-hidden text-[10px] leading-tight">
+          <div className="space-y-1.5 pb-1">
           {/* Datos generales */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="border border-gray-200 rounded-lg bg-white p-2">
+          <h3 className="text-center text-[12px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-100">DAMABELLA</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 items-start">
             <div>
-              <label className="block text-gray-700 mb-2">Proveedor *</label>
+              <label className="block text-gray-700 mb-0.5 text-[10px]">Proveedor *</label>
               <select
                   value={formData.proveedorId}
                   onChange={(e) => {
@@ -1675,7 +1736,7 @@ export function ComprasManager() {
                     setFormErrors({ ...formErrors, proveedorId: undefined });
                   }}
                   disabled={!!nuevoItem.productoId}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
+                  className={`w-full h-7 px-2 border rounded-md focus:outline-none text-[10px] ${formErrors.proveedorId ? 'border-red-500' : 'border-gray-300'}`}
                 >
                 <option value="">Seleccionar proveedor...</option>
                           {/* Opción para añadir proveedor ahora via botón debajo */}
@@ -1694,9 +1755,9 @@ export function ComprasManager() {
                 <button
                   type="button"
                   onClick={() => setShowProveedorModal(true)}
-                  className="text-sm text-gray-700"
+                  className="text-[10px] text-gray-700 underline underline-offset-2"
                 >
-                  o agregar nuevo proveedor📦
+                  Agregar nuevo proveedor
                 </button>
               </div>
               {formErrors.proveedorId && (
@@ -1710,364 +1771,403 @@ export function ComprasManager() {
             )}
 
             <div>
-              <label className="block text-gray-700 mb-2">Fecha de Compra *</label>
-              <Input
-                type="date"
-                value={formData.fechaCompra}
-                onChange={(e) => handleFieldChange('fechaCompra', e.target.value)}
-                className={formErrors.fechaCompra ? 'border-red-500' : ''}
-                required
-                readOnly
-              />
+              <label className="block text-gray-700 mb-0.5 text-[10px]">Fecha de Compra *</label>
+              <div className="w-full">
+                <Input
+                  type="date"
+                  value={formData.fechaCompra}
+                  onChange={(e) => handleFieldChange('fechaCompra', e.target.value)}
+                  className={`${formErrors.fechaCompra ? 'border-red-500' : ''} h-7 text-[10px] px-2`}
+                  required
+                  readOnly
+                />
+              </div>
+
               {formErrors.fechaCompra && (
                 <p className="text-red-600 text-xs mt-1">{formErrors.fechaCompra}</p>
               )}
             </div>
+
+            <div>
+              <label className="block text-gray-700 mb-0.5 text-[10px]">IVA (%) *</label>
+
+              <div className="w-full">
+                <Input
+                  type="number"
+                  value={formData.iva}
+                  onChange={(e) => handleFieldChange('iva', e.target.value)}
+                  placeholder="19"
+                  className={`${formErrors.iva ? 'border-red-500' : ''} h-7 text-[10px] px-2`}
+                  required
+                />
+              </div>
+
+              {formErrors.iva && (
+                <p className="text-red-600 text-xs mt-1">{formErrors.iva}</p>
+              )}
+            </div>
+          </div>
           </div>
 
-          <div>
-            <label className="block text-gray-700 mb-2">IVA (%) *</label>
-            <Input
-              type="number"
-              value={formData.iva}
-              onChange={(e) => handleFieldChange('iva', e.target.value)}
-              placeholder="19"
-              className={formErrors.iva ? 'border-red-500' : ''}
-              required
-            />
-            {formErrors.iva && (
-              <p className="text-red-600 text-xs mt-1">{formErrors.iva}</p>
-            )}
-          </div>
 
           {/* Agregar productos */}
-          <div className="border-t pt-4">
-            <h4 className="text-gray-900 mb-4">Agregar Productos a la Compra</h4>
+          <div className="border border-gray-200 rounded-lg bg-white p-2">
+            <h4 className="text-gray-900 mb-2 text-[11px] font-semibold">Agregar productos</h4>
             
             {itemsError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
+              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-2">
                 <AlertTriangle size={16} />
                 {itemsError}
               </div>
             )}
             
-            <div className="space-y-3 mb-4">
-              <div>
-                <label className="block text-gray-700 mb-2 text-sm">Nombre del Producto *</label>
-                <div className="space-y-2">
+            <div className="space-y-1.5 mb-1">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-1.5 items-start">
+                <div className="md:col-span-2">
+                <label className="block text-gray-700 mb-1 text-[10px]">Producto *</label>
+                <div className="w-full">
                   <input
                     type="text"
-                    placeholder="Escribe el nombre del producto o selecciona uno existente"
+                    list="productos-existentes"
+                    placeholder="Escribe o selecciona un producto existente"
                     value={nuevoItem.productoNombre}
-                    onChange={(e) => setNuevoItem({ ...nuevoItem, productoNombre: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
-                  />
-                  {productos.length > 0 && (
-                    <div className="text-xs text-gray-600">
-                      O selecciona uno existente:
-                      <select
-                        value={nuevoItem.productoId}
-                          onChange={(e) => {
-                          const val = e.target.value;
-                          const sel = productos.find((p:any) => String(p.id) === String(val));
-                          if (sel) {
-                            // 🔒 CRÍTICO: Copiar la categoría del producto existente
-                            let categoriaIdFinal = sel.categoryId || '';
-                            let categoriaNombreFinal = '';
-                            if (categoriaIdFinal) {
-                              const catFound = categorias.find(c => String(c.id) === String(categoriaIdFinal));
-                              categoriaNombreFinal = catFound?.name || '';
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const sel = productos.find(
+                        (p: any) => p.activo && normalizarNombreProducto(p.nombre) === normalizarNombreProducto(value)
+                      );
+
+                      if (!sel) {
+                        setNuevoItem({
+                          ...nuevoItem,
+                          productoId: '',
+                          productoNombre: value,
+                          referencia: ''
+                        });
+                        return;
+                      }
+
+                      const val = String(sel.id);
+                      let categoriaIdFinal = sel.categoryId || '';
+                      let categoriaNombreFinal = '';
+                      if (categoriaIdFinal) {
+                        const catFound = categorias.find(c => String(c.id) === String(categoriaIdFinal));
+                        categoriaNombreFinal = catFound?.name || '';
+                      }
+
+                      let precioCompraStr = '';
+                      let precioVentaStr = '';
+                      let imagenUrl = sel.imagen || sel.image || sel.imagenUrl || '';
+                      let tallaFound = '';
+                      let colorFound = '';
+                      let proveedorIdFound = '';
+                      let proveedorNombreFound = '';
+
+                      try {
+                        const comprasOrdenadas = compras.slice().sort((a: any, b: any) => {
+                          const ta = new Date(a.createdAt || a.fechaRegistro || 0).getTime();
+                          const tb = new Date(b.createdAt || b.fechaRegistro || 0).getTime();
+                          return tb - ta;
+                        });
+
+                        for (const c of comprasOrdenadas) {
+                          const found = (c.items || []).find(
+                            (i: any) =>
+                              String(i.productoId) === String(val) ||
+                              normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(sel.nombre)
+                          );
+                          if (found) {
+                            if (!tallaFound && found.talla) tallaFound = found.talla;
+                            if (!colorFound && found.color) colorFound = found.color;
+                            if (!proveedorIdFound) {
+                              proveedorIdFound = c.proveedorId || '';
+                              proveedorNombreFound =
+                                c.proveedorNombre ||
+                                (proveedores.find((p: any) => String(p.id) === String(c.proveedorId))?.nombre) ||
+                                '';
                             }
 
-                            // Autocompletar precios e imagen si existen en historial o en el producto
-                            let precioCompraStr = '';
-                            let precioVentaStr = '';
-                            let imagenUrl = sel.imagen || sel.image || sel.imagenUrl || '';
-
-                            let tallaFound = '';
-                            let colorFound = '';
-                            let proveedorIdFound = '';
-                            let proveedorNombreFound = '';
-
-                            try {
-                              // Buscar la última compra que contenga este producto (orden descendente por createdAt/fechaRegistro)
-                              const comprasOrdenadas = compras.slice().sort((a:any,b:any) => {
-                                const ta = new Date(a.createdAt || a.fechaRegistro || 0).getTime();
-                                const tb = new Date(b.createdAt || b.fechaRegistro || 0).getTime();
-                                return tb - ta;
-                              });
-
-                              for (const c of comprasOrdenadas) {
-                                const found = (c.items || []).find((i:any) => String(i.productoId) === String(val) || normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(sel.nombre));
-                                if (found) {
-                                  // Capturar talla/color y proveedor de la compra más reciente que contenga el producto
-                                  if (!tallaFound && found.talla) tallaFound = found.talla;
-                                  if (!colorFound && found.color) colorFound = found.color;
-                                  if (!proveedorIdFound) {
-                                    proveedorIdFound = c.proveedorId || '';
-                                    proveedorNombreFound = c.proveedorNombre || (proveedores.find((p:any) => String(p.id) === String(c.proveedorId))?.nombre) || '';
-                                  }
-
-                                  if (found.precioCompra && !precioCompraStr) {
-                                    precioCompraStr = String(found.precioCompra);
-                                    // preferir precio del primer match con precio
-                                    break;
-                                  }
-                                }
-                              }
-
-                              // Si no se encontró precio en compras previas, calcular promedio
-                              if (!precioCompraStr) {
-                                const precios = compras.flatMap((c:any) => (c.items || [])
-                                  .filter((i:any) => String(i.productoId) === String(val) || normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(sel.nombre))
-                                  .map((i:any) => Number(i.precioCompra) || 0)
-                                ).filter((p:number) => p > 0);
-
-                                if (precios.length > 0) {
-                                  const avg = precios.reduce((s:number,x:number) => s + x, 0) / precios.length;
-                                  precioCompraStr = String(Math.round(avg * 100) / 100);
-                                }
-                              }
-
-                              // Precio compra fallback desde el propio producto
-                              if (!precioCompraStr && sel.precioCompra) precioCompraStr = String(sel.precioCompra);
-
-                              // Precio venta: preferir precio del producto si existe
-                              if (sel.precioVenta) precioVentaStr = String(sel.precioVenta);
-                              else if (sel.precio) precioVentaStr = String(sel.precio);
-                            } catch (err) {
-                              console.warn('Error calculando precios previos para producto seleccionado', err);
-                            }
-
-                            console.log('✅ [select-onChange] Producto seleccionado:', {
-                              nombre: sel.nombre,
-                              categoryId: categoriaIdFinal,
-                              categoriaNombre: categoriaNombreFinal,
-                              precioCompra: precioCompraStr,
-                              precioVenta: precioVentaStr,
-                              imagen: imagenUrl
-                            });
-
-                            // Si encontramos proveedor/talla/color desde compras previas, sincronizarlos
-                            // NOTA: solo prellenamos; los campos siguen editables según reglas (pero se bloquearán cuando corresponda)
-                            let updatedNuevo = {
-                              ...nuevoItem,
-                              productoId: val,
-                              productoNombre: sel.nombre,
-                              categoriaId: categoriaIdFinal,
-                              categoriaNombre: categoriaNombreFinal,
-                              referencia: sel.referencia || '',
-                              precioCompra: precioCompraStr,
-                              precioVenta: precioVentaStr,
-                              imagen: imagenUrl || ''
-                            } as any;
-
-                            // Si existieron talla/color/proveedor en compras previas, usarlos
-                            if (typeof tallaFound !== 'undefined' && tallaFound) updatedNuevo.talla = tallaFound;
-                            if (typeof colorFound !== 'undefined' && colorFound) updatedNuevo.color = colorFound;
-
-                            setNuevoItem(updatedNuevo);
-
-                            // Si encontramos proveedor en compras previas, prellenar formData.proveedorId/proveedorNombre
-                            if (typeof proveedorIdFound !== 'undefined' && proveedorIdFound) {
-                              setFormData({ ...formData, proveedorId: proveedorIdFound, proveedorNombre: proveedorNombreFound });
-                              setProveedorSearchTerm(proveedorNombreFound || '');
+                            if (found.precioCompra && !precioCompraStr) {
+                              precioCompraStr = String(found.precioCompra);
+                              break;
                             }
                           }
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 mt-2"
-                      >
-                        <option value="">-- Seleccionar producto existente --</option>
-                        {productos.filter((p:any)=>p.activo).map((p:any) => (
-                          <option key={p.id} value={String(p.id)}>{p.nombre} {p.referencia ? `(${p.referencia})` : ''}</option>
-                        ))}
-                      </select>
+                        }
+
+                        if (!precioCompraStr) {
+                          const precios = compras
+                            .flatMap((c: any) =>
+                              (c.items || [])
+                                .filter(
+                                  (i: any) =>
+                                    String(i.productoId) === String(val) ||
+                                    normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(sel.nombre)
+                                )
+                                .map((i: any) => Number(i.precioCompra) || 0)
+                            )
+                            .filter((p: number) => p > 0);
+
+                          if (precios.length > 0) {
+                            const avg = precios.reduce((s: number, x: number) => s + x, 0) / precios.length;
+                            precioCompraStr = String(Math.round(avg * 100) / 100);
+                          }
+                        }
+
+                        if (!precioCompraStr && sel.precioCompra) precioCompraStr = String(sel.precioCompra);
+                        if (sel.precioVenta) precioVentaStr = String(sel.precioVenta);
+                        else if (sel.precio) precioVentaStr = String(sel.precio);
+                      } catch (err) {
+                        console.warn('Error calculando precios previos para producto seleccionado', err);
+                      }
+
+                      let updatedNuevo = {
+                        ...nuevoItem,
+                        productoId: val,
+                        productoNombre: sel.nombre,
+                        categoriaId: categoriaIdFinal,
+                        categoriaNombre: categoriaNombreFinal,
+                        referencia: sel.referencia || '',
+                        precioCompra: precioCompraStr,
+                        precioVenta: precioVentaStr,
+                        imagen: imagenUrl || ''
+                      } as any;
+
+                      if (typeof tallaFound !== 'undefined' && tallaFound) updatedNuevo.talla = tallaFound;
+                      if (typeof colorFound !== 'undefined' && colorFound) updatedNuevo.color = colorFound;
+
+                      setNuevoItem(updatedNuevo);
+
+                      if (typeof proveedorIdFound !== 'undefined' && proveedorIdFound) {
+                        setFormData({ ...formData, proveedorId: proveedorIdFound, proveedorNombre: proveedorNombreFound });
+                        setProveedorSearchTerm(proveedorNombreFound || '');
+                      }
+                    }}
+                    className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                  />
+                  <datalist id="productos-existentes">
+                    {productos
+                      .filter((p: any) => p.activo)
+                      .map((p: any) => (
+                        <option key={p.id} value={p.nombre}>
+                          {p.referencia ? `${p.nombre} (${p.referencia})` : p.nombre}
+                        </option>
+                      ))}
+                  </datalist>
+                </div>
+              </div>
+
+                <div>
+                  <label className="block text-gray-700 mb-1 text-[10px]">Talla *</label>
+                  <div className="w-full">
+                    {(() => {
+                      const tallaNormalizada = (nuevoItem.talla || '').trim().toUpperCase();
+                      const tallaExiste = !!tallaNormalizada && tallas.includes(tallaNormalizada);
+
+                      const agregarNuevaTalla = () => {
+                        if (!tallaNormalizada || tallaExiste) return;
+                        agregarTallaGlobal(tallaNormalizada);
+                        setNuevoItem({ ...nuevoItem, talla: tallaNormalizada });
+                      };
+
+                      return (
+                        <>
+                    <input
+                      type="text"
+                      list="tallas-existentes"
+                      placeholder="Escribe o selecciona talla"
+                      value={nuevoItem.talla}
+                      onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value.toUpperCase() })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          agregarNuevaTalla();
+                        }
+                      }}
+                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                    />
+                    <datalist id="tallas-existentes">
+                      {tallas.map((talla) => (
+                        <option key={talla} value={talla} />
+                      ))}
+                    </datalist>
+
+                    {tallaNormalizada && tallaExiste && (
+                      <p className="mt-1 text-[11px] text-emerald-700">✓ Talla ya existente</p>
+                    )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1">Tallas globales</p>
+                  {tallas.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {tallas.map((talla) => (
+                        <button
+                          key={talla}
+                          type="button"
+                          onClick={() => eliminarTallaGlobal(talla)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-300 text-[10px] text-gray-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                          title={`Eliminar talla ${talla}`}
+                        >
+                          {talla}
+                          <X size={10} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                <label className="block text-gray-700 mb-1 text-[10px]">Color *</label>
+                <div className="w-full">
+                  <input
+                    type="text"
+                    list="colores-existentes"
+                    placeholder="Escribe o selecciona color"
+                    value={nuevoItem.color}
+                    onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const colorNormalizado = (nuevoItem.color || '').trim();
+                        const colorExiste =
+                          !!colorNormalizado &&
+                          coloresDisponibles.some((c) => c.toLowerCase() === colorNormalizado.toLowerCase());
+                        if (!colorNormalizado || colorExiste) return;
+                        agregarColorGlobal(colorNormalizado);
+                      }
+                    }}
+                    className={`w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px] ${
+                      formErrors?.color ? 'border-red-500' : ''
+                    }`}
+                  />
+                  <datalist id="colores-existentes">
+                    {Array.from(new Set([...Object.keys(COLOR_MAP), ...coloresDisponibles])).map((color) => (
+                      <option key={color} value={color} />
+                    ))}
+                  </datalist>
+                  {coloresDisponibles.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {coloresDisponibles.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => eliminarColorGlobal(color)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-300 text-[10px] text-gray-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                          title={`Eliminar color ${color}`}
+                        >
+                          {color}
+                          <X size={10} />
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Talla *</label>
-                  <div className="flex gap-2">
-                      <select
-                        value={nuevoItem.talla}
-                        onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value })}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                    >
-                      <option value="">Seleccionar talla...</option>
-                      {tallas.map(talla => (
-                        <option key={talla} value={talla}>{talla}</option>
-                      ))}
-                    </select>
-                    <Input
-                      type="text"
-                      placeholder="O crear nueva"
-                      className="flex-1 px-3 py-2 text-sm"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && e.currentTarget.value) {
-                          const newTalla = e.currentTarget.value.trim().toUpperCase();
-                          if (!tallas.includes(newTalla)) {
-                            const updated = [...tallas, newTalla];
-                            setTallas(updated);
-                            localStorage.setItem('damabella_tallas', JSON.stringify(updated));
-                            setNuevoItem({ ...nuevoItem, talla: newTalla });
-                          }
-                          e.currentTarget.value = '';
-                        }
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Tallas globales disponibles: {tallas.join(', ')}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Color *</label>
-                  <div className="space-y-2">
-                    {/* Color Picker Visual + Input */}
-                    <div className="flex gap-2 items-end">
-                      <div className="flex flex-col gap-2">
-                        <span className="text-xs text-gray-600">Selector:</span>
-                        <input
-                          type="color"
-                          value={
-                            // Si es un HEX válido (#XXXXXX), usarlo directamente
-                            nuevoItem.color && /^#[0-9A-F]{6}$/i.test(nuevoItem.color)
-                              ? nuevoItem.color
-                              // Si es un nombre de color, buscarlo en COLOR_MAP
-                              : (COLOR_MAP as any)[nuevoItem.color] || '#FFFFFF'
-                          }
-                          onChange={(e) => {
-                            const hex = e.target.value;
-                            // Buscar el nombre del color en el mapa
-                            const colorName = Object.entries(COLOR_MAP).find(([_, h]) => h.toUpperCase() === hex.toUpperCase())?.[0];
-                            // Si encontramos el nombre, usarlo; si no, guardar el HEX
-                            setNuevoItem({ ...nuevoItem, color: colorName || hex });
-                          }}
-                          className="w-12 h-10 p-1 cursor-pointer rounded-lg border border-gray-300"
-                        />
-                      </div>
-                      <div className="flex-1 relative">
-                        <Input
-                          type="text"
-                          placeholder="Color (nombre o HEX)"
-                          value={nuevoItem.color}
-                          onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              agregarItem();
-                            }
-                          }}
-                          className="w-full px-3 py-2 text-sm pr-10"
-                        />
-                        {nuevoItem.color && (
-                          <div
-                            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md border border-gray-300 shadow-sm"
-                            style={{
-                              backgroundColor:
-                                // Si es HEX válido, usarlo
-                                /^#[0-9A-F]{6}$/i.test(nuevoItem.color)
-                                  ? nuevoItem.color
-                                  // Si es nombre, buscarlo en COLOR_MAP
-                                  : (COLOR_MAP as any)[nuevoItem.color] || '#FFFFFF'
-                            }}
-                            title={nuevoItem.color}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Paleta de Colores */}
-                    <div>
-                      <span className="text-xs text-gray-600 mb-3 block font-medium">O selecciona un color predefinido:</span>
-                      <div className="grid grid-cols-4 gap-2">
-                        {Object.entries(COLOR_MAP).map(([name, hex]) => {
-                          const isSelected = nuevoItem.color && String(nuevoItem.color).toLowerCase() === String(name).toLowerCase();
-                          return (
-                            <button
-                              key={name}
-                              type="button"
-                              onClick={() => {
-                                setNuevoItem({ ...nuevoItem, color: name });
-                              }}
-                              className={`flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all hover:shadow-md ${
-                                isSelected ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-300' : 'border-gray-200 hover:border-gray-300 bg-white'
-                              }`}
-                              title={name}
-                            >
-                              <div
-                                className="w-10 h-10 rounded-lg border border-gray-300 shadow-sm"
-                                style={{ backgroundColor: hex }}
-                              />
-                              <span className="text-xs font-semibold text-gray-700">{name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <p className="text-xs text-gray-500 mt-2">
-                        Los colores se definen en esta compra. Puedes escribir cualquier color personalizado.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Cantidad</label>
+              <div>
+                <label className="block text-gray-700 mb-1 text-[10px]">Cantidad</label>
+                <div className="w-full">
                   <Input
                     type="number"
                     value={nuevoItem.cantidad}
                     onChange={(e) => setNuevoItem({ ...nuevoItem, cantidad: e.target.value })}
                     placeholder="0"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Precio Compra</label>
-                  <Input
-                    type="number"
-                    value={nuevoItem.precioCompra}
-                    onChange={(e) => setNuevoItem({ ...nuevoItem, precioCompra: e.target.value })}
-                    placeholder="0"
-                    readOnly={!!nuevoItem.productoId}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Precio Venta</label>
-                  <Input
-                    type="number"
-                    value={nuevoItem.precioVenta}
-                    onChange={(e) => setNuevoItem({ ...nuevoItem, precioVenta: e.target.value })}
-                    placeholder="0"
+                    className="h-7 text-[10px] px-2"
                   />
                 </div>
               </div>
+              </div>
 
-              <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="flex justify-end">
+              <Button onClick={() => {
+                // Obtener el categoriaId directamente del select (más confiable que el state)
+                const selectValue = categoriaSelectRef.current?.value || '';
+                const cat = categorias.find(c => c.id === selectValue);
+                
+                console.log('📋 [ComprasManager] ANTES de agregarItem:', {
+                  categoriaId_state: nuevoItem.categoriaId,
+                  categoriaId_select: selectValue,
+                  categoriaNombre_select: cat?.name,
+                  nuevoItem: JSON.stringify(nuevoItem, null, 2)
+                });
+                
+                // Si el select tiene valor pero el state no, actualizar state
+                if (selectValue && !nuevoItem.categoriaId) {
+                  console.log('🔧 [ComprasManager] Actualizando estado con categoría del select...');
+                  const updatedItem = {
+                    ...nuevoItem,
+                    categoriaId: selectValue,
+                    categoriaNombre: cat?.name || ''
+                  };
+                  setNuevoItem(updatedItem);
+                  // Esperar a que se actualice y luego agregar
+                  setTimeout(() => agregarItem(), 50);
+                } else if (selectValue && nuevoItem.categoriaId !== selectValue) {
+                  console.log('🔧 [ComprasManager] Sincronizando categoría del select...');
+                  const updatedItem = {
+                    ...nuevoItem,
+                    categoriaId: selectValue,
+                    categoriaNombre: cat?.name || ''
+                  };
+                  setNuevoItem(updatedItem);
+                  setTimeout(() => agregarItem(), 50);
+                } else {
+                  agregarItem();
+                }
+              }} variant="secondary" className="h-7 px-3 text-[10px]">
+                <Plus size={14} />
+                Agregar producto
+              </Button>
+              </div>
+
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-1.5 pt-1 border-t border-gray-100">
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Categoría del Producto</label>
+                  <label className="block text-gray-700 mb-1 text-[10px]">Precio compra</label>
+                  <div className="w-full">
+                    <Input
+                      type="number"
+                      value={nuevoItem.precioCompra}
+                      onChange={(e) => setNuevoItem({ ...nuevoItem, precioCompra: e.target.value })}
+                      placeholder="0"
+                      readOnly={!!nuevoItem.productoId}
+                      className="h-7 text-[10px] px-2"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 mb-1 text-[10px]">Precio venta</label>
+                  <div className="w-full">
+                    <Input
+                      type="number"
+                      value={nuevoItem.precioVenta}
+                      onChange={(e) => setNuevoItem({ ...nuevoItem, precioVenta: e.target.value })}
+                      placeholder="0"
+                      className="h-7 text-[10px] px-2"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 mb-1 text-[10px]">Categoría</label>
                   <select
                     ref={categoriaSelectRef}
                     value={nuevoItem.categoriaId || ''}
                     onChange={(e) => {
                       const id = e.target.value;
                       const cat = categorias.find(c => c.id === id);
-                      console.log('🔍 [ComprasManager] Categoría seleccionada en onChange:', { 
-                        id, 
+                      console.log('🔍 [ComprasManager] Categoría seleccionada en onChange:', {
+                        id,
                         nombre: cat?.name
                       });
-                      setNuevoItem(prev => ({ 
-                        ...prev, 
+                      setNuevoItem(prev => ({
+                        ...prev,
                         categoriaId: id,
                         categoriaNombre: cat?.name || ''
                       }));
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
+                    className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                   >
                     <option value="">Seleccionar categoría...</option>
                     {categorias.map((cat) => (
@@ -2075,88 +2175,38 @@ export function ComprasManager() {
                     ))}
                   </select>
                   {!nuevoItem.categoriaId && (
-                    <p className="text-xs text-gray-500 mt-1">La categoría es importante para organizar productos</p>
+                    <p className="text-xs text-gray-500 mt-1">La categoría debe ir para ordenar los productos</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm">Imagen del Producto</label>
-                  <ImageUploader
-                      value={nuevoItem.imagen}
-                      onChange={(b64) => setNuevoItem({ ...nuevoItem, imagen: b64 })}
-                    />
-                  <p className="text-xs text-gray-500 mt-1">URL o ruta de la imagen del producto</p>
+                  <label className="block text-gray-700 mb-1 text-[10px]">Imagen del Producto</label>
+                  <div className="w-full max-w-full">
+                      <ImageUploader
+                        value={nuevoItem.imagen}
+                        onChange={(b64) => setNuevoItem({ ...nuevoItem, imagen: b64 })}
+                      />
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-gray-700 mb-2 text-sm">Referencia (SKU)</label>
-                <Input
-                  type="text"
-                  value={nuevoItem.referencia}
-                  onChange={(e) => setNuevoItem({ ...nuevoItem, referencia: e.target.value })}
-                  placeholder="Ref-001 o código único"
-                  className="text-sm"
-                />
-                <p className="text-xs text-gray-500 mt-1">Código o referencia único del producto (opcional)</p>
-              </div>
             </div>
-
-            <Button onClick={() => {
-              // Obtener el categoriaId directamente del select (más confiable que el state)
-              const selectValue = categoriaSelectRef.current?.value || '';
-              const cat = categorias.find(c => c.id === selectValue);
-              
-              console.log('📋 [ComprasManager] ANTES de agregarItem:', {
-                categoriaId_state: nuevoItem.categoriaId,
-                categoriaId_select: selectValue,
-                categoriaNombre_select: cat?.name,
-                nuevoItem: JSON.stringify(nuevoItem, null, 2)
-              });
-              
-              // Si el select tiene valor pero el state no, actualizar state
-              if (selectValue && !nuevoItem.categoriaId) {
-                console.log('🔧 [ComprasManager] Actualizando estado con categoría del select...');
-                const updatedItem = {
-                  ...nuevoItem,
-                  categoriaId: selectValue,
-                  categoriaNombre: cat?.name || ''
-                };
-                setNuevoItem(updatedItem);
-                // Esperar a que se actualice y luego agregar
-                setTimeout(() => agregarItem(), 50);
-              } else if (selectValue && nuevoItem.categoriaId !== selectValue) {
-                console.log('🔧 [ComprasManager] Sincronizando categoría del select...');
-                const updatedItem = {
-                  ...nuevoItem,
-                  categoriaId: selectValue,
-                  categoriaNombre: cat?.name || ''
-                };
-                setNuevoItem(updatedItem);
-                setTimeout(() => agregarItem(), 50);
-              } else {
-                agregarItem();
-              }
-            }} variant="primary" className="w-full mb-4">
-              <Plus size={16} />
-              Agregar Producto
-            </Button>
 
             {/* Lista de productos agregados */}
             {formData.items.length > 0 && (
               <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-[10px] leading-tight">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="text-left py-2 px-3 text-gray-600">Producto</th>
-                      <th className="text-left py-2 px-3 text-gray-600">Categoría</th>
-                      <th className="text-left py-2 px-3 text-gray-600">Talla</th>
-                      <th className="text-left py-2 px-3 text-gray-600">Color</th>
-                      <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
-                      <th className="text-right py-2 px-3 text-gray-600">P. Compra</th>
-                      <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
-                      <th className="text-right py-2 px-3 text-gray-600">Subtotal</th>
-                      <th className="py-2 px-3"></th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Producto</th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Categoría</th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Talla</th>
+                      <th className="text-left py-1.5 px-2 text-gray-600">Color</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">Cant.</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">P. Compra</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">P. Venta</th>
+                      <th className="text-right py-1.5 px-2 text-gray-600">Subtotal</th>
+                      <th className="py-1.5 px-2"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -2164,14 +2214,14 @@ export function ComprasManager() {
                       const colorHex = (COLOR_MAP as any)[item.color] || item.color;
                       return (
                       <tr key={item.id}>
-                        <td className="py-2 px-3 text-gray-900">{item.productoNombre}</td>
-                        <td className="py-2 px-3 text-gray-700">
+                        <td className="py-1.5 px-2 text-gray-900">{item.productoNombre}</td>
+                        <td className="py-1.5 px-2 text-gray-700">
                           <span className="inline-block bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-medium">
                             {item.categoriaNombre || '⚠️ ERROR: Sin asignar'}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-gray-700">{item.talla || '-'}</td>
-                        <td className="py-2 px-3 text-gray-700">
+                        <td className="py-1.5 px-2 text-gray-700">{item.talla || '-'}</td>
+                        <td className="py-1.5 px-2 text-gray-700">
                           <div className="flex items-center gap-2">
                             {item.color && (
                               <div
@@ -2183,11 +2233,11 @@ export function ComprasManager() {
                             <span>{item.color || '-'}</span>
                           </div>
                         </td>
-                        <td className="py-2 px-3 text-right text-gray-700">{item.cantidad}</td>
-                        <td className="py-2 px-3 text-right text-gray-700">${(item.precioCompra || 0).toLocaleString()}</td>
-                        <td className="py-2 px-3 text-right text-gray-700">${(item.precioVenta || 0).toLocaleString()}</td>
-                        <td className="py-2 px-3 text-right text-gray-900">${(item.subtotal || 0).toLocaleString()}</td>
-                        <td className="py-2 px-3">
+                        <td className="py-1.5 px-2 text-right text-gray-700 tabular-nums">{item.cantidad}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-700 tabular-nums">${(item.precioCompra || 0).toLocaleString()}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-700 tabular-nums">${(item.precioVenta || 0).toLocaleString()}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-900 tabular-nums">${(item.subtotal || 0).toLocaleString()}</td>
+                        <td className="py-1.5 px-2">
                           <button
                             onClick={() => eliminarItem(item.id)}
                             className="text-red-600 hover:bg-red-50 p-1 rounded"
@@ -2205,42 +2255,33 @@ export function ComprasManager() {
 
             {/* Totales */}
             {formData.items.length > 0 && (
-              <div className="mt-4 bg-gray-50 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-gray-700">
+              <div className="mt-2 bg-gray-50 rounded-lg border border-gray-200 p-2 space-y-1">
+                <div className="flex justify-between text-gray-700 text-[10px]">
                   <span>Subtotal:</span>
-                  <span>${calcularSubtotal().toLocaleString()}</span>
+                  <span className="tabular-nums">${calcularSubtotal().toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-700">
+                <div className="flex justify-between text-gray-700 text-[10px]">
                   <span>IVA ({formData.iva}%):</span>
-                  <span>${calcularIVA().toLocaleString()}</span>
+                  <span className="tabular-nums">${calcularIVA().toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-gray-900 pt-2 border-t border-gray-300">
-                  <span className="text-lg font-semibold">Total:</span>
-                  <span className="text-lg font-semibold">${calcularTotal().toLocaleString()}</span>
+                <div className="flex justify-between text-gray-900 pt-1 border-t border-gray-300 text-[11px] font-semibold">
+                  <span>Total:</span>
+                  <span className="tabular-nums">${calcularTotal().toLocaleString()}</span>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Observaciones */}
-          <div>
-            <label className="block text-gray-700 mb-2">Observaciones</label>
-            <textarea
-              value={formData.observaciones}
-              onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-              rows={3}
-              placeholder="Notas adicionales sobre la compra..."
-            />
-          </div>
-
-          <div className="flex gap-3 justify-end pt-4 border-t">
-            <Button onClick={() => setShowModal(false)} variant="secondary">
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-1.5 mt-1">
+          <div className="flex gap-2.5 justify-end">
+            <Button onClick={() => setShowModal(false)} variant="secondary" className="h-7 px-3 text-[10px]">
               Cancelar
             </Button>
-            <Button onClick={handleSave} variant="primary">
+            <Button onClick={handleSave} variant="primary" className="h-7 px-3 text-[10px]">
               Crear Compra
             </Button>
+          </div>
+          </div>
           </div>
         </div>
       </Modal>
@@ -2253,7 +2294,7 @@ export function ComprasManager() {
       >
         {viewingCompra && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className="text-gray-600 mb-1">Proveedor</div>
                 <div className="text-gray-900 font-medium">{viewingCompra.proveedorNombre}</div>

@@ -195,6 +195,20 @@ export function DevolucionesManager() {
     });
   };
 
+  const getCantidadMaximaDevolucion = (item: any) => {
+    const cantidadDirecta = Number(item?.cantidad ?? 0);
+    if (Number.isFinite(cantidadDirecta) && cantidadDirecta > 0) return cantidadDirecta;
+
+    const subtotal = Number(item?.subtotal ?? 0);
+    const precio = Number(item?.precioUnitario ?? 0);
+    if (Number.isFinite(subtotal) && Number.isFinite(precio) && precio > 0) {
+      const estimada = Math.floor(subtotal / precio);
+      if (estimada > 0) return estimada;
+    }
+
+    return 1;
+  };
+
 
 
 
@@ -569,13 +583,6 @@ DAMABELLA - Moda Femenina
           <p className="text-gray-600">Crea y gestiona todas tus devoluciones</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-          >
-            <Plus size={16} />
-            Nueva Devolución
-          </button>
           {devoluciones.length > 0 && (
             <button
               onClick={descargarExcel}
@@ -609,8 +616,8 @@ DAMABELLA - Moda Femenina
             <div>
               <h3 className="text-purple-900 mb-1">¿Cómo crear devoluciones?</h3>
               <p className="text-purple-700 text-sm">
-                Haz clic en el botón <strong>"Nueva Devolución"</strong> en la esquina superior derecha para crear una nueva devolución. 
-                Selecciona una venta, los productos y el motivo.
+                Selecciona una venta desde el flujo correspondiente para crear una devolución,
+                luego elige los productos y el motivo.
               </p>
             </div>
           </div>
@@ -1007,6 +1014,19 @@ DAMABELLA - Moda Femenina
                   </option>
                 ))}
               </select>
+
+              {selectedVenta && (() => {
+                const clientes = JSON.parse(localStorage.getItem('damabella_clientes') || '[]');
+                const cliente = clientes.find((c: any) => String(c.id) === String(selectedVenta.clienteId));
+                const saldoDisponible = Number(cliente?.saldoAFavor || 0);
+                return (
+                  <div className="mt-2 rounded-lg border border-green-200 bg-green-50 p-2">
+                    <div className="text-sm text-green-800 font-medium">
+                      Saldo disponible: ${saldoDisponible.toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Productos de la Venta Seleccionada */}
@@ -1047,18 +1067,19 @@ DAMABELLA - Moda Femenina
                             <input
                               type="number"
                               min="0"
-                              max={Number(item.cantidad || 0)}
+                              max={getCantidadMaximaDevolucion(item)}
                               value={cantidadDevuelta}
                               onChange={(e) => {
-                                const max = Number(item.cantidad || 0);
+                                const max = getCantidadMaximaDevolucion(item);
                                 const val = parseInt(e.target.value, 10) || 0;
                                 const safe = Math.max(0, Math.min(max, val));
                                 handleToggleItemDevolucion(String(item.id), safe);
                               }}
+                              step="1"
                               className="w-20 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                             />
 
-                            <span className="text-xs text-gray-600">de {item.cantidad}</span>
+                            <span className="text-xs text-gray-600">de {getCantidadMaximaDevolucion(item)}</span>
 
                             {cantidadDevuelta > 0 && (
                               <span className="ml-auto text-xs text-green-700 font-medium">
@@ -1147,7 +1168,7 @@ DAMABELLA - Moda Femenina
                     const item = selectedVenta.items.find((i: any) => String(i.id) === String(sel.itemId));
                     if (!item) return sum;
 
-                    const cantidadVendida = Number(item.cantidad || 0);
+                    const cantidadVendida = getCantidadMaximaDevolucion(item);
                     const cantidad = Math.max(0, Math.min(cantidadVendida, Number(sel.cantidad || 0)));
                     return sum + (cantidad * Number(item.precioUnitario || 0));
                   }, 0);
