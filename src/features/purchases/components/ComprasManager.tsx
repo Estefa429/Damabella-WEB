@@ -1784,6 +1784,11 @@ export function ComprasManager() {
                             let precioVentaStr = '';
                             let imagenUrl = sel.imagen || sel.image || sel.imagenUrl || '';
 
+                            let tallaFound = '';
+                            let colorFound = '';
+                            let proveedorIdFound = '';
+                            let proveedorNombreFound = '';
+
                             try {
                               // Buscar la última compra que contenga este producto (orden descendente por createdAt/fechaRegistro)
                               const comprasOrdenadas = compras.slice().sort((a:any,b:any) => {
@@ -1791,11 +1796,6 @@ export function ComprasManager() {
                                 const tb = new Date(b.createdAt || b.fechaRegistro || 0).getTime();
                                 return tb - ta;
                               });
-
-                              let tallaFound = '';
-                              let colorFound = '';
-                              let proveedorIdFound = '';
-                              let proveedorNombreFound = '';
 
                               for (const c of comprasOrdenadas) {
                                 const found = (c.items || []).find((i:any) => String(i.productoId) === String(val) || normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(sel.nombre));
