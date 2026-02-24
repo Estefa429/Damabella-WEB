@@ -537,7 +537,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
             </div>
             <Button onClick={handleCreate} variant="primary">
               <Plus size={20} />
-              Agregar Proveedor
+              Nuevo Proveedor
             </Button>
           </div>
 

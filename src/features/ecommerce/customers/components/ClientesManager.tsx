@@ -462,7 +462,7 @@ export default function ClientesManager() {
         </div>
         <Button onClick={handleCreate} variant="primary">
           <Plus size={20} />
-          Agregar Cliente
+          Nuevo Cliente
         </Button>
       </div>
 
@@ -490,7 +490,6 @@ export default function ClientesManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Contacto</th>
                 <th className="text-left py-4 px-6 text-gray-600">Ciudad</th>
                 {/* Resumen Comercial eliminado según requerimiento */}
-                <th className="text-center py-4 px-6 text-gray-600">Saldo a favor</th>
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
@@ -498,7 +497,7 @@ export default function ClientesManager() {
             <tbody className="divide-y divide-gray-100">
               {paginatedClientes.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                  <td colSpan={6} className="py-12 text-center text-gray-500">
                     <Users className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron clientes</p>
                   </td>
@@ -542,11 +541,6 @@ export default function ClientesManager() {
                     <td className="py-4 px-6 text-gray-600">{cliente.ciudad || 'N/A'}</td>
                     
                     {/* Resumen Comercial eliminado según requerimiento (columna removida) */}
-                    <td className="py-4 px-6 text-center">
-                      <span className={`inline-block min-w-[90px] ${(datos.saldoAFavor || 0) > 0 ? 'text-emerald-700 font-semibold' : 'text-gray-500'}`}>
-                        ${(datos.saldoAFavor || 0).toLocaleString()}
-                      </span>
-                    </td>
                     
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
