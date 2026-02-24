@@ -10,8 +10,7 @@ interface TableCellProps extends TdHTMLAttributes<HTMLTableCellElement> {}
 export function Table({ className = '', ...props }: TableProps) {
   return (
     <div className="w-full overflow-auto">
-      <table className={`w-full table-fixed border-collapse ${className}`} {...props} />
-
+      <table className={`w-full border-collapse ${className}`} {...props} />
     </div>
   );
 }

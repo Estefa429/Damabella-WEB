@@ -317,21 +317,20 @@ export default function UsuariosManager() {
       </div>
 
       {/* Search */}
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Buscar usuarios..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="pl-10 w-full h-10 py-0 text-sm"
-            />
-          </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+          <Input
+            placeholder="Buscar usuarios..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="pl-10"
+          />
         </div>
-
+      </div>
 
       {/* Usuarios List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

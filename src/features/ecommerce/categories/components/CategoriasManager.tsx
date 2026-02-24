@@ -358,7 +358,7 @@ const handleViewProducts = (category: any) => {
           title={!canCreateCategorias ? 'No tienes permiso para crear categorías' : ''}
         >
           <Plus size={20} />
-          Agregar Categoría
+          Nueva Categoría
         </Button>
       </div>
 
