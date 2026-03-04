@@ -1248,7 +1248,7 @@ const paginatedVentas = useMemo(() => {
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => { setViewingVenta(venta); setShowDetailModal(true); }}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
                           title="Ver detalle"
                         >
                           <Eye size={18} />
@@ -1351,43 +1351,49 @@ const paginatedVentas = useMemo(() => {
         size="xxl"
         noScroll
       >
-        <div className="w-[95vw] max-h-[95vh] pr-0.5 text-[10px] leading-tight overflow-hidden">
-          <div className="space-y-1 pb-1">
-            <div className="border border-gray-200 rounded-md bg-white p-1">
-              <h3 className="text-center text-[11px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-200">DAMABELLA</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-1 mb-1">
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Número de venta</label>
-                  <Input value={generarNumeroVenta()} readOnly disabled className="h-7 px-2 text-[10px] bg-gray-50" />
+        {/* CORRECCIÓN: Cambiad de grid a flex flex-col para mejor control del layout */}
+        {/* flex flex-col mantiene: header fijo → body con scroll → footer sticky */}
+        <div className="w-[95vw] max-w-[1400px] max-h-[90vh] pr-0.5 text-[10px] leading-tight overflow-hidden mx-auto flex flex-col">
+          {/* ═══════════════════════════════════════════════════════ */}
+          {/* SECCIÓN 1: DATOS DE VENTA Y CLIENTE (HEADER FIJO) */}
+          {/* CORRECCIÓN: Sin flex-1, ocupa solo el espacio necesario */}
+          {/* ═══════════════════════════════════════════════════════ */}
+          <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0">
+              {/* Contenedor centrado con max-width para inputs */}
+              <div className="max-w-5xl mx-auto">
+              
+              {/* Fila 1: Número, Fecha y Botón crear cliente */}
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 mb-2">
+                <div className="lg:col-span-1">
+                  <label className="block text-[10px] text-gray-500 mb-1">Número de venta</label>
+                  <Input value={generarNumeroVenta()} readOnly disabled className="h-6 px-2 text-[10px] bg-gray-50 w-full" />
                 </div>
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Fecha de creación</label>
-                  <Input value={formData.fechaVenta} readOnly disabled className="h-7 px-2 text-[10px] bg-gray-50" />
+                <div className="lg:col-span-1">
+                  <label className="block text-[10px] text-gray-500 mb-1">Fecha de creación</label>
+                  <Input value={formData.fechaVenta} readOnly disabled className="h-6 px-2 text[10px] bg-gray-50 w-full" />
                 </div>
-                <div className="flex items-end">
-                  <Button onClick={() => setShowClienteModal(true)} variant="secondary" className="w-full h-7 px-2 text-[10px]">
+                <div className="lg:col-span-2 flex items-end">
+                  <Button onClick={() => setShowClienteModal(true)} variant="secondary" className="w-full h-6 px-2 text-[10px]">
                     <UserPlus size={14} />
-                    Crear nuevo cliente
+                    Crear cliente
                   </Button>
                 </div>
               </div>
 
+              {/* Fila 2: Búsqueda de cliente */}
               <div>
-                <label className="block text-gray-700 mb-0.5 text-[10px]">Cliente *</label>
+                <label className="block text-gray-700 mb-1 text-[10px]">Cliente *</label>
                 <div className="relative text-[10px]">
                   <Input
                     value={clienteSearchTerm}
                     onChange={(e) => {
                       const val = e.target.value;
-
                       setClienteSearchTerm(val);
                       setShowClienteDropdown(true);
-
                       setFormData((prev) => {
                         const textoSigueIgual = val.trim() === selectedClienteNombre.trim();
                         return textoSigueIgual ? prev : { ...prev, clienteId: '' };
                       });
-
                       if (val.trim() !== selectedClienteNombre.trim()) {
                         setSelectedClienteNombre('');
                         setUsarSaldoAFavor(false);
@@ -1396,11 +1402,10 @@ const paginatedVentas = useMemo(() => {
                     }}
                     onFocus={() => setShowClienteDropdown(true)}
                     placeholder="Buscar cliente por nombre o documento..."
-                    className={`h-7 px-2 text-[10px] leading-tight ${formErrors.clienteId ? 'border-red-500' : ''}`}
+                    className={`h-6 px-2 text-[10px] leading-tight w-full ${formErrors.clienteId ? 'border-red-500' : ''}`}
                   />
-
                   {showClienteDropdown && filteredClientes.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-md max-h-32 overflow-y-auto">
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-md max-h-40 overflow-y-auto">
                       {filteredClientes.map((c: any) => (
                         <button
                           key={c.id}
@@ -1415,29 +1420,43 @@ const paginatedVentas = useMemo(() => {
                     </div>
                   )}
                 </div>
-
                 {formErrors.clienteId && <p className="text-red-600 text-xs mt-1">{formErrors.clienteId}</p>}
-
-                {clienteSeleccionado && (
-                  <div className="mt-1 border border-gray-200 rounded-md p-1 bg-gray-50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1 text-[10px] leading-tight">
-                    <div><span className="text-gray-500">Nombre:</span><div className="text-gray-900 font-medium truncate">{clienteSeleccionado.nombre || '-'}</div></div>
-                    <div><span className="text-gray-500">Documento:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.numeroDoc || '-'}</div></div>
-                    <div><span className="text-gray-500">Teléfono:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.telefono || '-'}</div></div>
-                    <div><span className="text-gray-500">Ciudad:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.ciudad || clienteSeleccionado.direccion || '-'}</div></div>
-                  </div>
-                )}
               </div>
-            </div>
 
-            <div className="border border-gray-200 rounded-md bg-white p-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-1">
-                <div>
-                  <label className="block text-gray-700 mb-0.5 text-[10px]">Método de Pago *</label>
+              {/* Fila 3: Resumen de cliente */}
+              {clienteSeleccionado && (
+                <div className="mt-2 border border-gray-200 rounded-md p-2 bg-gray-50 grid grid-cols-2 lg:grid-cols-4 gap-2 text-[10px] leading-tight">
+                  <div><span className="text-gray-500">Nombre:</span><div className="text-gray-900 font-medium truncate">{clienteSeleccionado.nombre || '-'}</div></div>
+                  <div><span className="text-gray-500">Documento:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.numeroDoc || '-'}</div></div>
+                  <div><span className="text-gray-500">Teléfono:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.telefono || '-'}</div></div>
+                  <div><span className="text-gray-500">Ciudad:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.ciudad || clienteSeleccionado.direccion || '-'}</div></div>
+                </div>
+              )}
+              </div>
+              {/* Cierre del contenedor centrado max-width */}
+            </div>
+            {/* Cierre del header border */}
+
+          {/* ═══════════════════════════════════════════════════════ */}
+          {/* SECCIÓN 2: CONTENIDO CON SCROLL */}
+          {/* CORRECCIÓN: flex-1 overflow-y-auto para expansión + scroll vertical */}
+          {/* ═══════════════════════════════════════════════════════ */}
+          <div className="flex-1 overflow-y-auto space-y-2 pb-2 min-h-0">
+            {/* Sección: Método de Pago y Productos */}
+            {/* CORRECCIÓN: Removido flex-1 flex flex-col, solo space de separación */}
+            <div className="border border-gray-200 rounded-md bg-white p-2">
+              {/* Contenedor centrado con max-width */}
+              <div className="max-w-5xl mx-auto">
+              
+              {/* Fila 1: Método de Pago */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2">
+                <div className="lg:col-span-1">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Método de Pago *</label>
                   {(!usarSaldoAFavor || saldoAplicado <= 0) && (
                     <select
                       value={formData.metodoPago}
                       onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      className="w-full h-6 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                       required
                     >
                       <option value="Efectivo">Efectivo</option>
@@ -1448,14 +1467,13 @@ const paginatedVentas = useMemo(() => {
                     </select>
                   )}
                 </div>
-
                 {usarSaldoAFavor && restantePorPagar > 0 && (
-                  <div>
-                    <label className="block text-gray-700 mb-0.5 text-[10px]">Medio de pago restante *</label>
+                  <div className="lg:col-span-1">
+                    <label className="block text-gray-700 mb-1 text-[10px]">Medio de pago restante *</label>
                     <select
                       value={metodoPagoRestante}
                       onChange={(e) => setMetodoPagoRestante(e.target.value as MedioPago)}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      className="w-full h-6 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                       required
                     >
                       <option value="Efectivo">Efectivo</option>
@@ -1468,10 +1486,11 @@ const paginatedVentas = useMemo(() => {
                 )}
               </div>
 
+              {/* Fila 2: Saldo a favor */}
               {saldoDisponible > 0 && formData.clienteId && (
-                <div className="mb-1 rounded-md border border-green-300 bg-green-50 p-1">
+                <div className="mb-2 rounded-md border border-green-300 bg-green-50 p-2">
                   <div className="text-green-800 text-[10px] font-semibold">✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}</div>
-                  <label className="mt-1 flex items-center gap-1.5 text-[10px] text-green-900">
+                  <label className="mt-2 flex items-center gap-2 text-[10px] text-green-900">
                     <input
                       type="checkbox"
                       checked={usarSaldoAFavor}
@@ -1484,7 +1503,7 @@ const paginatedVentas = useMemo(() => {
                     Usar saldo a favor en esta venta
                   </label>
                   {usarSaldoAFavor && (
-                    <div className="mt-1 text-[10px] text-green-900 space-y-0.5">
+                    <div className="mt-2 text-[10px] text-green-900 space-y-0.5">
                       <div>Saldo aplicado: <b>${saldoAplicado.toLocaleString()}</b></div>
                       <div>Restante por pagar: <b>${restantePorPagar.toLocaleString()}</b></div>
                     </div>
@@ -1492,126 +1511,123 @@ const paginatedVentas = useMemo(() => {
                 </div>
               )}
 
-              <h4 className="text-gray-900 text-[10px] font-semibold mb-0.5">Agregar productos</h4>
-              <div className="bg-gray-50 rounded-md p-1 mb-1">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-1">
-                  <div className="md:col-span-2">
-                    <label className="block text-gray-700 mb-0.5 text-[10px]">Producto</label>
+              {/* Fila 3: Agregar Productos - TODO EN UNA FILA, MEJOR DISTRIBUÍDO */}
+              <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
+                <div className="flex gap-2 items-center">
+                  <div className="flex-1">
                     <select
                       value={nuevoItem.productoId}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, productoId: e.target.value, talla: '', color: '' })}
                       className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                     >
-                      <option value="">Seleccionar producto...</option>
+                      <option value="">Producto</option>
                       {productos.filter((p: any) => p.activo).map((producto: any) => (
                         <option key={producto.id} value={producto.id}>
-                          {producto.nombre} - ${(producto.precioVenta || 0).toLocaleString()}
+                          {producto.nombre}
                         </option>
                       ))}
                     </select>
                   </div>
-
-                  <div>
-                    <label className="block text-gray-700 mb-0.5 text-[10px]">Talla</label>
+                  <div className="w-24">
                     <select
                       value={nuevoItem.talla}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value, color: '' })}
                       className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                     >
-                      <option value="">Seleccionar...</option>
+                      <option value="">Talla</option>
                       {getTallasDisponibles().map((talla: string) => (
                         <option key={talla} value={talla}>{talla}</option>
                       ))}
                     </select>
                   </div>
-
-                  <div>
-                    <label className="block text-gray-700 mb-0.5 text-[10px]">Color</label>
+                  <div className="w-24">
                     <select
                       value={nuevoItem.color}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
                       className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                       disabled={!nuevoItem.talla}
                     >
-                      <option value="">Seleccionar...</option>
+                      <option value="">Color</option>
                       {getColoresDisponibles().map((color: string) => (
                         <option key={color} value={color}>{color}</option>
                       ))}
                     </select>
                   </div>
-
-                  <div>
-                    <label className="block text-gray-700 mb-0.5 text-[10px]">Cantidad</label>
+                  <div className="w-20">
                     <Input
                       type="number"
                       min="1"
+                      placeholder="Cant."
                       value={nuevoItem.cantidad}
                       onChange={(e) => setNuevoItem({ ...nuevoItem, cantidad: e.target.value })}
-                      className="h-7 px-2 text-[10px]"
+                      className="w-full h-7 px-2 text-[10px]"
                     />
                   </div>
-                </div>
-                <div className="mt-1.5 flex justify-end">
-                  <Button onClick={agregarItem} variant="secondary" className="h-7 px-2.5 text-[10px]">
+                  <Button onClick={agregarItem} variant="secondary" className="h-7 px-3 text-[10px] whitespace-nowrap">
                     <Plus size={14} />
-                    Agregar producto
+                    Agregar
                   </Button>
                 </div>
               </div>
 
-              <div className="border border-gray-200 rounded-md">
-                <table className="w-full table-fixed text-[10px] leading-tight">
+              {/* Tabla de productos */}
+              {/* CORRECCIÓN: Removido flex-1, la tabla ocupa el espacio necesario en scroll */}
+              </div>
+              {/* Cierre del contenedor centrado max-width */}
+              
+              <div className="border border-gray-200 rounded-md overflow-x-auto mt-2">
+                <table className="w-full text-[10px] leading-tight">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Num</th>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Nombre del producto</th>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Talla</th>
-                      <th className="text-left px-1 py-1 font-semibold text-gray-700">Color</th>
-                      <th className="text-right px-1 py-1 font-semibold text-gray-700 tabular-nums">Valor unitario</th>
-                      <th className="text-right px-1 py-1 font-semibold text-gray-700 tabular-nums">Cantidad</th>
-                      <th className="text-right px-1 py-1 font-semibold text-gray-700 tabular-nums">Valor total</th>
-                      <th className="text-center px-1 py-1 font-semibold text-gray-700">Acción</th>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Num</th>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Producto</th>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Talla</th>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Color</th>
+                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Unitario</th>
+                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Cant.</th>
+                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Total</th>
+                      <th className="text-center px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
                     {formData.items.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-2 py-2.5 text-center text-gray-500">No hay productos agregados</td>
+                        <td colSpan={8} className="px-2 py-2 text-center text-gray-500">No hay productos agregados</td>
                       </tr>
                     ) : (
                       formData.items.map((item, index) => (
-                        <tr key={item.id} className="border-b border-gray-100 last:border-b-0">
-                          <td className="px-1 py-1 text-gray-700">{index + 1}</td>
-                          <td className="px-1 py-1 text-gray-900 font-medium truncate">{item.productoNombre}</td>
-                          <td className="px-1 py-1 text-gray-700">{item.talla}</td>
-                          <td className="px-1 py-1 text-gray-700">{item.color}</td>
-                          <td className="px-1 py-1">
+                        <tr key={item.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+                          <td className="px-2 py-1.5 text-gray-700">{index + 1}</td>
+                          <td className="px-2 py-1.5 text-gray-900 font-medium truncate max-w-xs">{item.productoNombre}</td>
+                          <td className="px-2 py-1.5 text-gray-700">{item.talla}</td>
+                          <td className="px-2 py-1.5 text-gray-700">{item.color}</td>
+                          <td className="px-2 py-1.5">
                             <Input
                               type="number"
                               min="0"
                               step="1"
                               value={Number.isFinite(Number(item.precioUnitario)) ? item.precioUnitario : 0}
                               onChange={(e) => actualizarPrecioItem(item.id, e.target.value)}
-                              className="h-7 px-1.5 text-[10px] text-right tabular-nums"
+                              className="h-6 px-1.5 text-[10px] text-right tabular-nums w-16"
                             />
                           </td>
-                          <td className="px-1 py-1">
+                          <td className="px-2 py-1.5">
                             <Input
                               type="number"
                               min="1"
                               step="1"
                               value={Number.isFinite(Number(item.cantidad)) ? item.cantidad : 1}
                               onChange={(e) => actualizarCantidadItem(item.id, e.target.value)}
-                              className="h-7 px-1.5 text-[10px] text-right tabular-nums"
+                              className="h-6 px-1.5 text-[10px] text-right tabular-nums w-12"
                             />
                           </td>
-                          <td className="px-1 py-1 text-right tabular-nums font-semibold text-gray-900">
+                          <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap">
                             ${((Number(item.precioUnitario) >= 0 ? Number(item.precioUnitario) : 0) * (Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1)).toLocaleString()}
                           </td>
-                          <td className="px-1 py-1 text-center">
+                          <td className="px-2 py-1.5 text-center">
                             <button
                               onClick={() => eliminarItem(item.id)}
-                              className="text-red-600 hover:bg-red-50 p-1 rounded"
+                              className="text-red-600 hover:bg-red-50 p-1.5 rounded inline-flex items-center justify-center"
                               title="Eliminar fila"
                             >
                               <X size={14} />
@@ -1624,29 +1640,34 @@ const paginatedVentas = useMemo(() => {
                 </table>
               </div>
             </div>
-
           </div>
 
-          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-1 mt-1">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
-              <div className="rounded-md bg-gray-50 border border-gray-200 p-1.5">
-                <div className="flex justify-between text-gray-600 text-[10px]">
-                  <span>Subtotal</span>
-                  <span className="tabular-nums">${totales.subtotal.toLocaleString()}</span>
+          {/* ═══════════════════════════════════════════════════════ */}
+          {/* SECCIÓN 3: TOTALES Y BOTONES (STICKY) */}
+          {/* CORRECCIÓN: Añadido shrink-0 para que no se comprima en flex col */}
+          {/* ═══════════════════════════════════════════════════════ */}
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-2 mt-0 shrink-0">
+            {/* Contenedor centrado con max-width */}
+            <div className="max-w-5xl mx-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 items-end">
+                <div className="lg:col-span-2 rounded-md bg-gray-50 border border-gray-200 p-2">
+                  <div className="flex justify-between text-gray-600 text-[10px]">
+                    <span>Subtotal</span>
+                    <span className="tabular-nums font-medium">${totales.subtotal.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600 text-[10px] mt-1">
+                    <span>IVA ({Math.round(IVA_RATE * 100)}%)</span>
+                    <span className="tabular-nums font-medium">${totales.iva.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-2 pt-2 border-t border-gray-200">
+                    <span>Total a pagar</span>
+                    <span className="tabular-nums">${totales.total.toLocaleString()}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-gray-600 text-[10px] mt-0.5">
-                  <span>IVA ({Math.round(IVA_RATE * 100)}%)</span>
-                  <span className="tabular-nums">${totales.iva.toLocaleString()}</span>
+                <div className="lg:col-span-2 flex gap-2 justify-end">
+                  <Button onClick={() => setShowModal(false)} variant="secondary" className="h-6 px-3 text-[10px]">Cancelar</Button>
+                  <Button onClick={handleSave} variant="primary" className="h-6 px-3 text-[10px]">Crear Venta</Button>
                 </div>
-                <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-1 pt-1 border-t border-gray-200">
-                  <span>Total a pagar</span>
-                  <span className="tabular-nums">${totales.total.toLocaleString()}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-2 justify-end pt-1">
-                <Button onClick={() => setShowModal(false)} variant="secondary" className="h-7 px-3 text-[10px]">Cancelar</Button>
-                <Button onClick={handleSave} variant="primary" className="h-7 px-3 text-[10px]">Crear Venta</Button>
               </div>
             </div>
           </div>

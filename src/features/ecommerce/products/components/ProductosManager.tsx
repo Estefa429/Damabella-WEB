@@ -665,7 +665,7 @@ export default function ProductosManager() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleViewDetail(producto)}
-                    className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-gray-700 flex items-center justify-center gap-2 text-sm"
+                    className="flex-1 px-3 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors text-blue-600 flex items-center justify-center gap-2 text-sm"
                   >
                     <Eye size={16} />
                     Ver Detalle

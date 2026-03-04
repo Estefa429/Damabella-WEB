@@ -124,6 +124,8 @@ export const Roles: React.FC = () => {
   });
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
@@ -186,6 +188,11 @@ export const Roles: React.FC = () => {
     }
   }, [roles, showToast]);
 
+  // Resetear página cuando cambia la búsqueda
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   const columns = [
   { key: 'name', label: 'Nombre' },
   { key: 'description', label: 'Descripción' },
@@ -210,9 +217,13 @@ export const Roles: React.FC = () => {
   width: '220px',
   render: (item: Role) => (
     <div className="flex items-center justify-center gap-2">
-      <Button size="sm" onClick={() => handleEdit(item)}>
-        Editar
-      </Button>
+      <button
+        onClick={() => handleEdit(item)}
+        className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+        title="Editar"
+      >
+        <Edit2 size={18} />
+      </button>
 
       {item.name !== 'Administrador' && (
         <Button
@@ -251,6 +262,12 @@ export const Roles: React.FC = () => {
       busquedasCantidad.some((t) => t.includes(search))
     );
   });
+
+  // Paginación
+  const totalPages = Math.ceil(filteredRoles.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedRoles = filteredRoles.slice(startIndex, endIndex);
 
   const handleAdd = () => {
     setSelectedRole(null);
@@ -404,9 +421,52 @@ export const Roles: React.FC = () => {
 
 
       <DataTable
-        data={filteredRoles}
+        data={paginatedRoles}
         columns={columns}
       />
+
+      {/* Pagination Controls */}
+      <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between rounded-b-lg mt-4">
+        <div className="text-sm text-gray-600">
+          Mostrando <span className="font-medium">{startIndex + 1}</span> a <span className="font-medium">{Math.min(endIndex, filteredRoles.length)}</span> de <span className="font-medium">{filteredRoles.length}</span> roles
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Anterior
+          </button>
+          <div className="flex items-center gap-2">
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const startPage = Math.max(1, currentPage - 2);
+              const page = startPage + i;
+              if (page > totalPages) return null;
+              return (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    currentPage === page
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {page}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages}
+            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Siguiente
+          </button>
+        </div>
+      </div>
 
 
 

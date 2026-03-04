@@ -37,13 +37,19 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
   const [viewingProveedor, setViewingProveedor] = useState<Proveedor | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // resetear paginación al buscar
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   const [showStatusConfirmModal, setShowStatusConfirmModal] = useState(false);
   const [proveedorToToggle, setProveedorToToggle] = useState<Proveedor | null>(null);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
   const [proveedorToDelete, setProveedorToDelete] = useState<Proveedor | null>(null);
   
-  const itemsPerPage = 10;
   
   const [formData, setFormData] = useState({
     numeroDoc: '',
@@ -112,7 +118,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
       setShowModal(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openOnMount]);
+  }, []);
 
   const validateField = (field: string, value: string) => {
     const errors: any = {};
@@ -618,7 +624,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => handleVerProveedor(proveedor)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
                           title="Ver proveedor"
                         >
                           <ViewIcon size={18} />
@@ -666,19 +672,24 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
           </button>
           
           <div className="flex gap-1">
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className={`px-3 py-2 rounded-lg transition-colors ${
-                  currentPage === page
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {page}
-              </button>
-            ))}
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const startPage = Math.max(1, currentPage - 2);
+              const page = startPage + i;
+              if (page > totalPages) return null;
+              return (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    currentPage === page
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white border border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {page}
+                </button>
+              );
+            })}
           </div>
 
           <button

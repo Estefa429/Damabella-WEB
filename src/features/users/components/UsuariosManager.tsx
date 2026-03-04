@@ -42,7 +42,9 @@ export default function UsuariosManager() {
 
   const [showModal, setShowModal] = useState(false);
   const [showReporte, setShowReporte] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingUsuario, setEditingUsuario] = useState<Usuario | null>(null);
+  const [viewingUsuario, setViewingUsuario] = useState<Usuario | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -248,6 +250,11 @@ export default function UsuariosManager() {
     }
   };
 
+  const handleVerUsuario = (usuario: Usuario) => {
+    setViewingUsuario(usuario);
+    setShowViewModal(true);
+  };
+
   const toggleActive = (id: number) => {
     setUsuarios(usuarios.map(u =>
       u.id === id ? { ...u, activo: !u.activo } : u
@@ -403,16 +410,11 @@ export default function UsuariosManager() {
                     <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
                         <button
-                          onClick={() => toggleActive(usuario.id)}
-                          className={`relative w-10 h-5 rounded-full transition-colors ${
-                            usuario.activo ? 'bg-green-500' : 'bg-gray-300'
-                          } mr-1`}
-                          title={usuario.activo ? 'Desactivar usuario' : 'Activar usuario'}
-                          aria-pressed={usuario.activo}
+                          onClick={() => handleVerUsuario(usuario)}
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                          title="Ver"
                         >
-                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                            usuario.activo ? 'translate-x-5' : 'translate-x-0'
-                          }`} />
+                          <Eye size={18} />
                         </button>
                         <button
                           onClick={() => handleEdit(usuario)}
@@ -451,19 +453,26 @@ export default function UsuariosManager() {
               Anterior
             </button>
             <div className="flex items-center gap-2">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={`px-3 py-2 rounded-lg transition-colors ${
-                    currentPage === page
-                      ? 'bg-gray-900 text-white'
-                      : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
+              {(() => {
+                const pages: number[] = [];
+                let start = Math.max(1, currentPage - 2);
+                let end = Math.min(totalPages, start + 4);
+                start = Math.max(1, end - 4);
+                for (let p = start; p <= end; ++p) pages.push(p);
+                return pages.map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-2 rounded-lg transition-colors ${
+                      currentPage === page
+                        ? 'bg-gray-900 text-white'
+                        : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ));
+              })()}
             </div>
             <button
               onClick={handleNextPage}
@@ -643,6 +652,72 @@ export default function UsuariosManager() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modal View Usuario */}
+      <Modal
+        isOpen={showViewModal}
+        onClose={() => setShowViewModal(false)}
+        title="Detalles del Usuario"
+      >
+        {viewingUsuario && (
+          <div className="space-y-6">
+            <div className="bg-gray-50 rounded-lg p-6">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-16 h-16 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white text-2xl">
+                  {viewingUsuario.nombre[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">{viewingUsuario.nombre}</h3>
+                  <p className="text-gray-600">{viewingUsuario.email}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Tipo de Documento</label>
+                  <div className="text-gray-900 font-medium">{viewingUsuario.tipoDoc}</div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Número de Documento</label>
+                  <div className="text-gray-900 font-medium">{viewingUsuario.numeroDoc}</div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Celular</label>
+                  <div className="text-gray-900 font-medium">{viewingUsuario.celular}</div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Rol</label>
+                  <div className="text-gray-900 font-medium">{viewingUsuario.role}</div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Estado</label>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${viewingUsuario.activo ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <span className="text-gray-900 font-medium">{viewingUsuario.activo ? 'Activo' : 'Inactivo'}</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Fecha de Creación</label>
+                  <div className="text-gray-900 font-medium">{new Date(viewingUsuario.createdAt).toLocaleDateString()}</div>
+                </div>
+              </div>
+
+              {viewingUsuario.direccion && (
+                <div className="mt-4">
+                  <label className="block text-sm text-gray-600 mb-1">Dirección</label>
+                  <div className="text-gray-900 font-medium">{viewingUsuario.direccion}</div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <Button onClick={() => setShowViewModal(false)} variant="primary">
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Modal Reporte */}

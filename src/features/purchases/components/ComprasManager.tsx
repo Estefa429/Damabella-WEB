@@ -409,6 +409,7 @@ export function ComprasManager() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [viewingCompra, setViewingCompra] = useState<Compra | null>(null);
   const [showProveedorModal, setShowProveedorModal] = useState(false);
+  const [proveedorModalKey, setProveedorModalKey] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [proveedorSearchTerm, setProveedorSearchTerm] = useState('');
   const [productoSearchTerm, setProductoSearchTerm] = useState('');
@@ -421,6 +422,8 @@ export function ComprasManager() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   
   const [formData, setFormData] = useState({
     proveedorId: '',
@@ -727,6 +730,11 @@ export function ComprasManager() {
     };
   }, []);
 
+  // Resetear página cuando cambia el búsqueda
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   const validateField = (field: string, value: any) => {
     const errors: any = {};
     
@@ -758,6 +766,7 @@ export function ComprasManager() {
   };
 
   const handleCreate = () => {
+    setShowProveedorModal(false);
     setFormData({
       proveedorId: '',
       proveedorNombre: '',
@@ -1473,6 +1482,12 @@ export function ComprasManager() {
     (c.proveedorNombre?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
   );
 
+  // Paginación
+  const totalPages = Math.ceil(filteredCompras.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedCompras = filteredCompras.slice(startIndex, endIndex);
+
   return (
     <div className="space-y-4 text-sm">
       {/* Header */}
@@ -1481,7 +1496,7 @@ export function ComprasManager() {
           <h2 className="text-gray-900 mb-2">Gestión de Compras</h2>
           <p className="text-gray-600">Administra las compras a proveedores</p>
         </div>
-        <Button onClick={handleCreate} variant="primary">
+        <Button onClick={handleCreate} variant="primary" size="lg">
           <Plus size={20} />
           Agregar Compra
         </Button>
@@ -1642,7 +1657,7 @@ export function ComprasManager() {
                   </td>
                 </tr>
               ) : (
-                filteredCompras.map((compra) => (
+                paginatedCompras.map((compra) => (
                   <tr key={compra.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-2">
@@ -1665,7 +1680,7 @@ export function ComprasManager() {
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => handleView(compra)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
                           title="Ver detalles"
                         >
                           <Eye size={18} />
@@ -1704,6 +1719,49 @@ export function ComprasManager() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between rounded-b-lg">
+          <div className="text-sm text-gray-600">
+            Mostrando <span className="font-medium">{startIndex + 1}</span> a <span className="font-medium">{Math.min(endIndex, filteredCompras.length)}</span> de <span className="font-medium">{filteredCompras.length}</span> compras
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Anterior
+            </button>
+            <div className="flex items-center gap-2">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                const startPage = Math.max(1, currentPage - 2);
+                const page = startPage + i;
+                if (page > totalPages) return null;
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-2 rounded-lg transition-colors ${
+                      currentPage === page
+                        ? 'bg-gray-900 text-white'
+                        : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Modal Nueva Compra */}
@@ -1714,13 +1772,11 @@ export function ComprasManager() {
         size="xxl"
         noScroll
       >
-
-        <div className="w-[95vw] max-h-[95vh] overflow-hidden text-[10px] leading-tight">
-          <div className="space-y-1.5 pb-1">
-          {/* Datos generales */}
-          <div className="border border-gray-200 rounded-lg bg-white p-2">
-          <h3 className="text-center text-[12px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-100">DAMABELLA</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 items-start">
+        <div className="w-[95vw] max-w-[1400px] max-h-[90vh] mx-auto flex flex-col text-[10px] leading-tight">
+          {/* SECCIÓN 1: HEADER (FIJO) */}
+          <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0">
+            <div className="max-w-5xl mx-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 items-start">
             <div>
               <label className="block text-gray-700 mb-0.5 text-[10px]">Proveedor *</label>
               <select
@@ -1750,16 +1806,18 @@ export function ComprasManager() {
                     <option key={p.id} value={String(p.id)}>{p.nombre}</option>
                   ))}
               </select>
-              {/* Botón pequeño para abrir el modal de Proveedores y agregar uno nuevo */}
-              <div className="mt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowProveedorModal(true)}
-                  className="text-[10px] text-gray-700 underline underline-offset-2"
-                >
-                  Agregar nuevo proveedor
-                </button>
-              </div>
+              {/* Botón para abrir el modal de Proveedores y agregar uno nuevo */}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProveedorModal(true);
+                  setProveedorModalKey(prev => prev + 1);
+                }}
+                className="mt-1.5 w-full h-6 px-2 border border-gray-300 text-gray-700 rounded-md text-[10px] font-medium hover:bg-gray-50 transition-colors"
+              >
+                + Agregar nuevo proveedor
+              </button>
               {formErrors.proveedorId && (
                 <p className="text-red-600 text-xs mt-1">{formErrors.proveedorId}</p>
               )}
@@ -1767,7 +1825,7 @@ export function ComprasManager() {
 
             {/* Montar ProveedoresManager solo cuando el estado lo pida. Se usa onlyModal para mostrar únicamente el modal existente */}
             {showProveedorModal && (
-              <ProveedoresManager onlyModal openOnMount />
+              <ProveedoresManager key={proveedorModalKey} onlyModal openOnMount />
             )}
 
             <div>
@@ -1806,33 +1864,39 @@ export function ComprasManager() {
                 <p className="text-red-600 text-xs mt-1">{formErrors.iva}</p>
               )}
             </div>
+            </div>
+            </div>
           </div>
-          </div>
+          {/* Cierre Header */}
 
-
+          {/* SECCIÓN 2: BODY (SCROLLEABLE) */}
+          <div className="flex-1 overflow-y-auto space-y-2 pb-2 min-h-0">
+            <div className="border border-gray-200 rounded-md bg-white p-2">
+              <div className="max-w-5xl mx-auto">
           {/* Agregar productos */}
-          <div className="border border-gray-200 rounded-lg bg-white p-2">
-            <h4 className="text-gray-900 mb-2 text-[11px] font-semibold">Agregar productos</h4>
+            <h4 className="text-gray-900 text-[10px] font-semibold mb-2">Agregar productos</h4>
             
             {itemsError && (
-              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-2">
-                <AlertTriangle size={16} />
+              <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded-md text-red-700 text-[10px] flex items-center gap-2">
+                <AlertTriangle size={14} />
                 {itemsError}
               </div>
             )}
             
-            <div className="space-y-1.5 mb-1">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-1.5 items-start">
-                <div className="md:col-span-2">
-                <label className="block text-gray-700 mb-1 text-[10px]">Producto *</label>
-                <div className="w-full">
+            {/* FILA 1: Producto, Talla, Color, Cantidad, Botón */}
+            <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
+              <div className="flex gap-2 items-center">
+                {/* Producto - FLEX 1 */}
+                <div className="flex-1 relative">
                   <input
                     type="text"
-                    list="productos-existentes"
-                    placeholder="Escribe o selecciona un producto existente"
+                    placeholder="Producto"
                     value={nuevoItem.productoNombre}
                     onChange={(e) => {
                       const value = e.target.value;
+                      setProductoSearchTerm(value);
+                      setShowProductoDropdown(true);
+                      
                       const sel = productos.find(
                         (p: any) => p.activo && normalizarNombreProducto(p.nombre) === normalizarNombreProducto(value)
                       );
@@ -1942,259 +2006,267 @@ export function ComprasManager() {
                         setProveedorSearchTerm(proveedorNombreFound || '');
                       }
                     }}
+                    onFocus={() => setShowProductoDropdown(true)}
                     className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                   />
-                  <datalist id="productos-existentes">
-                    {productos
-                      .filter((p: any) => p.activo)
-                      .map((p: any) => (
-                        <option key={p.id} value={p.nombre}>
-                          {p.referencia ? `${p.nombre} (${p.referencia})` : p.nombre}
-                        </option>
-                      ))}
-                  </datalist>
-                </div>
-              </div>
+                  {showProductoDropdown && (
+                    <div className="absolute z-[9999] mt-1 w-full max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
+                      {productos.filter((p: any) => p.activo && normalizarNombreProducto(p.nombre).includes(normalizarNombreProducto(nuevoItem.productoNombre))).length === 0 ? (
+                        <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
+                      ) : (
+                        productos
+                          .filter((p: any) => p.activo && normalizarNombreProducto(p.nombre).includes(normalizarNombreProducto(nuevoItem.productoNombre)))
+                          .map((producto: any) => (
+                            <button
+                              type="button"
+                              key={producto.id}
+                              className="w-full text-left px-2 py-1 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                              onClick={() => {
+                                const valor_sel = String(producto.id);
+                                let categoriaIdFinal = producto.categoryId || '';
+                                let categoriaNombreFinal = '';
+                                if (categoriaIdFinal) {
+                                  const catFound = categorias.find(c => String(c.id) === String(categoriaIdFinal));
+                                  categoriaNombreFinal = catFound?.name || '';
+                                }
 
-                <div>
-                  <label className="block text-gray-700 mb-1 text-[10px]">Talla *</label>
-                  <div className="w-full">
-                    {(() => {
-                      const tallaNormalizada = (nuevoItem.talla || '').trim().toUpperCase();
-                      const tallaExiste = !!tallaNormalizada && tallas.includes(tallaNormalizada);
+                                let precioCompraStr = '';
+                                let precioVentaStr = '';
+                                let imagenUrl = producto.imagen || producto.image || producto.imagenUrl || '';
+                                let tallaFound = '';
+                                let colorFound = '';
+                                let proveedorIdFound = '';
+                                let proveedorNombreFound = '';
 
-                      const agregarNuevaTalla = () => {
-                        if (!tallaNormalizada || tallaExiste) return;
-                        agregarTallaGlobal(tallaNormalizada);
-                        setNuevoItem({ ...nuevoItem, talla: tallaNormalizada });
-                      };
+                                try {
+                                  const comprasOrdenadas = compras.slice().sort((a: any, b: any) => {
+                                    const ta = new Date(a.createdAt || a.fechaRegistro || 0).getTime();
+                                    const tb = new Date(b.createdAt || b.fechaRegistro || 0).getTime();
+                                    return tb - ta;
+                                  });
 
-                      return (
-                        <>
-                    <input
-                      type="text"
-                      list="tallas-existentes"
-                      placeholder="Escribe o selecciona talla"
-                      value={nuevoItem.talla}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value.toUpperCase() })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          agregarNuevaTalla();
-                        }
-                      }}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
-                    />
-                    <datalist id="tallas-existentes">
-                      {tallas.map((talla) => (
-                        <option key={talla} value={talla} />
-                      ))}
-                    </datalist>
+                                  for (const c of comprasOrdenadas) {
+                                    const found = (c.items || []).find(
+                                      (i: any) =>
+                                        String(i.productoId) === String(valor_sel) ||
+                                        normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(producto.nombre)
+                                    );
+                                    if (found) {
+                                      if (!tallaFound && found.talla) tallaFound = found.talla;
+                                      if (!colorFound && found.color) colorFound = found.color;
+                                      if (!proveedorIdFound) {
+                                        proveedorIdFound = c.proveedorId || '';
+                                        proveedorNombreFound =
+                                          c.proveedorNombre ||
+                                          (proveedores.find((p: any) => String(p.id) === String(c.proveedorId))?.nombre) ||
+                                          '';
+                                      }
 
-                    {tallaNormalizada && tallaExiste && (
-                      <p className="mt-1 text-[11px] text-emerald-700">✓ Talla ya existente</p>
-                    )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                  <p className="text-[10px] text-gray-500 mt-1">Tallas globales</p>
-                  {tallas.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {tallas.map((talla) => (
-                        <button
-                          key={talla}
-                          type="button"
-                          onClick={() => eliminarTallaGlobal(talla)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-300 text-[10px] text-gray-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                          title={`Eliminar talla ${talla}`}
-                        >
-                          {talla}
-                          <X size={10} />
-                        </button>
-                      ))}
+                                      if (found.precioCompra && !precioCompraStr) {
+                                        precioCompraStr = String(found.precioCompra);
+                                        break;
+                                      }
+                                    }
+                                  }
+
+                                  if (!precioCompraStr) {
+                                    const precios = compras
+                                      .flatMap((c: any) =>
+                                        (c.items || [])
+                                          .filter(
+                                            (i: any) =>
+                                              String(i.productoId) === String(valor_sel) ||
+                                              normalizarNombreProducto(i.productoNombre) === normalizarNombreProducto(producto.nombre)
+                                          )
+                                          .map((i: any) => Number(i.precioCompra) || 0)
+                                      )
+                                      .filter((p: number) => p > 0);
+
+                                    if (precios.length > 0) {
+                                      const avg = precios.reduce((s: number, x: number) => s + x, 0) / precios.length;
+                                      precioCompraStr = String(Math.round(avg * 100) / 100);
+                                    }
+                                  }
+
+                                  if (!precioCompraStr && producto.precioCompra) precioCompraStr = String(producto.precioCompra);
+                                  if (producto.precioVenta) precioVentaStr = String(producto.precioVenta);
+                                  else if (producto.precio) precioVentaStr = String(producto.precio);
+                                } catch (err) {
+                                  console.warn('Error con dropdown producto', err);
+                                }
+
+                                setNuevoItem({
+                                  ...nuevoItem,
+                                  productoId: valor_sel,
+                                  productoNombre: producto.nombre,
+                                  categoriaId: categoriaIdFinal,
+                                  categoriaNombre: categoriaNombreFinal,
+                                  referencia: producto.referencia || '',
+                                  precioCompra: precioCompraStr,
+                                  precioVenta: precioVentaStr,
+                                  imagen: imagenUrl || '',
+                                  talla: tallaFound || '',
+                                  color: colorFound || ''
+                                });
+
+                                if (proveedorIdFound) {
+                                  setFormData({ ...formData, proveedorId: proveedorIdFound, proveedorNombre: proveedorNombreFound });
+                                  setProveedorSearchTerm(proveedorNombreFound || '');
+                                }
+
+                                setShowProductoDropdown(false);
+                              }}
+                            >
+                              <div className="text-[10px] text-gray-900 font-medium">{producto.nombre}</div>
+                              <div className="text-[10px] text-gray-500">
+                                {producto.referencia ? `REF: ${producto.referencia}` : 'Sin referencia'}
+                                {producto.precioCompra ? ` • $${Number(producto.precioCompra).toLocaleString()}` : ''}
+                              </div>
+                            </button>
+                          ))
+                      )}
                     </div>
                   )}
                 </div>
-                <div>
-                <label className="block text-gray-700 mb-1 text-[10px]">Color *</label>
-                <div className="w-full">
+
+                {/* Talla - W-24 */}
+                <div className="w-24">
+                  {(() => {
+                    const tallaNormalizada = (nuevoItem.talla || '').trim().toUpperCase();
+                    const tallaExiste = !!tallaNormalizada && tallas.includes(tallaNormalizada);
+                    const agregarNuevaTalla = () => {
+                      if (!tallaNormalizada || tallaExiste) return;
+                      agregarTallaGlobal(tallaNormalizada);
+                      setNuevoItem({ ...nuevoItem, talla: tallaNormalizada });
+                    };
+                    return (
+                      <input
+                        type="text"
+                        list="tallas-existentes"
+                        placeholder="Talla"
+                        value={nuevoItem.talla}
+                        onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value.toUpperCase() })}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarNuevaTalla(); } }}
+                        className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      />
+                    );
+                  })()}
+                  <datalist id="tallas-existentes">
+                    {tallas.map((talla) => (<option key={talla} value={talla} />))}
+                  </datalist>
+                </div>
+
+                {/* Color - W-24 */}
+                <div className="w-24">
                   <input
                     type="text"
                     list="colores-existentes"
-                    placeholder="Escribe o selecciona color"
+                    placeholder="Color"
                     value={nuevoItem.color}
                     onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
                         const colorNormalizado = (nuevoItem.color || '').trim();
-                        const colorExiste =
-                          !!colorNormalizado &&
-                          coloresDisponibles.some((c) => c.toLowerCase() === colorNormalizado.toLowerCase());
+                        const colorExiste = !!colorNormalizado && coloresDisponibles.some((c) => c.toLowerCase() === colorNormalizado.toLowerCase());
                         if (!colorNormalizado || colorExiste) return;
                         agregarColorGlobal(colorNormalizado);
                       }
                     }}
-                    className={`w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px] ${
-                      formErrors?.color ? 'border-red-500' : ''
-                    }`}
+                    className={`w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px] ${formErrors?.color ? 'border-red-500' : ''}`}
                   />
                   <datalist id="colores-existentes">
-                    {Array.from(new Set([...Object.keys(COLOR_MAP), ...coloresDisponibles])).map((color) => (
-                      <option key={color} value={color} />
-                    ))}
+                    {Array.from(new Set([...Object.keys(COLOR_MAP), ...coloresDisponibles])).map((color) => (<option key={color} value={color} />))}
                   </datalist>
-                  {coloresDisponibles.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {coloresDisponibles.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => eliminarColorGlobal(color)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-300 text-[10px] text-gray-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-                          title={`Eliminar color ${color}`}
-                        >
-                          {color}
-                          <X size={10} />
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-gray-700 mb-1 text-[10px]">Cantidad</label>
-                <div className="w-full">
+                {/* Cantidad - W-20 */}
+                <div className="w-20">
                   <Input
                     type="number"
                     value={nuevoItem.cantidad}
                     onChange={(e) => setNuevoItem({ ...nuevoItem, cantidad: e.target.value })}
-                    placeholder="0"
-                    className="h-7 text-[10px] px-2"
+                    placeholder="Cant."
+                    className="w-full h-7 px-2 text-[10px]"
+                  />
+                </div>
+
+                {/* Botón Agregar */}
+                <Button onClick={() => {
+                  const selectValue = categoriaSelectRef.current?.value || '';
+                  const cat = categorias.find(c => c.id === selectValue);
+                  if (selectValue && !nuevoItem.categoriaId) {
+                    const updatedItem = { ...nuevoItem, categoriaId: selectValue, categoriaNombre: cat?.name || '' };
+                    setNuevoItem(updatedItem);
+                  }
+                  agregarItem();
+                }} variant="secondary" className="h-7 px-3 text-[10px] whitespace-nowrap">
+                  <Plus size={14} />
+                  Agregar
+                </Button>
+              </div>
+            </div>
+
+            {/* FILA 2: Precios, Categoría, Imagen */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 mb-2">
+              <div>
+                <label className="block text-gray-700 mb-1 text-[10px]">Precio compra</label>
+                <Input
+                  type="number"
+                  value={nuevoItem.precioCompra}
+                  onChange={(e) => setNuevoItem({ ...nuevoItem, precioCompra: e.target.value })}
+                  placeholder="0"
+                  readOnly={!!nuevoItem.productoId}
+                  className="h-6 text-[10px] px-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 mb-1 text-[10px]">Precio venta</label>
+                <Input
+                  type="number"
+                  value={nuevoItem.precioVenta}
+                  onChange={(e) => setNuevoItem({ ...nuevoItem, precioVenta: e.target.value })}
+                  placeholder="0"
+                  className="h-6 text-[10px] px-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 mb-1 text-[10px]">Categoría</label>
+                <select
+                  ref={categoriaSelectRef}
+                  value={nuevoItem.categoriaId || ''}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const cat = categorias.find(c => c.id === id);
+                    setNuevoItem(prev => ({
+                      ...prev,
+                      categoriaId: id,
+                      categoriaNombre: cat?.name || ''
+                    }));
+                  }}
+                  className="w-full h-6 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                >
+                  <option value="">Categoría...</option>
+                  {categorias.map((cat) => (<option key={cat.id} value={cat.id}>{cat.name}</option>))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 mb-1 text-[10px]">Imagen</label>
+                <div className="w-full">
+                  <ImageUploader
+                    value={nuevoItem.imagen}
+                    onChange={(b64) => setNuevoItem({ ...nuevoItem, imagen: b64 })}
                   />
                 </div>
               </div>
-              </div>
-
-              <div className="flex justify-end">
-              <Button onClick={() => {
-                // Obtener el categoriaId directamente del select (más confiable que el state)
-                const selectValue = categoriaSelectRef.current?.value || '';
-                const cat = categorias.find(c => c.id === selectValue);
-                
-                console.log('📋 [ComprasManager] ANTES de agregarItem:', {
-                  categoriaId_state: nuevoItem.categoriaId,
-                  categoriaId_select: selectValue,
-                  categoriaNombre_select: cat?.name,
-                  nuevoItem: JSON.stringify(nuevoItem, null, 2)
-                });
-                
-                // Si el select tiene valor pero el state no, actualizar state
-                if (selectValue && !nuevoItem.categoriaId) {
-                  console.log('🔧 [ComprasManager] Actualizando estado con categoría del select...');
-                  const updatedItem = {
-                    ...nuevoItem,
-                    categoriaId: selectValue,
-                    categoriaNombre: cat?.name || ''
-                  };
-                  setNuevoItem(updatedItem);
-                  // Esperar a que se actualice y luego agregar
-                  setTimeout(() => agregarItem(), 50);
-                } else if (selectValue && nuevoItem.categoriaId !== selectValue) {
-                  console.log('🔧 [ComprasManager] Sincronizando categoría del select...');
-                  const updatedItem = {
-                    ...nuevoItem,
-                    categoriaId: selectValue,
-                    categoriaNombre: cat?.name || ''
-                  };
-                  setNuevoItem(updatedItem);
-                  setTimeout(() => agregarItem(), 50);
-                } else {
-                  agregarItem();
-                }
-              }} variant="secondary" className="h-7 px-3 text-[10px]">
-                <Plus size={14} />
-                Agregar producto
-              </Button>
-              </div>
-
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-1.5 pt-1 border-t border-gray-100">
-                <div>
-                  <label className="block text-gray-700 mb-1 text-[10px]">Precio compra</label>
-                  <div className="w-full">
-                    <Input
-                      type="number"
-                      value={nuevoItem.precioCompra}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, precioCompra: e.target.value })}
-                      placeholder="0"
-                      readOnly={!!nuevoItem.productoId}
-                      className="h-7 text-[10px] px-2"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 mb-1 text-[10px]">Precio venta</label>
-                  <div className="w-full">
-                    <Input
-                      type="number"
-                      value={nuevoItem.precioVenta}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, precioVenta: e.target.value })}
-                      placeholder="0"
-                      className="h-7 text-[10px] px-2"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 mb-1 text-[10px]">Categoría</label>
-                  <select
-                    ref={categoriaSelectRef}
-                    value={nuevoItem.categoriaId || ''}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      const cat = categorias.find(c => c.id === id);
-                      console.log('🔍 [ComprasManager] Categoría seleccionada en onChange:', {
-                        id,
-                        nombre: cat?.name
-                      });
-                      setNuevoItem(prev => ({
-                        ...prev,
-                        categoriaId: id,
-                        categoriaNombre: cat?.name || ''
-                      }));
-                    }}
-                    className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
-                  >
-                    <option value="">Seleccionar categoría...</option>
-                    {categorias.map((cat) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                  {!nuevoItem.categoriaId && (
-                    <p className="text-xs text-gray-500 mt-1">La categoría debe ir para ordenar los productos</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 mb-1 text-[10px]">Imagen del Producto</label>
-                  <div className="w-full max-w-full">
-                      <ImageUploader
-                        value={nuevoItem.imagen}
-                        onChange={(b64) => setNuevoItem({ ...nuevoItem, imagen: b64 })}
-                      />
-                  </div>
-                </div>
-              </div>
-
             </div>
 
             {/* Lista de productos agregados */}
             {formData.items.length > 0 && (
-              <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+              <div className="border border-gray-200 rounded-md overflow-hidden overflow-x-auto mt-2">
                 <table className="w-full text-[10px] leading-tight">
                   <thead className="bg-gray-50">
                     <tr>
@@ -2253,35 +2325,34 @@ export function ComprasManager() {
               </div>
             )}
 
-            {/* Totales */}
-            {formData.items.length > 0 && (
-              <div className="mt-2 bg-gray-50 rounded-lg border border-gray-200 p-2 space-y-1">
-                <div className="flex justify-between text-gray-700 text-[10px]">
-                  <span>Subtotal:</span>
-                  <span className="tabular-nums">${calcularSubtotal().toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-gray-700 text-[10px]">
-                  <span>IVA ({formData.iva}%):</span>
-                  <span className="tabular-nums">${calcularIVA().toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-gray-900 pt-1 border-t border-gray-300 text-[11px] font-semibold">
-                  <span>Total:</span>
-                  <span className="tabular-nums">${calcularTotal().toLocaleString()}</span>
-                </div>
               </div>
-            )}
+            </div>
           </div>
 
-          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-1.5 mt-1">
-          <div className="flex gap-2.5 justify-end">
-            <Button onClick={() => setShowModal(false)} variant="secondary" className="h-7 px-3 text-[10px]">
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} variant="primary" className="h-7 px-3 text-[10px]">
-              Crear Compra
-            </Button>
-          </div>
-          </div>
+          {/* SECCIÓN 3: TOTALES Y BOTONES (STICKY) */}
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-2 mt-0 shrink-0">
+            <div className="max-w-5xl mx-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 items-end">
+                <div className="rounded-md bg-gray-50 border border-gray-200 p-2">
+                  <div className="flex justify-between text-gray-600 text-[10px]">
+                    <span>Subtotal:</span>
+                    <span className="tabular-nums font-medium">${calcularSubtotal().toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600 text-[10px] mt-1">
+                    <span>IVA ({formData.iva}%):</span>
+                    <span className="tabular-nums font-medium">${calcularIVA().toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-2 pt-2 border-t border-gray-200">
+                    <span>Total:</span>
+                    <span className="tabular-nums">${calcularTotal().toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button onClick={() => setShowModal(false)} variant="secondary" className="h-6 px-3 text-[10px]">Cancelar</Button>
+                  <Button onClick={handleSave} variant="primary" className="h-6 px-3 text-[10px]">Crear Compra</Button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </Modal>

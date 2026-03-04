@@ -33,6 +33,7 @@ import { ProductosManager } from '../../ecommerce/products';
 import { ProveedoresManager } from '../../suppliers';
 import { ComprasManager } from '../../purchases';
 import { ClientesManager } from '../../ecommerce/customers';
+import ClienteDetallePage from '../../ecommerce/customers/pages/ClienteDetallePage';
 import { PedidosManager } from '../../ecommerce/orders';
 import { VentasManager } from '../../ecommerce/sales';
 import { DevolucionesManager } from '../../returns';
@@ -55,6 +56,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   const [user, setUser] = useState(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [clienteDetalleActual, setClienteDetalleActual] = useState<any>(null);
 
   // Obtener permisos del rol del usuario
   const getUserPermissions = () => {
@@ -196,8 +198,21 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
       }
     };
 
+    // Listener para navegar a detalle de cliente
+    const onNavigateClienteDetalle = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail) {
+        setClienteDetalleActual(customEvent.detail);
+      }
+      setCurrentPage('cliente-detalle');
+    };
+
     window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    window.addEventListener('navigate-cliente-detalle', onNavigateClienteDetalle);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('navigate-cliente-detalle', onNavigateClienteDetalle);
+    };
   }, []);
 
   useEffect(() => {
@@ -319,6 +334,8 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
         return <ComprasManager />;
       case 'clientes':
         return <ClientesManager />;
+      case 'cliente-detalle':
+        return <ClienteDetallePage cliente={clienteDetalleActual} onBack={() => setCurrentPage('clientes')} />;
       case 'pedidos':
         return <PedidosManager />;
       case 'ventas':

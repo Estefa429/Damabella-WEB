@@ -586,10 +586,10 @@ DAMABELLA - Moda Femenina
           {devoluciones.length > 0 && (
             <button
               onClick={descargarExcel}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
             >
               <Download size={16} />
-              Excel
+              Descargar Excel
             </button>
           )}
         </div>
@@ -700,7 +700,7 @@ DAMABELLA - Moda Femenina
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => { setViewingDevolucion(devolucion); setShowDetailModal(true); }}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
                           title="Ver detalle"
                         >
                           <Eye size={18} />

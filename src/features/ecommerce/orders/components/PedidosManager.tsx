@@ -22,6 +22,9 @@ const PRODUCTOS_KEY = 'damabella_productos';
 const VENTAS_KEY = 'damabella_ventas';
 const VENTA_COUNTER_KEY = 'damabella_venta_counter';
 
+// ✅ IVA Rate
+const IVA_RATE = 0.19; // Cambiar aquí si se requiere otra tasa de IVA
+
 interface ItemPedido {
   id: string;
   productoId: string;
@@ -562,6 +565,42 @@ export default function PedidosManager() {
     });
   };
 
+  const actualizarCantidadItem = (itemId: string, value: string) => {
+    const parsed = parseInt(value, 10);
+    const cantidad = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((item) => {
+        if (item.id !== itemId) return item;
+        const precio = Number.isFinite(Number(item.precioUnitario)) ? Number(item.precioUnitario) : 0;
+        return {
+          ...item,
+          cantidad,
+          subtotal: cantidad * Math.max(precio, 0)
+        };
+      })
+    }));
+  };
+
+  const actualizarPrecioItem = (itemId: string, value: string) => {
+    const parsed = Number(value);
+    const precioUnitario = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((item) => {
+        if (item.id !== itemId) return item;
+        const cantidad = Number.isFinite(Number(item.cantidad)) && Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1;
+        return {
+          ...item,
+          precioUnitario,
+          subtotal: cantidad * precioUnitario
+        };
+      })
+    }));
+  };
+
   const handleSave = () => {
     // ✅ Bloqueo extra si intentan guardar un pedido ya finalizado
     if (editingPedido && (editingPedido.estado === 'Completada' || editingPedido.estado === 'Anulado')) {
@@ -1091,7 +1130,7 @@ DAMABELLA - Moda Femenina
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => { setViewingPedido(pedido); setShowDetailModal(true); }}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
                           title="Ver detalle"
                         >
                           <Eye size={18} />
@@ -1198,78 +1237,70 @@ DAMABELLA - Moda Femenina
         size="xxl"
         noScroll
       >
-        <div className="w-[95vw] max-h-[95vh] text-[10px] leading-tight overflow-hidden">
-          <div className="space-y-1 pb-1">
-            <div className="border border-gray-200 rounded-md bg-white p-1">
-              <h3 className="text-center text-[11px] font-semibold tracking-[0.08em] text-gray-900 mb-1 pb-1 border-b border-gray-200">DAMABELLA</h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-1 mb-1">
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Número de pedido</label>
+        <div className="w-[95vw] max-w-[1400px] max-h-[90vh] pr-0.5 text-[10px] leading-tight overflow-hidden mx-auto flex flex-col">
+          {/* SECCIÓN 1: HEADER (FIJO) */}
+          <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0">
+            <div className="max-w-5xl mx-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 mb-2">
+                <div className="lg:col-span-1">
+                  <label className="block text-[10px] text-gray-500 mb-1">Número de pedido</label>
                   <Input
                     value={editingPedido ? editingPedido.numeroPedido : generarNumeroPedido()}
                     readOnly
                     disabled
-                    className="h-7 px-2 text-[10px] bg-gray-50"
+                    className="h-6 px-2 text-[10px] bg-gray-50 w-full"
                   />
                 </div>
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Fecha de creación</label>
+                <div className="lg:col-span-1">
+                  <label className="block text-[10px] text-gray-500 mb-1">Fecha de creación</label>
                   <Input
                     type="date"
                     value={formData.fechaPedido}
                     onChange={(e) => handleFieldChange('fechaPedido', e.target.value)}
                     required
                     disabled={!!editingPedido}
-                    className="h-7 px-2 text-[10px] bg-gray-50"
+                    className="h-6 px-2 text-[10px] bg-gray-50 w-full"
                   />
-                  {formErrors.fechaPedido && <p className="text-red-500 text-[10px] mt-0.5">{formErrors.fechaPedido}</p>}
+                  {formErrors.fechaPedido && <p className="text-red-500 text-[10px] mt-1">{formErrors.fechaPedido}</p>}
                 </div>
-                <div className="flex items-end">
+                <div className="lg:col-span-2 flex items-end">
                   <Button
                     onClick={() => setShowClienteModal(true)}
                     variant="secondary"
-                    className="w-full h-7 px-2 text-[10px]"
+                    className="w-full h-6 px-2 text-[10px]"
                   >
                     <UserPlus size={14} />
-                    Crear nuevo cliente
+                    Crear cliente
                   </Button>
                 </div>
               </div>
 
+              {/* Cliente Search */}
               <div>
-                <label className="block text-gray-700 mb-0.5 text-[10px]">Cliente *</label>
-
+                <label className="block text-gray-700 mb-1 text-[10px]">Cliente *</label>
                 <div className="relative" onClick={(e) => e.stopPropagation()}>
                   <Input
                     value={clienteQuery}
                     onChange={(e) => {
                       const value = e.target.value;
-
                       setClienteQuery(value);
                       setShowClienteDropdown(true);
-
-                      // ✅ Solo limpiar clienteId si el texto YA no es el del cliente seleccionado
                       const sigueIgual = value.trim() === selectedClienteNombre.trim();
                       if (!sigueIgual) {
                         handleFieldChange('clienteId', '');
                         setSelectedClienteNombre('');
                       }
-
-                      // si quedó vacío, sí o sí limpiar
                       if (value.trim() === '') {
                         handleFieldChange('clienteId', '');
                         setSelectedClienteNombre('');
                       }
                     }}
-
                     onFocus={() => setShowClienteDropdown(true)}
-                    placeholder="Buscar cliente por nombre, documento o teléfono..."
-                    className="h-7 px-2 text-[10px]"
+                    placeholder="Buscar cliente..."
+                    className="h-6 px-2 text-[10px] leading-tight w-full"
                   />
-
                   {showClienteDropdown && (
-                    <div className="absolute z-[9999] mt-1 w-full max-h-[32vh] bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
+                    <div className="absolute z-[9999] mt-1 w-full max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
                       {clientesFiltradosSelect.length === 0 ? (
                         <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
                       ) : (
@@ -1280,15 +1311,11 @@ DAMABELLA - Moda Femenina
                             className="w-full text-left px-2 py-1 hover:bg-gray-50"
                             onClick={() => {
                               handleFieldChange('clienteId', cliente.id.toString());
-
                               const label = `${cliente.nombre} - ${cliente.numeroDoc}`;
                               setClienteQuery(label);
-
                               setSelectedClienteNombre(label);
-
                               setShowClienteDropdown(false);
                             }}
-
                           >
                             <div className="text-[10px] text-gray-900">{cliente.nombre}</div>
                             <div className="text-[10px] text-gray-500">
@@ -1300,36 +1327,40 @@ DAMABELLA - Moda Femenina
                     </div>
                   )}
                 </div>
-
-                {formErrors.clienteId && <p className="text-red-500 text-[10px] mt-0.5">{formErrors.clienteId}</p>}
-
-                {clienteSeleccionado && (
-                  <div className="mt-1 border border-gray-200 rounded-md p-1 bg-gray-50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1 text-[10px] leading-tight">
-                    <div><span className="text-gray-500">Nombre:</span><div className="text-gray-900 font-medium truncate">{clienteSeleccionado.nombre || '-'}</div></div>
-                    <div><span className="text-gray-500">Documento:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.numeroDoc || '-'}</div></div>
-                    <div><span className="text-gray-500">Teléfono:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.telefono || '-'}</div></div>
-                    <div><span className="text-gray-500">Ciudad:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.ciudad || clienteSeleccionado.direccion || '-'}</div></div>
-                  </div>
-                )}
+                {formErrors.clienteId && <p className="text-red-500 text-[10px] mt-1">{formErrors.clienteId}</p>}
               </div>
-            </div>
 
-            <div className="border border-gray-200 rounded-md bg-white p-1">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-1">
-                <div>
-                  <label className="block text-gray-700 mb-0.5 text-[10px]">Método de Pago *</label>
+              {/* Resumen Cliente */}
+              {clienteSeleccionado && (
+                <div className="mt-2 border border-gray-200 rounded-md p-2 bg-gray-50 grid grid-cols-2 lg:grid-cols-4 gap-2 text-[10px] leading-tight">
+                  <div><span className="text-gray-500">Nombre:</span><div className="text-gray-900 font-medium truncate">{clienteSeleccionado.nombre || '-'}</div></div>
+                  <div><span className="text-gray-500">Documento:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.numeroDoc || '-'}</div></div>
+                  <div><span className="text-gray-500">Teléfono:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.telefono || '-'}</div></div>
+                  <div><span className="text-gray-500">Ciudad:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.ciudad || clienteSeleccionado.direccion || '-'}</div></div>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Cierre Header */}
+
+          {/* SECCIÓN 2: BODY (SCROLLEABLE) */}
+          <div className="flex-1 overflow-y-auto space-y-2 pb-2 min-h-0">
+            <div className="border border-gray-200 rounded-md bg-white p-2">
+              <div className="max-w-5xl mx-auto">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2">
+                <div className="lg:col-span-1">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Método de Pago *</label>
                   {saldoDisponible > 0 && formData.clienteId && (
                     <div className="mb-1 rounded-md border border-green-300 bg-green-50 p-1 text-[10px]">
                       <div className="text-green-800 font-semibold">
-                        ✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}
+                        ✅ Saldo: ${saldoDisponible.toLocaleString()}
                       </div>
                     </div>
                   )}
-
                   <select
                     value={formData.metodoPago}
                     onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                    className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                    className="w-full h-6 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                     required
                   >
                     <option value="Efectivo">Efectivo</option>
@@ -1340,219 +1371,213 @@ DAMABELLA - Moda Femenina
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-gray-700 mb-0.5 text-[10px]">Dirección de Envío</label>
+                <div className="lg:col-span-1">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Dirección de Envío</label>
                   <Input
                     value={(formData as any).direccionEnvio}
                     onChange={(e) => handleFieldChange('direccionEnvio', e.target.value)}
-                    placeholder="Dirección de envío (opcional)"
-                    className="h-7 px-2 text-[10px]"
+                    placeholder="Dirección (opcional)"
+                    className="h-6 px-2 text-[10px]"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-gray-700 mb-0.5 text-[10px]">Persona que recibe</label>
+                <div className="lg:col-span-1">
+                  <label className="block text-gray-700 mb-1 text-[10px]">Persona que recibe</label>
                   <Input
                     value={(formData as any).personaRecibe}
                     onChange={(e) => handleFieldChange('personaRecibe', e.target.value)}
-                    placeholder="Nombre de la persona que recibe (opcional)"
-                    className="h-7 px-2 text-[10px]"
+                    placeholder="Nombre (opcional)"
+                    className="h-6 px-2 text-[10px]"
                   />
                 </div>
               </div>
-            </div>
 
-          {/* Productos */}
-          <div className="border border-gray-200 rounded-md bg-white p-1">
-            <h4 className="text-gray-900 mb-0.5 text-[10px] font-semibold">Agregar Productos</h4>
-
-            <div className="bg-gray-50 rounded-md p-1 mb-1 space-y-1">
-              <div>
-                <label className="block text-gray-700 mb-0.5 text-[10px]">Producto</label>
-
-                <div className="relative" onClick={(e) => e.stopPropagation()}>
-                  <Input
-                    value={productoQuery}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setProductoQuery(value);
-                      setShowProductoDropdown(true);
-
-                      if (value === '') {
-                        handleNuevoItemChange('productoId', '');
-                      }
-                    }}
-                    onFocus={() => setShowProductoDropdown(true)}
-                    placeholder="Buscar producto por nombre, ref o código..."
-                    className="h-7 px-2 text-[10px]"
-                  />
-
-                  {showProductoDropdown && (
-                    <div className="absolute z-[9999] mt-1 w-full max-h-[32vh] bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
-                      {productosFiltradosSelect.length === 0 ? (
-                        <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
-                      ) : (
-                        productosFiltradosSelect.map((producto: any) => (
-                          <button
-                            type="button"
-                            key={producto.id}
-                            className="w-full text-left px-2 py-1 hover:bg-gray-50"
-                            onClick={() => {
-                              handleNuevoItemChange('productoId', producto.id.toString());
-                              const label = `${producto.nombre}${producto.referencia ? ` (REF: ${producto.referencia})` : ''}${producto.codigoInterno ? ` [${producto.codigoInterno}]` : ''} - $${(producto.precioVenta || 0).toLocaleString()}`;
-                              setProductoQuery(label);
-                              setShowProductoDropdown(false);
-                            }}
-                          >
-                            <div className="text-[10px] text-gray-900">{producto.nombre}</div>
-                            <div className="text-[10px] text-gray-500">
-                              {producto.referencia ? `REF: ${producto.referencia}` : 'REF: N/A'}
-                              {producto.codigoInterno ? ` • ${producto.codigoInterno}` : ''}
-                              {` • $${(producto.precioVenta || 0).toLocaleString()}`}
-                            </div>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {nuevoItem.productoId && (
-                <>
-                  <div className="grid grid-cols-2 gap-1">
-                    <div className="grid grid-cols-2 gap-1">
-                      <div>
-                        <label className="block text-gray-700 mb-0.5 text-[10px]">Talla</label>
-                        <select
-                          value={nuevoItem.talla}
-                          onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
-                          className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
-                        >
-                          <option value="">Seleccionar...</option>
-                          {getTallasDisponibles().map((talla: string) => (
-                            <option key={talla} value={talla}>{talla}</option>
-                          ))}
-                        </select>
+              {/* Agregar Productos - EN UNA FILA */}
+              <h4 className="text-gray-900 text-[10px] font-semibold mb-2 mt-2">Agregar productos</h4>
+              <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
+                <div className="flex gap-2 items-center">
+                  <div className="flex-1">
+                    <Input
+                      value={productoQuery}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setProductoQuery(value);
+                        setShowProductoDropdown(true);
+                        if (value === '') {
+                          handleNuevoItemChange('productoId', '');
+                        }
+                      }}
+                      onFocus={() => setShowProductoDropdown(true)}
+                      placeholder="Producto"
+                      className="w-full h-7 px-2 text-[10px]"
+                    />
+                    {showProductoDropdown && (
+                      <div className="absolute z-[9999] mt-1 w-80 max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
+                        {productosFiltradosSelect.length === 0 ? (
+                          <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
+                        ) : (
+                          productosFiltradosSelect.map((producto: any) => (
+                            <button
+                              type="button"
+                              key={producto.id}
+                              className="w-full text-left px-2 py-1 hover:bg-gray-50"
+                              onClick={() => {
+                                handleNuevoItemChange('productoId', producto.id.toString());
+                                const label = `${producto.nombre}${producto.referencia ? ` (${producto.referencia})` : ''}`;
+                                setProductoQuery(label);
+                                setShowProductoDropdown(false);
+                              }}
+                            >
+                              <div className="text-[10px] text-gray-900">{producto.nombre}</div>
+                              <div className="text-[10px] text-gray-500">
+                                ${(producto.precioVenta || 0).toLocaleString()}
+                              </div>
+                            </button>
+                          ))
+                        )}
                       </div>
-
-                      <div>
-                        <label className="block text-gray-700 mb-0.5 text-[10px]">Color</label>
-                        <select
-                          value={nuevoItem.color}
-                          onChange={(e) => handleNuevoItemChange('color', e.target.value)}
-                          className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
-                          disabled={!nuevoItem.talla}
-                        >
-                          <option value="">Seleccionar...</option>
-                          {getColoresDisponibles().map((color: string) => (
-                            <option key={color} value={color}>{color}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
+                    )}
                   </div>
-
-                  {/* 🔒 Mostrar stock disponible */}
-                  {nuevoItem.color && stockDisponible !== null && (
-                    <div className={`rounded-md p-1 text-[10px] ${
-                      stockDisponible > 0
-                        ? 'bg-blue-50 border border-blue-200 text-blue-800'
-                        : 'bg-red-50 border border-red-200 text-red-800'
-                    }`}>
-                      {stockDisponible > 0 ? (
-                        <div>
-                          <strong>✅ Stock disponible:</strong> {stockDisponible} unidades
-                        </div>
-                      ) : (
-                        <div>
-                          <strong>❌ Sin stock:</strong> No hay disponibilidad para este producto
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-gray-700 mb-0.5 text-[10px]">Cantidad</label>
+                  <div className="w-24">
+                    <select
+                      value={nuevoItem.talla}
+                      onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
+                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                    >
+                      <option value="">Talla</option>
+                      {getTallasDisponibles().map((talla: string) => (
+                        <option key={talla} value={talla}>{talla}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="w-24">
+                    <select
+                      value={nuevoItem.color}
+                      onChange={(e) => handleNuevoItemChange('color', e.target.value)}
+                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      disabled={!nuevoItem.talla}
+                    >
+                      <option value="">Color</option>
+                      {getColoresDisponibles().map((color: string) => (
+                        <option key={color} value={color}>{color}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="w-20">
                     <Input
                       type="number"
                       min="1"
                       max={stockDisponible || undefined}
+                      placeholder="Cant."
                       value={nuevoItem.cantidad}
                       onChange={(e) => handleNuevoItemChange('cantidad', e.target.value)}
-                      placeholder="1"
                       disabled={!nuevoItem.color || stockDisponible === 0}
-                      className="h-7 px-2 text-[10px]"
+                      className="w-full h-7 px-2 text-[10px]"
                     />
-                    {formErrors['nuevoItem_cantidad'] && <p className="text-red-500 text-[10px] mt-0.5">{formErrors['nuevoItem_cantidad']}</p>}
                   </div>
-                </>
-              )}
-
-              <Button onClick={agregarItem} variant="secondary" className="w-full h-7 text-[10px]">
-                <Plus size={16} />
-                Agregar Producto
-              </Button>
-            </div>
-
-            {/* Lista de items */}
-            {formData.items.length > 0 && (
-              <div className="space-y-1">
-                {formData.items.map((item) => (
-                  <div key={item.id} className="border border-gray-200 rounded-md p-1 bg-white flex items-center justify-between text-[10px] leading-tight">
-                    <div className="flex-1">
-                      <div className="text-gray-900 truncate">{item.productoNombre}</div>
-                      <div className="text-[10px] text-gray-600">
-                        Talla: {item.talla} | Color: {item.color} | Cant: {item.cantidad} x ${item.precioUnitario.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-gray-900">${item.subtotal.toLocaleString()}</div>
-                      <button
-                        onClick={() => eliminarItem(item.id)}
-                        className="text-red-600 hover:bg-red-50 p-1 rounded"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Totales */}
-          {formData.items.length > 0 && (
-            <div className="border border-gray-200 bg-gray-50 rounded-md p-1.5">
-              <div className="space-y-1">
-                <div className="flex justify-between text-gray-600 text-[10px]">
-                  <span>Subtotal:</span>
-                  <span className="tabular-nums">${totales.subtotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-gray-600 text-[10px]">
-                  <span>IVA (19%):</span>
-                  <span className="tabular-nums">${totales.iva.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-gray-900 text-[11px] font-semibold pt-1 border-t border-gray-200">
-                  <span>Total:</span>
-                  <span className="tabular-nums">${totales.total.toLocaleString()}</span>
+                  <Button onClick={agregarItem} variant="secondary" className="h-7 px-3 text-[10px] whitespace-nowrap">
+                    <Plus size={14} />
+                    Agregar
+                  </Button>
                 </div>
               </div>
-            </div>
-          )}
 
-          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-1 mt-1">
-            <div className="flex gap-2.5 justify-end pt-1">
-              <Button onClick={() => setShowModal(false)} variant="secondary" className="h-7 px-3 text-[10px]">
-              Cancelar
-              </Button>
-              <Button onClick={handleSave} variant="primary" className="h-7 px-3 text-[10px]">
-                {editingPedido ? 'Guardar Cambios' : `Crear ${formData.tipo}`}
-              </Button>
+              {/* Tabla de productos */}
+              </div>
+              {/* Cierre contenedor max-width */}
+
+              <div className="border border-gray-200 rounded-md overflow-x-auto mt-2">
+                <table className="w-full text-[10px] leading-tight">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Num</th>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Producto</th>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Talla</th>
+                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Color</th>
+                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Cant.</th>
+                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Unitario</th>
+                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Total</th>
+                      <th className="text-center px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formData.items.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-2 py-2 text-center text-gray-500">No hay productos agregados</td>
+                      </tr>
+                    ) : (
+                      formData.items.map((item, index) => (
+                        <tr key={item.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+                          <td className="px-2 py-1.5 text-gray-700">{index + 1}</td>
+                          <td className="px-2 py-1.5 text-gray-900 font-medium truncate max-w-xs">{item.productoNombre}</td>
+                          <td className="px-2 py-1.5 text-gray-700">{item.talla}</td>
+                          <td className="px-2 py-1.5 text-gray-700">{item.color}</td>
+                          <td className="px-2 py-1.5 text-right">
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={Number.isFinite(Number(item.cantidad)) ? item.cantidad : 1}
+                              onChange={(e) => actualizarCantidadItem(item.id, e.target.value)}
+                              className="h-6 px-1.5 text-[10px] text-right tabular-nums w-12"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={Number.isFinite(Number(item.precioUnitario)) ? item.precioUnitario : 0}
+                              onChange={(e) => actualizarPrecioItem(item.id, e.target.value)}
+                              className="h-6 px-1.5 text-[10px] text-right tabular-nums w-16"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap">
+                            ${((Number(item.precioUnitario) >= 0 ? Number(item.precioUnitario) : 0) * (Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1)).toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            <button
+                              onClick={() => eliminarItem(item.id)}
+                              className="text-red-600 hover:bg-red-50 p-1.5 rounded inline-flex items-center justify-center"
+                              title="Eliminar fila"
+                            >
+                              <X size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* SECCIÓN 3: TOTALES Y BOTONES (STICKY) */}
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-2 mt-0 shrink-0">
+            <div className="max-w-5xl mx-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 items-end">
+                <div className="lg:col-span-2 rounded-md bg-gray-50 border border-gray-200 p-2">
+                  <div className="flex justify-between text-gray-600 text-[10px]">
+                    <span>Subtotal</span>
+                    <span className="tabular-nums font-medium">${totales.subtotal.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600 text-[10px] mt-1">
+                    <span>IVA ({Math.round(IVA_RATE * 100)}%)</span>
+                    <span className="tabular-nums font-medium">${totales.iva.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-2 pt-2 border-t border-gray-200">
+                    <span>Total a pagar</span>
+                    <span className="tabular-nums">${totales.total.toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="lg:col-span-2 flex gap-2 justify-end">
+                  <Button onClick={() => setShowModal(false)} variant="secondary" className="h-6 px-3 text-[10px]">Cancelar</Button>
+                  <Button onClick={handleSave} variant="primary" className="h-6 px-3 text-[10px]">{editingPedido ? 'Guardar Cambios' : `Crear ${formData.tipo}`}</Button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </Modal>
 
