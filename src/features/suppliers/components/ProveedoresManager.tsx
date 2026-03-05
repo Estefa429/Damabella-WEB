@@ -1,29 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Store, Search, Eye, History, AlertTriangle, Eye as ViewIcon, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Edit2, Store, Search, History, AlertTriangle, Eye as ViewIcon, Trash2 } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
+import {
+  getAllProviders,
+  createProviders,
+  updateProviders,
+  deleteProviders,
+  searchProviders,
+  patchState,
+  getAllTypesDocs,
+  Providers,
+  TypesDocs,
+  createProviderDTO,
+  updateProviderDTO,
+} from '@/features/suppliers/services/providersService';
 
-const STORAGE_KEY = 'damabella_proveedores';
 const COMPRAS_KEY = 'damabella_compras';
 
-interface Proveedor {
-  id: number;
-  nombre: string;
-  contacto: string;
-  tipoDoc: string;
-  numeroDoc: string;
-  telefono: string;
-  email: string;
-  direccion: string;
-  activo: boolean;
-  publicado?: boolean;
-  createdAt: string;
-}
-
 export function ProveedoresManager({ onlyModal = false, openOnMount = false }: { onlyModal?: boolean; openOnMount?: boolean }) {
-  const [proveedores, setProveedores] = useState<Proveedor[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [proveedores, setProveedores] = useState<Providers[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [typesDocs, setTypesDocs] = useState<TypesDocs[]>([]);
+  const [loadingTypesDocs, setLoadingTypesDocs] = useState(false);
 
   const [compras, setCompras] = useState(() => {
     const stored = localStorage.getItem(COMPRAS_KEY);
@@ -33,285 +31,287 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
   const [showModal, setShowModal] = useState(false);
   const [showHistorialModal, setShowHistorialModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [editingProveedor, setEditingProveedor] = useState<Proveedor | null>(null);
-  const [viewingProveedor, setViewingProveedor] = useState<Proveedor | null>(null);
+  const [editingProveedor, setEditingProveedor] = useState<Providers | null>(null);
+  const [viewingProveedor, setViewingProveedor] = useState<Providers | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // resetear paginación al buscar
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
 
   const [showStatusConfirmModal, setShowStatusConfirmModal] = useState(false);
-  const [proveedorToToggle, setProveedorToToggle] = useState<Proveedor | null>(null);
+  const [proveedorToToggle, setProveedorToToggle] = useState<Providers | null>(null);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
-  const [proveedorToDelete, setProveedorToDelete] = useState<Proveedor | null>(null);
-  
-  
+  const [proveedorToDelete, setProveedorToDelete] = useState<Providers | null>(null);
+
   const [formData, setFormData] = useState({
-    numeroDoc: '',
-    tipoDoc: 'NIT',
-    nombre: '',
-    contacto: '',
-    telefono: '',
+    number_doc: '',
+    type_doc: 1,
+    name: '',
+    contact_name: '',
+    phone: '',
     email: '',
-    direccion: '',
-    publicado: false
+    address: '',
+    published: false,
+    is_active: true,
   });
 
   const [formErrors, setFormErrors] = useState<any>({});
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(proveedores));
-  }, [proveedores]);
+  // ─── Carga inicial de proveedores ─────────────────────────────────────────────
+  const fetchProveedores = useCallback(async () => {
+    setLoading(true);
+    const data = await getAllProviders();
+    setProveedores(data ?? []);
+    setLoading(false);
+  }, []);
 
-  // Recargar compras cuando se abre el modal de historial
+  useEffect(() => {
+    fetchProveedores();
+  }, [fetchProveedores]);
+
+  // ─── Carga de tipos de documento ──────────────────────────────────────────────
+  useEffect(() => {
+    const fetchTypesDocs = async () => {
+      setLoadingTypesDocs(true);
+      const data = await getAllTypesDocs();
+      if (data) setTypesDocs(data);
+      setLoadingTypesDocs(false);
+    };
+    fetchTypesDocs();
+  }, []);
+
+  useEffect(() => {
+    if (typesDocs.length > 0 && !editingProveedor) {
+      setFormData(prev => ({ ...prev, type_doc: typesDocs[0].id_doc }));
+    }
+  }, [typesDocs]);
+
+  // ─── Búsqueda con debounce ────────────────────────────────────────────────────
+  useEffect(() => {
+    setCurrentPage(1);
+
+    if (!searchTerm.trim()) {
+      fetchProveedores();
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      const results = await searchProviders({ name: searchTerm });
+      if (results && results.length > 0) {
+        setProveedores(results);
+      } else {
+        const byDoc = await searchProviders({ number_doc: searchTerm });
+        setProveedores(byDoc ?? []);
+      }
+      setLoading(false);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm]);
+
+  // ─── Recargar compras ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (showHistorialModal) {
       const stored = localStorage.getItem(COMPRAS_KEY);
       if (stored) {
-        try {
-          setCompras(JSON.parse(stored));
-        } catch (error) {
-          console.error('Error al cargar compras:', error);
-        }
+        try { setCompras(JSON.parse(stored)); } catch (e) { console.error(e); }
       }
     }
   }, [showHistorialModal]);
 
-  // Recargar compras cuando cambian en otro contexto (cross-tab)
   useEffect(() => {
     const handleStorageChange = () => {
       const stored = localStorage.getItem(COMPRAS_KEY);
       if (stored) setCompras(JSON.parse(stored));
     };
-    
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // Limpieza del listener 'proveedor:abrir' cuando el componente se desmonte
+  // ─── Listener externo para abrir modal ───────────────────────────────────────
   useEffect(() => {
-    const handler = (e: any) => handleCreate();
+    const handler = () => handleCreate();
     window.addEventListener('proveedor:abrir', handler as EventListener);
     return () => window.removeEventListener('proveedor:abrir', handler as EventListener);
   }, []);
 
-  // Si se monta con openOnMount, abrir el modal de creación inmediatamente
   useEffect(() => {
     if (openOnMount) {
       setEditingProveedor(null);
-      setFormData({
-        numeroDoc: '',
-        tipoDoc: 'NIT',
-        nombre: '',
-        contacto: '',
-        telefono: '',
-        email: '',
-        direccion: '',
-        publicado: false
-      });
+      setFormData({ number_doc: '', type_doc: 1, name: '', contact_name: '', phone: '', email: '', address: '', published: false, is_active: true });
       setFormErrors({});
       setShowModal(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ─── Validaciones ─────────────────────────────────────────────────────────────
   const validateField = (field: string, value: string) => {
     const errors: any = {};
-    
-    if (field === 'nombre') {
-      if (!value.trim()) {
-        errors.nombre = 'Este campo es obligatorio';
-      } else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s&.,-]+$/.test(value)) {
-        errors.nombre = 'Solo letras, espacios y caracteres & . , -';
-      }
-    }
 
-    if (field === 'contacto') {
-      if (!value.trim()) {
-        errors.contacto = 'Este campo es obligatorio';
-      } else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/.test(value)) {
-        errors.contacto = 'Solo se permiten letras y espacios';
-      }
+    if (field === 'name') {
+      if (!value.trim()) errors.name = 'Este campo es obligatorio';
+      else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s&.,-]+$/.test(value)) errors.name = 'Solo letras, espacios y caracteres & . , -';
     }
-    
-    if (field === 'numeroDoc') {
-      if (!value.trim()) {
-        errors.numeroDoc = 'Este campo es obligatorio';
-      } else if (!/^\d{6,15}$/.test(value)) {
-        errors.numeroDoc = 'Debe tener entre 6 y 15 dígitos';
-      }
+    if (field === 'contact_name') {
+      if (!value.trim()) errors.contact_name = 'Este campo es obligatorio';
+      else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/.test(value)) errors.contact_name = 'Solo se permiten letras y espacios';
     }
-    
-    if (field === 'telefono') {
-      if (value && !/^\d{10}$/.test(value)) {
-        errors.telefono = 'Debe tener exactamente 10 dígitos';
-      }
+    if (field === 'number_doc') {
+      if (!value.trim()) errors.number_doc = 'Este campo es obligatorio';
+      else if (!/^\d{6,15}$/.test(value)) errors.number_doc = 'Debe tener entre 6 y 15 dígitos';
     }
-    
+    if (field === 'phone') {
+      if (value && !/^\d{10}$/.test(value)) errors.phone = 'Debe tener exactamente 10 dígitos';
+    }
     if (field === 'email') {
-      if (value && !/^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value)) {
-        errors.email = 'Email inválido (debe iniciar con letra)';
-      }
+      if (value && !/^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value)) errors.email = 'Email inválido (debe iniciar con letra)';
     }
-    
     return errors;
   };
 
   const handleFieldChange = (field: string, value: string) => {
-    // Solo permitir números en el campo de documento
-    if (field === 'numeroDoc') {
-      value = value.replace(/\D/g, '');
-    }
-    // Solo permitir números en teléfono
-    if (field === 'telefono') {
-      value = value.replace(/\D/g, '');
-    }
-    
+    if (field === 'number_doc' || field === 'phone') value = value.replace(/\D/g, '');
     setFormData({ ...formData, [field]: value });
     const fieldErrors = validateField(field, value);
     setFormErrors({ ...formErrors, [field]: fieldErrors[field] });
   };
 
+  // ─── Abrir modal crear ────────────────────────────────────────────────────────
   const handleCreate = () => {
     setEditingProveedor(null);
     setFormData({
-      numeroDoc: '',
-      tipoDoc: 'NIT',
-      nombre: '',
-      contacto: '',
-      telefono: '',
+      number_doc: '',
+      type_doc: typesDocs.length > 0 ? typesDocs[0].id_doc : 0,
+      name: '',
+      contact_name: '',
+      phone: '',
       email: '',
-      direccion: '',
-      publicado: false
+      address: '',
+      published: false,
+      is_active: true,
     });
     setFormErrors({});
     setShowModal(true);
   };
 
-  const handleEdit = (proveedor: Proveedor) => {
+  // ─── Abrir modal editar ───────────────────────────────────────────────────────
+  const handleEdit = (proveedor: Providers) => {
     setEditingProveedor(proveedor);
     setFormData({
-      numeroDoc: proveedor.numeroDoc || '',
-      tipoDoc: proveedor.tipoDoc || 'NIT',
-      nombre: proveedor.nombre || '',
-      contacto: proveedor.contacto || '',
-      telefono: proveedor.telefono || '',
+      number_doc: proveedor.number_doc || '',
+      type_doc: proveedor.type_doc ?? 1,
+      name: proveedor.name || '',
+      contact_name: proveedor.contact_name || '',
+      phone: proveedor.phone || '',
       email: proveedor.email || '',
-      direccion: proveedor.direccion || '',
-      publicado: proveedor.publicado || false
+      address: proveedor.address || '',
+      published: proveedor.published || false,
+      is_active: proveedor.is_active ?? true,
     });
     setFormErrors({});
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    // Validar todos los campos
+  // ─── Guardar (crear / editar) ─────────────────────────────────────────────────
+  const handleSave = async () => {
     const allErrors: any = {};
-    ['nombre', 'contacto', 'numeroDoc', 'telefono', 'email'].forEach(field => {
+    ['name', 'contact_name', 'number_doc', 'phone', 'email'].forEach(field => {
       const fieldErrors = validateField(field, (formData as any)[field]);
-      if (fieldErrors[field]) {
-        allErrors[field] = fieldErrors[field];
-      }
+      if (fieldErrors[field]) allErrors[field] = fieldErrors[field];
     });
-
-    if (Object.keys(allErrors).length > 0) {
-      setFormErrors(allErrors);
-      return;
-    }
-
-    // Verificar duplicados de documento
-    if (!editingProveedor) {
-      if (proveedores.find((p: any) => p.numeroDoc === formData.numeroDoc)) {
-        setFormErrors({ ...formErrors, numeroDoc: 'Ya existe un proveedor con este documento' });
-        return;
-      }
-      // Verificar duplicado de email
-      if (formData.email && proveedores.find((p: any) => (p.email?.toLowerCase() ?? '') === (formData.email?.toLowerCase() ?? ''))) {
-        setFormErrors({ ...formErrors, email: 'Ya existe un proveedor con este email' });
-        return;
-      }
-    } else {
-      if (proveedores.find((p: any) => p.numeroDoc === formData.numeroDoc && p.id !== editingProveedor.id)) {
-        setFormErrors({ ...formErrors, numeroDoc: 'Ya existe un proveedor con este documento' });
-        return;
-      }
-      // Verificar duplicado de email al editar
-      if (formData.email && proveedores.find((p: any) => (p.email?.toLowerCase() ?? '') === (formData.email?.toLowerCase() ?? '') && p.id !== editingProveedor.id)) {
-        setFormErrors({ ...formErrors, email: 'Ya existe un proveedor con este email' });
-        return;
-      }
-    }
-
-    const proveedorData = {
-      ...formData,
-      activo: editingProveedor?.activo ?? true,
-      createdAt: editingProveedor?.createdAt ?? new Date().toISOString()
-    };
+    if (Object.keys(allErrors).length > 0) { setFormErrors(allErrors); return; }
 
     if (editingProveedor) {
-      const updated = proveedores.map(p => 
-        p.id === editingProveedor.id ? { ...p, ...proveedorData } : p
-      );
-      setProveedores(updated);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch (e) { console.warn('No se pudo escribir proveedores en localStorage', e); }
-      // Emitir evento para notificar edición (opcional)
-      window.dispatchEvent(new CustomEvent('proveedor:guardado', { detail: { proveedor: proveedorData } }));
+      const payload: updateProviderDTO = {
+        name: formData.name,
+        number_doc: formData.number_doc,
+        type_doc: formData.type_doc,
+        contact_name: formData.contact_name,
+        phone: formData.phone,
+        email: formData.email,
+        address: formData.address,
+        published: formData.published,
+        is_active: formData.is_active,
+      };
+      const updated = await updateProviders(editingProveedor.id_provider, payload);
+      if (updated) {
+        setProveedores(prev => prev.map(p => p.id_provider === editingProveedor.id_provider ? updated : p));
+        window.dispatchEvent(new CustomEvent('proveedor:guardado', { detail: { proveedor: updated } }));
+      }
     } else {
-      const nuevo = { id: Date.now(), ...proveedorData };
-      const nuevoArray = [...proveedores, nuevo];
-      setProveedores(nuevoArray);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevoArray)); } catch (e) { console.warn('No se pudo escribir proveedores en localStorage', e); }
-      // Emitir evento para notificar creación de proveedor y pasar el proveedor creado
-      window.dispatchEvent(new CustomEvent('proveedor:creado', { detail: { proveedor: nuevo } }));
+      const payload: createProviderDTO = {
+        name: formData.name,
+        number_doc: formData.number_doc,
+        type_doc: formData.type_doc,
+        contact_name: formData.contact_name,
+        phone: formData.phone,
+        email: formData.email,
+        address: formData.address,
+        published: formData.published,
+        is_active: formData.is_active,
+      };
+      const nuevo = await createProviders(payload);
+      if (nuevo) {
+        setProveedores(prev => [...prev, nuevo]);
+        window.dispatchEvent(new CustomEvent('proveedor:creado', { detail: { proveedor: nuevo } }));
+      }
     }
-
     setShowModal(false);
   };
 
+  // ─── Toggle activo / inactivo ─────────────────────────────────────────────────
   const toggleActive = (id: number) => {
-    const proveedor = proveedores.find(p => p.id === id);
-    if (proveedor) {
-      // Si está inactivo -> activar inmediatamente (consistente con Roles)
-      if (proveedor.activo === false) {
-        const updated = proveedores.map(p => p.id === id ? { ...p, activo: true } : p);
-        setProveedores(updated);
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch (e) { console.warn('No se pudo escribir proveedores en localStorage', e); }
-      } else {
-        // Si está activo -> pedir confirmación para inactivar
-        setProveedorToToggle(proveedor);
-        setShowStatusConfirmModal(true);
-      }
+    const proveedor = proveedores.find(p => p.id_provider === id);
+    if (!proveedor) return;
+
+    if (!proveedor.is_active) {
+      (async () => {
+        const result = await patchState(id, true);
+        if (result) setProveedores(prev => prev.map(p => p.id_provider === id ? { ...p, is_active: true } : p));
+      })();
+    } else {
+      setProveedorToToggle(proveedor);
+      setShowStatusConfirmModal(true);
     }
   };
 
-  // Eliminar proveedor (validación contra compras asociadas)
+  const confirmToggleStatus = async () => {
+    if (!proveedorToToggle) return;
+    const nuevoEstado = !proveedorToToggle.is_active;
+    const result = await patchState(proveedorToToggle.id_provider, nuevoEstado);
+    if (result) {
+      setProveedores(prev => prev.map(p => p.id_provider === proveedorToToggle.id_provider ? { ...p, is_active: nuevoEstado } : p));
+    }
+    setShowStatusConfirmModal(false);
+    setProveedorToToggle(null);
+  };
+
+  // ─── Eliminar proveedor ───────────────────────────────────────────────────────
   const handleDeleteProveedor = (id: number) => {
     try {
-      const proveedor = proveedores.find(p => p.id === id);
+      const proveedor = proveedores.find(p => p.id_provider === id);
       if (!proveedor) return;
 
-      // Leer compras desde localStorage (fuente de verdad)
       const stored = localStorage.getItem(COMPRAS_KEY);
       const comprasFromStorage = stored ? JSON.parse(stored) : [];
+      const hasCompras = comprasFromStorage.some((c: any) =>
+        c.proveedorId === id || c.proveedorId === String(id) ||
+        (c.proveedor && (c.proveedor.id === id || String(c.proveedor.id) === String(id)))
+      );
 
-      // Verificar si existen compras asociadas (comparar proveedorId)
-      const hasCompras = comprasFromStorage.some((c: any) => {
-        return c.proveedorId === id || c.proveedorId === String(id) || (c.proveedor && (c.proveedor.id === id || String(c.proveedor.id) === String(id)));
-      });
-
-      // Abrir modal informativo si tiene compras asociadas
       if (hasCompras) {
         setProveedorToDelete(proveedor);
         setShowCannotDeleteModal(true);
         return;
       }
 
-      // Abrir modal de confirmación para eliminar
       setProveedorToDelete(proveedor);
       setShowDeleteConfirmModal(true);
     } catch (e) {
@@ -321,211 +321,127 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
     }
   };
 
-  const confirmDeleteProveedor = () => {
+  const confirmDeleteProveedor = async () => {
     if (!proveedorToDelete) return;
-    try {
-      const updated = proveedores.filter(p => p.id !== proveedorToDelete.id);
-      setProveedores(updated);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch (e) { console.warn('No se pudo actualizar proveedores en localStorage', e); }
-    } catch (e) {
-      console.error('Error al eliminar proveedor:', e);
-    }
+
+    const idAEliminar = proveedorToDelete.id_provider;
+
     setShowDeleteConfirmModal(false);
     setProveedorToDelete(null);
-  };
 
-  const confirmToggleStatus = () => {
-    if (proveedorToToggle) {
-      setProveedores(proveedores.map(p =>
-        p.id === proveedorToToggle.id ? { ...p, activo: !p.activo } : p
-      ));
+    setProveedores(prev => prev.filter(p => p.id_provider !== idAEliminar));
+
+    const success = await deleteProviders(idAEliminar);
+    if (!success) {
+      await fetchProveedores();
     }
-    setShowStatusConfirmModal(false);
-    setProveedorToToggle(null);
   };
 
-  const handleVerHistorial = (proveedor: Proveedor) => {
+  // ─── Historial / Ver ──────────────────────────────────────────────────────────
+  const handleVerHistorial = (proveedor: Providers) => {
     setViewingProveedor(proveedor);
     setShowHistorialModal(true);
   };
 
-  const handleVerProveedor = (proveedor: Proveedor) => {
+  const handleVerProveedor = (proveedor: Providers) => {
     setViewingProveedor(proveedor);
     setShowViewModal(true);
   };
 
-  // 📊 Helper: Obtener compras de un proveedor específico
+  // ─── Helpers compras ──────────────────────────────────────────────────────────
   const getComprasProveedor = (proveedorId: number) => {
     if (!compras || !Array.isArray(compras)) return [];
-    const comprasFiltered = compras.filter((c: any) => {
-      // Comparar como número y string para flexibilidad
-      return c.proveedorId === proveedorId || c.proveedorId === String(proveedorId);
-    });
-    // Ordenar por fecha descendente (más reciente primero)
-    return comprasFiltered.sort((a: any, b: any) => {
-      const fechaA = new Date(a.fechaCompra || a.fechaRegistro || 0).getTime();
-      const fechaB = new Date(b.fechaCompra || b.fechaRegistro || 0).getTime();
-      return fechaB - fechaA;
-    });
+    return compras
+      .filter((c: any) => c.proveedorId === proveedorId || c.proveedorId === String(proveedorId))
+      .sort((a: any, b: any) => {
+        const fechaA = new Date(a.fechaCompra || a.fechaRegistro || 0).getTime();
+        const fechaB = new Date(b.fechaCompra || b.fechaRegistro || 0).getTime();
+        return fechaB - fechaA;
+      });
   };
 
-  // 💰 Helper: Calcular total de monto de compras de un proveedor
-  const getTotalComprasProveedor = (proveedorId: number) => {
-    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => {
-      return sum + (c.total || 0);
-    }, 0);
-  };
+  const getTotalComprasProveedor = (proveedorId: number) =>
+    getComprasProveedor(proveedorId).reduce((sum: number, c: any) => sum + (c.total || 0), 0);
 
-  // 📦 Helper: Contar cantidad total de productos en compras
-  const getCantidadProductosProveedor = (proveedorId: number) => {
-    return getComprasProveedor(proveedorId).reduce((sum: number, c: any) => {
-      const cantidadCompra = (c.items || []).reduce((itemSum: number, item: any) => {
-        return itemSum + (item.cantidad || 0);
-      }, 0);
-      return sum + cantidadCompra;
-    }, 0);
-  };
+  const getCantidadProductosProveedor = (proveedorId: number) =>
+    getComprasProveedor(proveedorId).reduce((sum: number, c: any) =>
+      sum + (c.items || []).reduce((itemSum: number, item: any) => itemSum + (item.cantidad || 0), 0), 0);
 
-  // 🎨 Helper: Formatear valor en COP
-  const formatearCOP = (valor: number) => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(valor);
-  };
+  const formatearCOP = (valor: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(valor);
 
-  const filteredProveedores = proveedores.filter(p => {
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      (p.nombre?.toLowerCase() ?? '').includes(searchLower) ||
-      (p.numeroDoc ?? '').includes(searchTerm) ||
-      (p.email?.toLowerCase() ?? '').includes(searchLower) ||
-      ((p.activo ? 'activo' : 'inactivo').includes(searchLower))
-    );
-  });
-
-  // Aplicar paginación
-  const totalPages = Math.ceil(filteredProveedores.length / itemsPerPage);
+  // ─── Paginación ───────────────────────────────────────────────────────────────
+  const totalPages = Math.ceil(proveedores.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedProveedores = filteredProveedores.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedProveedores = proveedores.slice(startIndex, startIndex + itemsPerPage);
 
-  // Resetear página si el término de búsqueda cambia
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm]);
+  const tipoDocLabel = (type_doc: number) => {
+    const found = typesDocs.find(t => t.id_doc === type_doc);
+    return found ? found.name : String(type_doc);
+  };
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // RENDER onlyModal
+  // ═══════════════════════════════════════════════════════════════════════════════
   if (onlyModal) {
     return (
       <>
-        {/* Modal Create/Edit (solo modal, sin el resto del UI) */}
-        <Modal
-          isOpen={showModal}
-          onClose={() => setShowModal(false)}
-          title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}
-        >
+        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
                 <select
-                  value={formData.tipoDoc}
-                  onChange={(e) => setFormData({ ...formData, tipoDoc: e.target.value })}
+                  value={formData.type_doc}
+                  onChange={(e) => setFormData({ ...formData, type_doc: Number(e.target.value) })}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  disabled={loadingTypesDocs}
                   required
                 >
-                  <option value="NIT">NIT</option>
-                  <option value="CC">Cédula de Ciudadanía</option>
-                  <option value="CE">Cédula de Extranjería</option>
+                  {loadingTypesDocs ? (
+                    <option value="">Cargando...</option>
+                  ) : (
+                    typesDocs.map(t => (
+                      <option key={t.id_doc} value={t.id_doc}>{t.name}</option>
+                    ))
+                  )}
                 </select>
               </div>
-
               <div>
                 <label className="block text-gray-700 mb-2">Número de Documento *</label>
-                <Input
-                  value={formData.numeroDoc}
-                  onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
-                  placeholder="900123456"
-                  maxLength={15}
-                  required
-                />
-                {formErrors.numeroDoc && (
-                  <p className="text-red-600 text-xs mt-1">{formErrors.numeroDoc}</p>
-                )}
+                <Input value={formData.number_doc} onChange={(e) => handleFieldChange('number_doc', e.target.value)} placeholder="900123456" maxLength={15} required />
+                {formErrors.number_doc && <p className="text-red-600 text-xs mt-1">{formErrors.number_doc}</p>}
               </div>
             </div>
-
             <div>
               <label className="block text-gray-700 mb-2">Nombre del Proveedor *</label>
-              <Input
-                value={formData.nombre}
-                onChange={(e) => handleFieldChange('nombre', e.target.value)}
-                placeholder="Distribuidora XYZ"
-                required
-              />
-              {formErrors.nombre && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.nombre}</p>
-              )}
+              <Input value={formData.name} onChange={(e) => handleFieldChange('name', e.target.value)} placeholder="Distribuidora XYZ" required />
+              {formErrors.name && <p className="text-red-600 text-xs mt-1">{formErrors.name}</p>}
             </div>
-
             <div>
               <label className="block text-gray-700 mb-2">Persona de Contacto *</label>
-              <Input
-                value={formData.contacto}
-                onChange={(e) => handleFieldChange('contacto', e.target.value)}
-                placeholder="Nombre del contacto"
-                required
-              />
-              {formErrors.contacto && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.contacto}</p>
-              )}
+              <Input value={formData.contact_name} onChange={(e) => handleFieldChange('contact_name', e.target.value)} placeholder="Nombre del contacto" required />
+              {formErrors.contact_name && <p className="text-red-600 text-xs mt-1">{formErrors.contact_name}</p>}
             </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-gray-700 mb-2">Teléfono</label>
-                <Input
-                  value={formData.telefono}
-                  onChange={(e) => handleFieldChange('telefono', e.target.value)}
-                  placeholder="3001234567"
-                  maxLength={10}
-                />
-                {formErrors.telefono && (
-                  <p className="text-red-600 text-xs mt-1">{formErrors.telefono}</p>
-                )}
+                <Input value={formData.phone} onChange={(e) => handleFieldChange('phone', e.target.value)} placeholder="3001234567" maxLength={10} />
+                {formErrors.phone && <p className="text-red-600 text-xs mt-1">{formErrors.phone}</p>}
               </div>
-
               <div>
                 <label className="block text-gray-700 mb-2">Email</label>
-                <Input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => handleFieldChange('email', e.target.value)}
-                  placeholder="proveedor@ejemplo.com"
-                />
-                {formErrors.email && (
-                  <p className="text-red-600 text-xs mt-1">{formErrors.email}</p>
-                )}
+                <Input type="email" value={formData.email} onChange={(e) => handleFieldChange('email', e.target.value)} placeholder="proveedor@ejemplo.com" />
+                {formErrors.email && <p className="text-red-600 text-xs mt-1">{formErrors.email}</p>}
               </div>
             </div>
-
             <div>
               <label className="block text-gray-700 mb-2">Dirección</label>
-              <Input
-                value={formData.direccion}
-                onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
-                placeholder="Calle 123 # 45-67"
-              />
+              <Input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="Calle 123 # 45-67" />
             </div>
-
             <div className="flex gap-3 justify-end pt-4 border-t">
-              <Button onClick={() => setShowModal(false)} variant="secondary">
-                Cancelar
-              </Button>
-              <Button onClick={handleSave} variant="primary">
-                {editingProveedor ? 'Guardar Cambios' : 'Crear Proveedor'}
-              </Button>
+              <Button onClick={() => setShowModal(false)} variant="secondary">Cancelar</Button>
+              <Button onClick={handleSave} variant="primary">{editingProveedor ? 'Guardar Cambios' : 'Crear Proveedor'}</Button>
             </div>
           </div>
         </Modal>
@@ -533,19 +449,22 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
     );
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // RENDER COMPLETO
+  // ═══════════════════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-6">
       {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-gray-900 mb-1">Gestión de Proveedores</h2>
-              <p className="text-gray-600">Administra los proveedores y su información de contacto</p>
-            </div>
-            <Button onClick={handleCreate} variant="primary">
-              <Plus size={20} />
-              Nuevo Proveedor
-            </Button>
-          </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-gray-900 mb-1">Gestión de Proveedores</h2>
+          <p className="text-gray-600">Administra los proveedores y su información de contacto</p>
+        </div>
+        <Button onClick={handleCreate} variant="primary">
+          <Plus size={20} />
+          Nuevo Proveedor
+        </Button>
+      </div>
 
       {/* Search */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3">
@@ -575,7 +494,11 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {paginatedProveedores.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-gray-400">Cargando proveedores...</td>
+                </tr>
+              ) : paginatedProveedores.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-gray-500">
                     <Store className="mx-auto mb-4 text-gray-300" size={48} />
@@ -584,39 +507,39 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
                 </tr>
               ) : (
                 paginatedProveedores.map((proveedor) => (
-                  <tr key={proveedor.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={proveedor.id_provider} className="hover:bg-gray-50 transition-colors">
                     <td className="py-3 px-6">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white">
-                          {proveedor.nombre[0]?.toUpperCase()}
+                          {proveedor.name[0]?.toUpperCase()}
                         </div>
                         <div>
-                          <div className="text-gray-900">{proveedor.nombre}</div>
+                          <div className="text-gray-900">{proveedor.name}</div>
                           <div className="text-gray-500 text-sm">{proveedor.email}</div>
                         </div>
                       </div>
                     </td>
                     <td className="py-3 px-6">
-                      <div className="text-gray-700">{proveedor.contacto || '-'}</div>
+                      <div className="text-gray-700">{proveedor.contact_name || '-'}</div>
                     </td>
                     <td className="py-3 px-6">
-                      <div className="text-gray-700">{proveedor.tipoDoc}</div>
-                      <div className="text-gray-500">{proveedor.numeroDoc}</div>
+                      <div className="text-gray-700">{tipoDocLabel(proveedor.type_doc)}</div>
+                      <div className="text-gray-500">{proveedor.number_doc}</div>
                     </td>
                     <td className="py-3 px-6">
-                      <div className="text-gray-700">{proveedor.telefono || '-'}</div>
-                      <div className="text-gray-500 text-sm">{proveedor.direccion || '-'}</div>
+                      <div className="text-gray-700">{proveedor.phone || '-'}</div>
+                      <div className="text-gray-500 text-sm">{proveedor.address || '-'}</div>
                     </td>
                     <td className="py-3 px-6">
                       <div className="flex justify-center">
                         <button
                           onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => toggleActive(proveedor.id)}
-                          aria-pressed={proveedor.activo !== false}
-                          title={proveedor.activo === false ? 'Activar proveedor' : 'Inactivar proveedor'}
-                          className={`relative w-12 h-6 rounded-full transition-colors ${proveedor.activo !== false ? 'bg-green-500' : 'bg-gray-400'}`}
+                          onClick={() => toggleActive(proveedor.id_provider)}
+                          aria-pressed={proveedor.is_active}
+                          title={proveedor.is_active ? 'Inactivar proveedor' : 'Activar proveedor'}
+                          className={`relative w-12 h-6 rounded-full transition-colors ${proveedor.is_active ? 'bg-green-500' : 'bg-gray-400'}`}
                         >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${proveedor.activo !== false ? 'translate-x-6' : 'translate-x-0'}`} />
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${proveedor.is_active ? 'translate-x-6' : 'translate-x-0'}`} />
                         </button>
                       </div>
                     </td>
@@ -629,25 +552,13 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
                         >
                           <ViewIcon size={18} />
                         </button>
-                        <button
-                          onClick={() => handleVerHistorial(proveedor)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                          title="Ver historial"
-                        >
+                        <button onClick={() => handleVerHistorial(proveedor)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600" title="Ver historial">
                           <History size={18} />
                         </button>
-                        <button
-                          onClick={() => handleEdit(proveedor)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                          title="Editar"
-                        >
+                        <button onClick={() => handleEdit(proveedor)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600" title="Editar">
                           <Edit2 size={18} />
                         </button>
-                        <button
-                          onClick={() => handleDeleteProveedor(proveedor.id)}
-                          className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                          title="Eliminar"
-                        >
+                        <button onClick={() => handleDeleteProveedor(proveedor.id_provider)} className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600" title="Eliminar">
                           <Trash2 size={18} />
                         </button>
                       </div>
@@ -660,7 +571,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
         </div>
       </div>
 
-      {/* Pagination Controls */}
+      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 mt-8">
           <button
@@ -670,7 +581,6 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
           >
             Anterior
           </button>
-          
           <div className="flex gap-1">
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
               const startPage = Math.max(1, currentPage - 2);
@@ -691,7 +601,6 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
               );
             })}
           </div>
-
           <button
             onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
             disabled={currentPage === totalPages}
@@ -699,159 +608,93 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
           >
             Siguiente
           </button>
-
-          <span className="ml-4 text-sm text-gray-600">
-            Página {currentPage} de {totalPages}
-          </span>
+          <span className="ml-4 text-sm text-gray-600">Página {currentPage} de {totalPages}</span>
         </div>
       )}
 
       {/* Modal Create/Edit */}
-      <Modal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}
-      >
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
               <select
-                value={formData.tipoDoc}
-                onChange={(e) => setFormData({ ...formData, tipoDoc: e.target.value })}
+                value={formData.type_doc}
+                onChange={(e) => setFormData({ ...formData, type_doc: Number(e.target.value) })}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                disabled={loadingTypesDocs}
                 required
               >
-                <option value="NIT">NIT</option>
-                <option value="CC">Cédula de Ciudadanía</option>
-                <option value="CE">Cédula de Extranjería</option>
+                {loadingTypesDocs ? (
+                  <option value="">Cargando...</option>
+                ) : (
+                  typesDocs.map(t => (
+                    <option key={t.id_doc} value={t.id_doc}>{t.name}</option>
+                  ))
+                )}
               </select>
             </div>
-
             <div>
               <label className="block text-gray-700 mb-2">Número de Documento *</label>
-              <Input
-                value={formData.numeroDoc}
-                onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
-                placeholder="900123456"
-                maxLength={15}
-                required
-              />
-              {formErrors.numeroDoc && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.numeroDoc}</p>
-              )}
+              <Input value={formData.number_doc} onChange={(e) => handleFieldChange('number_doc', e.target.value)} placeholder="900123456" maxLength={15} required />
+              {formErrors.number_doc && <p className="text-red-600 text-xs mt-1">{formErrors.number_doc}</p>}
             </div>
           </div>
-
           <div>
             <label className="block text-gray-700 mb-2">Nombre del Proveedor *</label>
-            <Input
-              value={formData.nombre}
-              onChange={(e) => handleFieldChange('nombre', e.target.value)}
-              placeholder="Distribuidora XYZ"
-              required
-            />
-            {formErrors.nombre && (
-              <p className="text-red-600 text-xs mt-1">{formErrors.nombre}</p>
-            )}
+            <Input value={formData.name} onChange={(e) => handleFieldChange('name', e.target.value)} placeholder="Distribuidora XYZ" required />
+            {formErrors.name && <p className="text-red-600 text-xs mt-1">{formErrors.name}</p>}
           </div>
-
           <div>
             <label className="block text-gray-700 mb-2">Persona de Contacto *</label>
-            <Input
-              value={formData.contacto}
-              onChange={(e) => handleFieldChange('contacto', e.target.value)}
-              placeholder="Nombre del contacto"
-              required
-            />
-            {formErrors.contacto && (
-              <p className="text-red-600 text-xs mt-1">{formErrors.contacto}</p>
-            )}
+            <Input value={formData.contact_name} onChange={(e) => handleFieldChange('contact_name', e.target.value)} placeholder="Nombre del contacto" required />
+            {formErrors.contact_name && <p className="text-red-600 text-xs mt-1">{formErrors.contact_name}</p>}
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">Teléfono</label>
-              <Input
-                value={formData.telefono}
-                onChange={(e) => handleFieldChange('telefono', e.target.value)}
-                placeholder="3001234567"
-                maxLength={10}
-              />
-              {formErrors.telefono && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.telefono}</p>
-              )}
+              <Input value={formData.phone} onChange={(e) => handleFieldChange('phone', e.target.value)} placeholder="3001234567" maxLength={10} />
+              {formErrors.phone && <p className="text-red-600 text-xs mt-1">{formErrors.phone}</p>}
             </div>
-
             <div>
               <label className="block text-gray-700 mb-2">Email</label>
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleFieldChange('email', e.target.value)}
-                placeholder="proveedor@ejemplo.com"
-              />
-              {formErrors.email && (
-                <p className="text-red-600 text-xs mt-1">{formErrors.email}</p>
-              )}
+              <Input type="email" value={formData.email} onChange={(e) => handleFieldChange('email', e.target.value)} placeholder="proveedor@ejemplo.com" />
+              {formErrors.email && <p className="text-red-600 text-xs mt-1">{formErrors.email}</p>}
             </div>
           </div>
-
           <div>
             <label className="block text-gray-700 mb-2">Dirección</label>
-            <Input
-              value={formData.direccion}
-              onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
-              placeholder="Calle 123 # 45-67"
-            />
+            <Input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="Calle 123 # 45-67" />
           </div>
-
           <div className="flex gap-3 justify-end pt-4 border-t">
-            <Button onClick={() => setShowModal(false)} variant="secondary">
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} variant="primary">
-              {editingProveedor ? 'Guardar Cambios' : 'Crear Proveedor'}
-            </Button>
+            <Button onClick={() => setShowModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={handleSave} variant="primary">{editingProveedor ? 'Guardar Cambios' : 'Crear Proveedor'}</Button>
           </div>
         </div>
       </Modal>
 
       {/* Modal Historial de Compras */}
-      <Modal
-        isOpen={showHistorialModal}
-        onClose={() => setShowHistorialModal(false)}
-        title={`Historial de Compras – ${viewingProveedor?.nombre}`}
-      >
+      <Modal isOpen={showHistorialModal} onClose={() => setShowHistorialModal(false)} title={`Historial de Compras – ${viewingProveedor?.name}`}>
         <div className="space-y-6">
           {viewingProveedor && (
             <>
-              {/* Resumen de Totales */}
               <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <div className="text-blue-600 text-sm font-medium mb-1">Total Compras</div>
-                    <div className="text-3xl font-bold text-blue-900">
-                      {getComprasProveedor(viewingProveedor.id).length}
-                    </div>
+                    <div className="text-3xl font-bold text-blue-900">{getComprasProveedor(viewingProveedor.id_provider).length}</div>
                   </div>
                   <div>
                     <div className="text-blue-600 text-sm font-medium mb-1">Productos Recibidos</div>
-                    <div className="text-3xl font-bold text-blue-900">
-                      {getCantidadProductosProveedor(viewingProveedor.id)}
-                    </div>
+                    <div className="text-3xl font-bold text-blue-900">{getCantidadProductosProveedor(viewingProveedor.id_provider)}</div>
                   </div>
                   <div>
                     <div className="text-blue-600 text-sm font-medium mb-1">Monto Acumulado</div>
-                    <div className="text-2xl font-bold text-green-600">
-                      {formatearCOP(getTotalComprasProveedor(viewingProveedor.id))}
-                    </div>
+                    <div className="text-2xl font-bold text-green-600">{formatearCOP(getTotalComprasProveedor(viewingProveedor.id_provider))}</div>
                   </div>
                 </div>
               </div>
-
-              {/* Lista de Compras */}
-              {getComprasProveedor(viewingProveedor.id).length === 0 ? (
+              {getComprasProveedor(viewingProveedor.id_provider).length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Store className="mx-auto mb-4 text-gray-300" size={48} />
                   <p className="text-lg font-medium">Este proveedor aún no tiene compras registradas.</p>
@@ -872,24 +715,14 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {getComprasProveedor(viewingProveedor.id).map((compra: any) => (
+                      {getComprasProveedor(viewingProveedor.id_provider).map((compra: any) => (
                         <tr key={compra.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-4 text-gray-900">
-                            {new Date(compra.fechaCompra || compra.fechaRegistro).toLocaleDateString('es-CO')}
-                          </td>
+                          <td className="py-3 px-4 text-gray-900">{new Date(compra.fechaCompra || compra.fechaRegistro).toLocaleDateString('es-CO')}</td>
                           <td className="py-3 px-4 text-gray-900 font-medium">{compra.numeroCompra}</td>
-                          <td className="py-3 px-4 text-center text-gray-700">
-                            {(compra.items || []).reduce((sum: number, item: any) => sum + (item.cantidad || 0), 0)}
-                          </td>
-                          <td className="py-3 px-4 text-right text-gray-900">
-                            {formatearCOP(compra.subtotal || 0)}
-                          </td>
-                          <td className="py-3 px-4 text-right text-gray-900">
-                            {formatearCOP(compra.iva || 0)}
-                          </td>
-                          <td className="py-3 px-4 text-right font-semibold text-gray-900">
-                            {formatearCOP(compra.total || 0)}
-                          </td>
+                          <td className="py-3 px-4 text-center text-gray-700">{(compra.items || []).reduce((sum: number, item: any) => sum + (item.cantidad || 0), 0)}</td>
+                          <td className="py-3 px-4 text-right text-gray-900">{formatearCOP(compra.subtotal || 0)}</td>
+                          <td className="py-3 px-4 text-right text-gray-900">{formatearCOP(compra.iva || 0)}</td>
+                          <td className="py-3 px-4 text-right font-semibold text-gray-900">{formatearCOP(compra.total || 0)}</td>
                           <td className="py-3 px-4 text-center">
                             <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
                               compra.estado === 'Recibida' ? 'bg-green-100 text-green-700' :
@@ -912,11 +745,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
       </Modal>
 
       {/* Modal Ver Proveedor */}
-      <Modal
-        isOpen={showViewModal}
-        onClose={() => setShowViewModal(false)}
-        title={`Ver Proveedor - ${viewingProveedor?.nombre}`}
-      >
+      <Modal isOpen={showViewModal} onClose={() => setShowViewModal(false)} title={`Ver Proveedor - ${viewingProveedor?.name}`}>
         <div className="space-y-4">
           {viewingProveedor && (
             <>
@@ -924,19 +753,19 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="text-gray-600 text-sm mb-1">Nombre</div>
-                    <div className="text-gray-900 font-semibold">{viewingProveedor.nombre}</div>
+                    <div className="text-gray-900 font-semibold">{viewingProveedor.name}</div>
                   </div>
                   <div>
                     <div className="text-gray-600 text-sm mb-1">Documento</div>
-                    <div className="text-gray-900 font-semibold">{viewingProveedor.tipoDoc}: {viewingProveedor.numeroDoc}</div>
+                    <div className="text-gray-900 font-semibold">{tipoDocLabel(viewingProveedor.type_doc)}: {viewingProveedor.number_doc}</div>
                   </div>
                   <div>
                     <div className="text-gray-600 text-sm mb-1">Contacto</div>
-                    <div className="text-gray-900">{viewingProveedor.contacto}</div>
+                    <div className="text-gray-900">{viewingProveedor.contact_name}</div>
                   </div>
                   <div>
                     <div className="text-gray-600 text-sm mb-1">Teléfono</div>
-                    <div className="text-gray-900">{viewingProveedor.telefono || '-'}</div>
+                    <div className="text-gray-900">{viewingProveedor.phone || '-'}</div>
                   </div>
                   <div>
                     <div className="text-gray-600 text-sm mb-1">Email</div>
@@ -944,34 +773,25 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
                   </div>
                   <div>
                     <div className="text-gray-600 text-sm mb-1">Dirección</div>
-                    <div className="text-gray-900">{viewingProveedor.direccion || '-'}</div>
+                    <div className="text-gray-900">{viewingProveedor.address || '-'}</div>
                   </div>
                 </div>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
                   <div className="text-gray-600 text-sm mb-1">Estado</div>
                   <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${viewingProveedor.activo ? 'bg-green-500' : 'bg-gray-400'}`} />
-                    <span className="text-gray-900 font-semibold">
-                      {viewingProveedor.activo ? 'Activo' : 'Inactivo'}
-                    </span>
+                    <div className={`w-3 h-3 rounded-full ${viewingProveedor.is_active ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <span className="text-gray-900 font-semibold">{viewingProveedor.is_active ? 'Activo' : 'Inactivo'}</span>
                   </div>
                 </div>
               </div>
-
               <div className="bg-gray-100 rounded-lg p-3">
                 <div className="text-gray-600 text-sm mb-1">Fecha de Creación</div>
-                <div className="text-gray-900">
-                  {new Date(viewingProveedor.createdAt).toLocaleDateString('es-ES')}
-                </div>
+                <div className="text-gray-900">{new Date(viewingProveedor.created_at).toLocaleDateString('es-ES')}</div>
               </div>
-
               <div className="flex gap-3 justify-end pt-4 border-t">
-                <Button onClick={() => setShowViewModal(false)} variant="primary">
-                  Cerrar
-                </Button>
+                <Button onClick={() => setShowViewModal(false)} variant="primary">Cerrar</Button>
               </div>
             </>
           )}
@@ -981,10 +801,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
       {/* Modal Confirmation - Change Status */}
       <Modal
         isOpen={showStatusConfirmModal}
-        onClose={() => {
-          setShowStatusConfirmModal(false);
-          setProveedorToToggle(null);
-        }}
+        onClose={() => { setShowStatusConfirmModal(false); setProveedorToToggle(null); }}
         title="Confirmar Cambio de Estado"
       >
         <div className="space-y-4">
@@ -996,37 +813,22 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
             </div>
           </div>
           <p className="text-gray-700">
-            ¿Está seguro de que desea <strong>{proveedorToToggle?.activo ? 'inactivar' : 'activar'}</strong> el proveedor <strong>{proveedorToToggle?.nombre}</strong>?
+            ¿Está seguro de que desea <strong>{proveedorToToggle?.is_active ? 'inactivar' : 'activar'}</strong> el proveedor <strong>{proveedorToToggle?.name}</strong>?
           </p>
-          {proveedorToToggle?.activo && (
-            <p className="text-gray-600 text-sm">
-              Al inactivar este proveedor, no podrá realizar nuevas compras hasta que sea reactivado.
-            </p>
+          {proveedorToToggle?.is_active && (
+            <p className="text-gray-600 text-sm">Al inactivar este proveedor, no podrá realizar nuevas compras hasta que sea reactivado.</p>
           )}
           <div className="flex gap-3 justify-end pt-4">
-            <Button 
-              onClick={() => {
-                setShowStatusConfirmModal(false);
-                setProveedorToToggle(null);
-              }} 
-              variant="secondary"
-            >
-              Cancelar
-            </Button>
-            <Button onClick={confirmToggleStatus} variant="primary">
-              {proveedorToToggle?.activo ? 'Inactivar' : 'Activar'}
-            </Button>
+            <Button onClick={() => { setShowStatusConfirmModal(false); setProveedorToToggle(null); }} variant="secondary">Cancelar</Button>
+            <Button onClick={confirmToggleStatus} variant="primary">{proveedorToToggle?.is_active ? 'Inactivar' : 'Activar'}</Button>
           </div>
         </div>
       </Modal>
 
-      {/* Modal: No se puede eliminar (tiene compras asociadas) */}
+      {/* Modal: No se puede eliminar */}
       <Modal
         isOpen={showCannotDeleteModal}
-        onClose={() => {
-          setShowCannotDeleteModal(false);
-          setProveedorToDelete(null);
-        }}
+        onClose={() => { setShowCannotDeleteModal(false); setProveedorToDelete(null); }}
         title="No se puede eliminar"
       >
         <div className="space-y-4">
@@ -1034,7 +836,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
             <AlertTriangle className="text-yellow-600 flex-shrink-0" size={24} />
             <div>
               <p className="text-yellow-800 font-semibold">Operación no permitida</p>
-              <p className="text-yellow-700 text-sm">El proveedor <strong>{proveedorToDelete?.nombre}</strong> tiene compras asociadas y no puede ser eliminado. Puedes inactivarlo desde el estado.</p>
+              <p className="text-yellow-700 text-sm">El proveedor <strong>{proveedorToDelete?.name}</strong> tiene compras asociadas y no puede ser eliminado. Puedes inactivarlo desde el estado.</p>
             </div>
           </div>
           <div className="flex justify-end pt-2">
@@ -1050,7 +852,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
         title="Confirmar Eliminación"
       >
         <div className="space-y-4">
-          <p className="text-gray-700">¿Estás seguro de que deseas eliminar al proveedor <strong>{proveedorToDelete?.nombre}</strong>? Esta acción no se puede deshacer.</p>
+          <p className="text-gray-700">¿Estás seguro de que deseas eliminar al proveedor <strong>{proveedorToDelete?.name}</strong>? Esta acción no se puede deshacer.</p>
           <div className="flex gap-3 justify-end pt-4">
             <Button onClick={() => { setShowDeleteConfirmModal(false); setProveedorToDelete(null); }} variant="secondary">Cancelar</Button>
             <Button onClick={confirmDeleteProveedor} variant="primary" className="bg-red-600 hover:bg-red-700">Eliminar</Button>

@@ -1,160 +1,167 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '../../../../shared/components/native';
-import { ChevronLeft, User, DollarSign, BarChart3, Eye } from 'lucide-react';
-
-interface Cliente {
-  id: number;
-  nombre: string;
-  tipoDoc: string;
-  numeroDoc: string;
-  telefono: string;
-  email: string;
-  direccion: string;
-  ciudad: string;
-  activo: boolean;
-  createdAt: string;
-}
+import { ChevronLeft, User, BarChart3, Eye, Loader } from 'lucide-react';
+import {
+  getClientsById,
+  Clients,
+} from '@/features/ecommerce/customers/services/clientsServices';
+import {
+  getAllTypesDocs,
+  TypesDocs,
+} from '@/features/suppliers/services/providersService';
 
 interface ClienteDetallePageProps {
-  cliente: Cliente | null;
+  clientId: number;
   onBack: () => void;
 }
 
-export default function ClienteDetallePage({ cliente, onBack }: ClienteDetallePageProps) {
-  if (!cliente) {
+const VENTAS_KEY       = 'damabella_ventas';
+const DEVOLUCIONES_KEY = 'damabella_devoluciones';
+const CAMBIOS_KEY      = 'damabella_cambios';
+
+export default function ClienteDetallePage({ clientId, onBack }: ClienteDetallePageProps) {
+  const [cliente, setCliente]     = useState<Clients | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(false);
+  const [typesDocs, setTypesDocs] = useState<TypesDocs[]>([]);
+
+  // ─── Carga desde el backend al montar (o cuando cambia clientId) ────────────
+  useEffect(() => {
+    const fetchCliente = async () => {
+      setLoading(true);
+      setError(false);
+      setCliente(null);
+      const data = await getClientsById(clientId);
+      if (data) {
+        setCliente(data);
+      } else {
+        setError(true);
+      }
+      setLoading(false);
+    };
+
+    fetchCliente();
+  }, [clientId]);
+
+  // ─── Carga tipos de documento ────────────────────────────────────────────────
+  useEffect(() => {
+    const fetchTypesDocs = async () => {
+      const data = await getAllTypesDocs();
+      if (data) setTypesDocs(data);
+    };
+    fetchTypesDocs();
+  }, []);
+
+  const tipoDocLabel = (type_doc: number) => {
+    const found = typesDocs.find(t => t.id_doc === type_doc);
+    return found ? found.name : String(type_doc);
+  };
+
+  // ─── Estado: cargando ────────────────────────────────────────────────────────
+  if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen">
-        <div className="text-center">
-          <p className="text-red-600 font-semibold mb-4">Error: Cliente no encontrado</p>
-          <Button onClick={onBack} variant="secondary">
-            Volver
-          </Button>
+      <div className="flex flex-col items-center justify-center py-24">
+        <Loader className="animate-spin text-blue-600 mb-4" size={48} />
+        <p className="text-gray-600">Cargando información del cliente...</p>
+      </div>
+    );
+  }
+
+  // ─── Estado: error / no encontrado ──────────────────────────────────────────
+  if (error || !cliente) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24">
+        <div className="text-center space-y-4">
+          <p className="text-red-600 font-semibold text-lg">No se encontró el cliente</p>
+          <p className="text-gray-500 text-sm">
+            El cliente puede haber sido eliminado o el ID no es válido.
+          </p>
+          <Button onClick={onBack} variant="secondary">Volver</Button>
         </div>
       </div>
     );
   }
 
-  // Calcular datos comerciales (SINCRONIZADO con ClientesManager)
-  const VENTAS_KEY = 'damabella_ventas';
-  const DEVOLUCIONES_KEY = 'damabella_devoluciones';
-  const CAMBIOS_KEY = 'damabella_cambios';
+  // ─── Lógica comercial (localStorage) ────────────────────────────────────────
+  const clienteIdStr = cliente.id_client.toString();
+
+  const matchesCliente = (item: any) =>
+    item.clienteId === cliente.id_client ||
+    item.clienteId?.toString() === clienteIdStr ||
+    item.clienteId === clienteIdStr;
 
   const calcularDatosComerciales = () => {
-    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    const ventas       = JSON.parse(localStorage.getItem(VENTAS_KEY)       || '[]');
     const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
-    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
+    const cambios      = JSON.parse(localStorage.getItem(CAMBIOS_KEY)      || '[]');
 
-    // 🔒 Normalizar clienteId para comparación (string o número) - IGUAL QUE ClientesManager
-    const clienteIdStr = cliente.id.toString();
+    const totalVentas = ventas
+      .filter(matchesCliente)
+      .reduce((sum: number, v: any) => sum + (v.total || 0), 0);
 
-    // Total de ventas del cliente - SIN FILTRAR POR ESTADO (como ClientesManager)
-    const ventasCliente = ventas.filter((v: any) => 
-      v.clienteId === cliente.id || 
-      v.clienteId?.toString() === clienteIdStr ||
-      v.clienteId === clienteIdStr
-    );
-    const totalVentas = ventasCliente.reduce((sum: number, v: any) => sum + (v.total || 0), 0);
+    const totalDevoluciones = devoluciones
+      .filter(matchesCliente)
+      .reduce((sum: number, d: any) => sum + (d.total || 0), 0);
 
-    // Total de devoluciones del cliente (usar .total, no .monto)
-    const devolucionesCliente = devoluciones.filter((d: any) => 
-      d.clienteId === cliente.id || 
-      d.clienteId?.toString() === clienteIdStr ||
-      d.clienteId === clienteIdStr
-    );
-    const totalDevoluciones = devolucionesCliente.reduce((sum: number, d: any) => sum + (d.total || 0), 0);
+    const totalCambios = cambios
+      .filter(matchesCliente)
+      .reduce((sum: number, c: any) => sum + (c.diferencia || 0), 0);
 
-    // Total de cambios del cliente (SOLO INFORMATIVO, no afecta el saldo)
-    const cambiosCliente = cambios.filter((c: any) => 
-      c.clienteId === cliente.id || 
-      c.clienteId?.toString() === clienteIdStr ||
-      c.clienteId === clienteIdStr
-    );
-    const totalCambios = cambiosCliente.reduce((sum: number, c: any) => sum + (c.diferencia || 0), 0);
-
-    // 🔒 Saldo a Favor - SOLO afectado por devoluciones, NO por cambios
-    // Representa el saldo disponible por devoluciones no aplicadas
+    // Saldo a favor: SOLO afectado por devoluciones, NO por cambios
     const saldoAFavor = totalDevoluciones;
 
-    return {
-      totalVentas,
-      totalDevoluciones,
-      totalCambios,
-      saldoAFavor,
-    };
+    return { totalVentas, totalDevoluciones, totalCambios, saldoAFavor };
   };
 
   const obtenerHistorialCliente = () => {
-    const ventas = JSON.parse(localStorage.getItem(VENTAS_KEY) || '[]');
+    const ventas       = JSON.parse(localStorage.getItem(VENTAS_KEY)       || '[]');
     const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
-    const cambios = JSON.parse(localStorage.getItem(CAMBIOS_KEY) || '[]');
-
-    // 🔒 Normalizar clienteId para comparación (string o número)
-    const clienteIdStr = cliente.id.toString();
+    const cambios      = JSON.parse(localStorage.getItem(CAMBIOS_KEY)      || '[]');
 
     const historial: any[] = [];
 
-    // Filtrar ventas con comparación normalizada
-    ventas
-      .filter((v: any) => 
-        v.clienteId === cliente.id || 
-        v.clienteId?.toString() === clienteIdStr ||
-        v.clienteId === clienteIdStr
-      )
-      .forEach((v: any) => {
-        historial.push({
-          tipo: '🛍️ Venta',
-          numero: v.numeroVenta || 'N/A',
-          fecha: v.fechaVenta || 'N/A',
-          valor: v.total || 0,
-          estado: v.estado || 'Pendiente',
-        });
+    ventas.filter(matchesCliente).forEach((v: any) => {
+      historial.push({
+        tipo: '🛍️ Venta',
+        numero: v.numeroVenta || 'N/A',
+        fecha: v.fechaVenta || v.createdAt || 'N/A',
+        valor: v.total || 0,
+        estado: v.estado || 'Pendiente',
       });
+    });
 
-    // Filtrar devoluciones con comparación normalizada
-    devoluciones
-      .filter((d: any) => 
-        d.clienteId === cliente.id || 
-        d.clienteId?.toString() === clienteIdStr ||
-        d.clienteId === clienteIdStr
-      )
-      .forEach((d: any) => {
-        historial.push({
-          tipo: '📦 Devolución',
-          numero: d.numeroDevolucion || 'N/A',
-          fecha: d.fechaDevolucion || 'N/A',
-          valor: d.total || 0,
-          estado: d.estado || 'Completada',
-        });
+    devoluciones.filter(matchesCliente).forEach((d: any) => {
+      historial.push({
+        tipo: '📦 Devolución',
+        numero: d.numeroDevolucion || 'N/A',
+        fecha: d.fechaDevolucion || d.createdAt || 'N/A',
+        valor: d.total || 0,
+        estado: d.estado || 'Completada',
       });
+    });
 
-    // Filtrar cambios con comparación normalizada
-    cambios
-      .filter((c: any) => 
-        c.clienteId === cliente.id || 
-        c.clienteId?.toString() === clienteIdStr ||
-        c.clienteId === clienteIdStr
-      )
-      .forEach((c: any) => {
-        historial.push({
-          tipo: '♻️ Cambio',
-          numero: c.numeroCambio || 'N/A',
-          fecha: c.fechaCambio || 'N/A',
-          valor: c.monto || 0,
-          estado: c.estado || 'Completada',
-        });
+    cambios.filter(matchesCliente).forEach((c: any) => {
+      historial.push({
+        tipo: '♻️ Cambio',
+        numero: c.numeroCambio || 'N/A',
+        fecha: c.fechaCambio || c.createdAt || 'N/A',
+        valor: c.diferencia || c.monto || 0,
+        estado: c.estado || 'Completada',
       });
+    });
 
     return historial.sort(
       (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
     );
   };
 
-  const datos = calcularDatosComerciales();
+  const datos     = calcularDatosComerciales();
   const historial = obtenerHistorialCliente();
 
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 pb-10">
-      {/* Header con botón volver */}
+      {/* Header */}
       <div className="flex items-center gap-4">
         <button
           onClick={onBack}
@@ -164,13 +171,13 @@ export default function ClienteDetallePage({ cliente, onBack }: ClienteDetallePa
           <ChevronLeft size={24} />
         </button>
         <h1 className="text-3xl font-bold text-gray-900">
-          Detalle del Cliente: {cliente.nombre}
+          Detalle del Cliente: {cliente.name}
         </h1>
       </div>
 
-      {/* Grid de información */}
+      {/* Grid información + estado */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* INFORMACIÓN PERSONAL */}
+        {/* Información Personal */}
         <div className="lg:col-span-2 bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <User size={20} />
@@ -179,19 +186,19 @@ export default function ClienteDetallePage({ cliente, onBack }: ClienteDetallePa
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-gray-600">Tipo de Documento</p>
-              <p className="text-gray-900 font-medium">{cliente.tipoDoc}</p>
+              <p className="text-gray-900 font-medium">{tipoDocLabel(cliente.type_doc)}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Número de Documento</p>
-              <p className="text-gray-900 font-medium">{cliente.numeroDoc}</p>
+              <p className="text-gray-900 font-medium">{cliente.doc}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Teléfono</p>
-              <p className="text-gray-900 font-medium">{cliente.telefono || 'N/A'}</p>
+              <p className="text-gray-900 font-medium">{cliente.phone || 'N/A'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Ciudad</p>
-              <p className="text-gray-900 font-medium">{cliente.ciudad || 'N/A'}</p>
+              <p className="text-gray-900 font-medium">{cliente.city || 'N/A'}</p>
             </div>
             <div className="col-span-2">
               <p className="text-sm text-gray-600">Correo Electrónico</p>
@@ -199,25 +206,25 @@ export default function ClienteDetallePage({ cliente, onBack }: ClienteDetallePa
             </div>
             <div className="col-span-2">
               <p className="text-sm text-gray-600">Dirección</p>
-              <p className="text-gray-900 font-medium">{cliente.direccion || 'N/A'}</p>
+              <p className="text-gray-900 font-medium">{cliente.address || 'N/A'}</p>
             </div>
           </div>
         </div>
 
-        {/* ESTADO */}
+        {/* Estado */}
         <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Estado</h2>
           <div className="flex justify-center">
             <div className={`px-4 py-2 rounded-full text-sm font-medium ${
-              cliente.activo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+              cliente.state ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
             }`}>
-              {cliente.activo ? 'Activo' : 'Inactivo'}
+              {cliente.state ? 'Activo' : 'Inactivo'}
             </div>
           </div>
         </div>
       </div>
 
-      {/* RESUMEN COMERCIAL */}
+      {/* Resumen Comercial */}
       <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border border-blue-200 shadow-sm">
         <h2 className="text-lg font-semibold text-blue-900 mb-4 flex items-center gap-2">
           <BarChart3 size={20} />
@@ -232,7 +239,9 @@ export default function ClienteDetallePage({ cliente, onBack }: ClienteDetallePa
           </div>
           <div className="bg-white rounded-lg p-4">
             <p className="text-xs font-medium text-gray-600">Total Devoluciones</p>
-            <p className={`text-2xl font-bold mt-1 ${datos.totalDevoluciones > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+            <p className={`text-2xl font-bold mt-1 ${
+              datos.totalDevoluciones > 0 ? 'text-red-600' : 'text-gray-900'
+            }`}>
               ${datos.totalDevoluciones.toLocaleString()}
             </p>
           </div>
@@ -244,14 +253,16 @@ export default function ClienteDetallePage({ cliente, onBack }: ClienteDetallePa
           </div>
           <div className="bg-green-50 rounded-lg p-4 border border-green-200">
             <p className="text-xs font-bold text-green-700">Saldo a Favor</p>
-            <p className={`text-2xl font-bold mt-1 ${datos.saldoAFavor > 0 ? 'text-green-600' : 'text-gray-900'}`}>
+            <p className={`text-2xl font-bold mt-1 ${
+              datos.saldoAFavor > 0 ? 'text-green-600' : 'text-gray-900'
+            }`}>
               ${datos.saldoAFavor.toLocaleString()}
             </p>
           </div>
         </div>
       </div>
 
-      {/* HISTORIAL CRONOLÓGICO */}
+      {/* Historial Cronológico */}
       {historial.length > 0 && (
         <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -270,7 +281,11 @@ export default function ClienteDetallePage({ cliente, onBack }: ClienteDetallePa
                 </div>
                 <div className="text-right">
                   <p className="text-gray-900 font-medium">${mov.valor.toLocaleString()}</p>
-                  <p className={`text-xs ${mov.estado === 'Completada' || mov.estado === 'Aplicado' || mov.estado === 'Aplicada' ? 'text-green-600' : 'text-yellow-600'}`}>
+                  <p className={`text-xs ${
+                    ['Completada', 'Aplicado', 'Aplicada'].includes(mov.estado)
+                      ? 'text-green-600'
+                      : 'text-yellow-600'
+                  }`}>
                     {mov.estado}
                   </p>
                 </div>
