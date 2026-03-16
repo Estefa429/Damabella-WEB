@@ -1,324 +1,263 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit2, Trash2, Users, Search, Download, Eye, EyeOff } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
-import validateField from '../../../shared/utils/validation';
+import { useToast } from '../../../shared/components/native';
 
-const STORAGE_KEY = 'damabella_users';
-const ROLES_KEY = 'damabella_roles';
+// ─── Services ─────────────────────────────────────────────────────────────────
+import {
+  getAllUsers, getAllRoles, getAllTypeDocs, createUser, updateUser,
+  patchUserState, deleteUser, exportUsers,
+  User, Role, TypeDoc, CreateUserDTO,
+} from '@/features/users/Services/userService';
 
-interface Usuario {
-  id: number;
-  nombre: string;
-  tipoDoc: string;
-  numeroDoc: string;
-  celular: string;
-  email: string;
-  direccion: string;
-  password: string;
-  role: string;
-  roleId?: number;
-  activo: boolean;
-  createdAt: string;
-}
+// ─── Utils ────────────────────────────────────────────────────────────────────
+const validatePassword = (p: string) =>
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(p);
 
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function UsuariosManager() {
-  const [usuarios, setUsuarios] = useState<Usuario[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
+  const { showToast } = useToast();
 
-  const [roles, setRoles] = useState(() => {
-    const stored = localStorage.getItem(ROLES_KEY);
-    if (stored) return JSON.parse(stored);
-    
-    const rolesDefault = [
-      { id: 1, nombre: 'Administrador', descripcion: 'Acceso total al sistema', activo: true },
-      { id: 2, nombre: 'Empleado', descripcion: 'Puede registrar ventas pero no eliminar', activo: true },
-      { id: 3, nombre: 'Cliente', descripcion: 'Acceso limitado', activo: true }
-    ];
-    localStorage.setItem(ROLES_KEY, JSON.stringify(rolesDefault));
-    return rolesDefault;
-  });
+  // ─── Data ────────────────────────────────────────────────────────────────────
+  const [users,     setUsers]     = useState<User[]>([]);
+  const [roles,     setRoles]     = useState<Role[]>([]);
+  const [typeDocs,  setTypeDocs]  = useState<TypeDoc[]>([]);
+  const [loading,   setLoading]   = useState(true);
 
-  const [showModal, setShowModal] = useState(false);
-  const [showReporte, setShowReporte] = useState(false);
-  const [showViewModal, setShowViewModal] = useState(false);
-  const [editingUsuario, setEditingUsuario] = useState<Usuario | null>(null);
-  const [viewingUsuario, setViewingUsuario] = useState<Usuario | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  // ─── UI ──────────────────────────────────────────────────────────────────────
+  const [searchTerm,  setSearchTerm]  = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const [formData, setFormData] = useState({
-    nombre: '',
-    tipoDoc: 'CC',
-    numeroDoc: '',
-    celular: '',
-    email: '',
-    direccion: '',
-    password: '',
-    confirmPassword: '',
-    roleId: ''
-  });
+  // ─── Modals ──────────────────────────────────────────────────────────────────
+  const [showModal,       setShowModal]       = useState(false);
+  const [showViewModal,   setShowViewModal]   = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showToggleModal, setShowToggleModal] = useState(false);
+  const [showReporte,     setShowReporte]     = useState(false);
 
+  const [editingUser,  setEditingUser]  = useState<User | null>(null);
+  const [viewingUser,  setViewingUser]  = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [togglingUser, setTogglingUser] = useState<User | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ─── Form ────────────────────────────────────────────────────────────────────
+  const emptyForm = {
+    name: '', type_doc: '', doc_identity: '', phone: '',
+    email: '', address: '', password: '', confirmPassword: '', id_rol: '',
+  };
+  const [formData,   setFormData]   = useState(emptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [showPass,   setShowPass]   = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(usuarios));
-  }, [usuarios]);
-
-  const validatePassword = (password: string) => {
-    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
-    return regex.test(password);
-  };
-
-  const handleFieldChange = (field: string, value: any) => {
-    setFormData({ ...formData, [field]: value });
-
-    // field-specific validation: use shared helper when applicable
-    if (field === 'password') {
-      if (!value && !editingUsuario) {
-        setFormErrors({ ...formErrors, password: 'Por favor ingresa la contraseña' });
-      } else if (value && !validatePassword(value)) {
-        setFormErrors({ ...formErrors, password: 'La contraseña debe tener al menos 8 caracteres, mayúscula, minúscula, número y carácter especial' });
-      } else {
-        const { password: _p, ...rest } = formErrors;
-        setFormErrors(rest);
-      }
-      // Validar coincidencia también
-      if (formData.confirmPassword && value !== formData.confirmPassword) {
-        setFormErrors(prev => ({ ...prev, confirmPassword: 'Las contraseñas no coinciden' }));
-      } else if (formData.confirmPassword && value === formData.confirmPassword) {
-        const { confirmPassword: _c, ...rest } = formErrors;
-        setFormErrors(rest);
-      }
-      return;
+  // ─── Load data ───────────────────────────────────────────────────────────────
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [us, ro, td] = await Promise.all([getAllUsers(), getAllRoles(), getAllTypeDocs()]);
+      if (us) setUsers(us);
+      if (ro) setRoles(ro);
+      if (td) setTypeDocs(td);
+    } catch {
+      showToast('Error cargando datos', 'error');
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    if (field === 'confirmPassword') {
-      if (!value && !editingUsuario) {
-        setFormErrors({ ...formErrors, confirmPassword: 'Por favor repite la contraseña' });
-      } else if (formData.password && value !== formData.password) {
-        setFormErrors({ ...formErrors, confirmPassword: 'Las contraseñas no coinciden' });
-      } else {
-        const { confirmPassword: _c, ...rest } = formErrors;
-        setFormErrors(rest);
-      }
-      return;
-    }
+  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
-    if (field === 'direccion') {
-      // Dirección no es requerida, pero si se ingresa, validar que tenga formato
-      if (value && value.trim().length > 0 && value.trim().length < 5) {
-        setFormErrors({ ...formErrors, direccion: 'La dirección debe tener al menos 5 caracteres' });
-      } else {
-        const { direccion: _d, ...rest } = formErrors;
-        setFormErrors(rest);
-      }
-      return;
-    }
-
-    const err = validateField(field, value);
-    if (err) setFormErrors({ ...formErrors, [field]: err });
-    else {
-      setFormErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field as keyof typeof newErrors];
-        return newErrors;
-      });
-    }
-  };
-
-  const handleCreate = () => {
-    setEditingUsuario(null);
-    setFormData({
-      nombre: '',
-      tipoDoc: 'CC',
-      numeroDoc: '',
-      celular: '',
-      email: '',
-      direccion: '',
-      password: '',
-      confirmPassword: '',
-      roleId: ''
-    });
-    setFormErrors({});
-    setShowModal(true);
-  };
-
-  const handleEdit = (usuario: Usuario) => {
-    setEditingUsuario(usuario);
-    setFormData({
-      nombre: usuario.nombre || '',
-      tipoDoc: usuario.tipoDoc || 'CC',
-      numeroDoc: usuario.numeroDoc || '',
-      celular: usuario.celular || '',
-      email: usuario.email || '',
-      direccion: usuario.direccion || '',
-      password: '',
-      confirmPassword: '',
-      roleId: usuario.roleId?.toString() || ''
-    });
-    setFormErrors({});
-    setShowModal(true);
-  };
-
-  const handleSave = () => {
-    const errors: typeof formErrors = {};
-
-    if (!formData.nombre.trim()) errors.nombre = 'Por favor completa el nombre';
-    if (!formData.numeroDoc.trim()) errors.numeroDoc = 'Por favor completa el número de documento';
-    if (!formData.email.trim()) errors.email = 'Por favor completa el correo';
-    if (!formData.roleId) errors.roleId = 'Por favor selecciona un rol';
-    if (!formData.celular.trim()) errors.celular = 'Por favor completa el celular';
-
-    // Validar duplicados de email
-    const emailDuplicado = usuarios.some(u => 
-      u.email.toLowerCase() === formData.email.toLowerCase() && 
-      u.id !== editingUsuario?.id
+  // ─── Filter & paginate ───────────────────────────────────────────────────────
+  const filtered = users.filter(u => {
+    const q = searchTerm.toLowerCase();
+    return (
+      u.name.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      u.doc_identity.includes(q) ||
+      (u.role_name ?? '').toLowerCase().includes(q)
     );
-    if (emailDuplicado) errors.email = 'Este email ya está registrado';
+  });
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginated  = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-    // Validar duplicados de documento
-    const docDuplicado = usuarios.some(u => 
-      u.numeroDoc === formData.numeroDoc && 
-      u.id !== editingUsuario?.id
-    );
-    if (docDuplicado) errors.numeroDoc = 'Este número de documento ya está registrado';
+  // ─── Helpers form ────────────────────────────────────────────────────────────
+  const setField = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormErrors(prev => ({ ...prev, [field]: '' }));
+  };
 
-    if (!editingUsuario || formData.password || formData.confirmPassword) {
-      if (!formData.password) errors.password = 'Por favor ingresa la contraseña';
-      if (!formData.confirmPassword) errors.confirmPassword = 'Por favor repite la contraseña';
-      if (formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword) {
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (!formData.name.trim())         errors.name         = 'Nombre requerido';
+    if (!formData.type_doc)            errors.type_doc     = 'Tipo de documento requerido';
+    if (!formData.doc_identity.trim()) errors.doc_identity = 'Número de documento requerido';
+    if (!formData.phone.trim())        errors.phone        = 'Celular requerido';
+    if (!formData.email.trim())        errors.email        = 'Email requerido';
+    if (!formData.id_rol)              errors.id_rol       = 'Rol requerido';
+
+    // Contraseña — obligatoria solo al crear
+    if (!editingUser || formData.password) {
+      if (!editingUser && !formData.password)
+        errors.password = 'Contraseña requerida';
+      if (formData.password && !validatePassword(formData.password))
+        errors.password = 'Mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial';
+      if (formData.password && formData.password !== formData.confirmPassword)
         errors.confirmPassword = 'Las contraseñas no coinciden';
-      }
-      if (formData.password && !validatePassword(formData.password)) {
-        errors.password = 'La contraseña debe tener al menos 8 caracteres, mayúscula, minúscula, número y carácter especial';
-      }
     }
 
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      return;
-    }
+    // Duplicados
+    if (users.some(u => u.email === formData.email && u.id_user !== editingUser?.id_user))
+      errors.email = 'Este email ya está registrado';
+    if (users.some(u => u.doc_identity === formData.doc_identity && u.id_user !== editingUser?.id_user))
+      errors.doc_identity = 'Este documento ya está registrado';
 
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // ─── Crear ───────────────────────────────────────────────────────────────────
+  const handleCreate = () => {
+    setEditingUser(null);
+    setFormData(emptyForm);
     setFormErrors({});
+    setShowModal(true);
+  };
 
-    const rolSeleccionado = roles.find((r: any) => r.id.toString() === formData.roleId);
-    if (!rolSeleccionado) {
-      setFormErrors({ roleId: 'Rol no válido' });
-      return;
-    }
+  // ─── Editar ──────────────────────────────────────────────────────────────────
+  const handleEdit = (user: User) => {
+    setEditingUser(user);
+    setFormData({
+      name:         user.name,
+      type_doc:     String(user.type_doc),
+      doc_identity: user.doc_identity,
+      phone:        user.phone,
+      email:        user.email,
+      address:      user.address ?? '',
+      password:     '',
+      confirmPassword: '',
+      id_rol:       String(user.id_rol),
+    });
+    setFormErrors({});
+    setShowModal(true);
+  };
 
-    const usuarioData: any = {
-      nombre: formData.nombre,
-      tipoDoc: formData.tipoDoc,
-      numeroDoc: formData.numeroDoc,
-      celular: formData.celular,
-      email: formData.email,
-      direccion: formData.direccion,
-      roleId: parseInt(formData.roleId),
-      role: rolSeleccionado.nombre,
-      activo: true,
-      createdAt: new Date().toISOString()
+  // ─── Guardar ─────────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    console.log('id_rol raw:', formData.id_rol, typeof formData.id_rol);
+    if (!validateForm()) return;
+    setIsSubmitting(true);
+
+    const payload: CreateUserDTO = {
+      type_doc:     Number(formData.type_doc),
+      doc_identity: formData.doc_identity.trim(),
+      name:         formData.name.trim(),
+      email:        formData.email.trim(),
+      phone:        formData.phone.trim(),
+      address:      formData.address.trim() || undefined,
+      id_rol:       Number(formData.id_rol) || 2,
+      password:     formData.password,
     };
 
-    if (formData.password) {
-      usuarioData.password = formData.password;
-    } else if (editingUsuario) {
-      usuarioData.password = editingUsuario.password;
-    }
+    let result: User | null = null;
 
-    if (editingUsuario) {
-      setUsuarios(usuarios.map(u =>
-        u.id === editingUsuario.id ? { ...u, ...usuarioData } : u
-      ));
+    if (editingUser) {
+      const updatePayload: any = { ...payload };
+      if (!formData.password) delete updatePayload.password;
+      result = await updateUser(editingUser.id_user, updatePayload);
     } else {
-      setUsuarios([...usuarios, { id: Date.now(), ...usuarioData }]);
+      console.log('payload:', payload);
+        console.log('formData.id_rol:', formData.id_rol, typeof formData.id_rol);
+      result = await createUser(payload);
     }
 
-    setShowModal(false);
-    setCurrentPage(1);
+    if (result) {
+      showToast(editingUser ? 'Usuario actualizado' : 'Usuario creado', 'success');
+      await loadData();
+      setShowModal(false);
+    } else {
+      showToast('Error al guardar el usuario', 'error');
+    }
+    setIsSubmitting(false);
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('¿Está seguro de eliminar este usuario?')) {
-      setUsuarios(usuarios.filter(u => u.id !== id));
+  // ─── Toggle estado ───────────────────────────────────────────────────────────
+  const handleToggle = (user: User) => {
+    setTogglingUser(user);
+    setShowToggleModal(true);
+  };
+
+  const confirmToggle = async () => {
+    if (!togglingUser) return;
+    setIsSubmitting(true);
+    const ok = await patchUserState(togglingUser.id_user, !togglingUser.is_active);
+    if (ok) {
+      showToast(`Usuario ${!togglingUser.is_active ? 'activado' : 'desactivado'}`, 'success');
+      await loadData();
+    } else {
+      showToast('Error al cambiar estado', 'error');
+    }
+    setIsSubmitting(false);
+    setShowToggleModal(false);
+  };
+
+  // ─── Eliminar ────────────────────────────────────────────────────────────────
+  const handleDelete = (user: User) => {
+    setDeletingUser(user);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingUser) return;
+    setIsSubmitting(true);
+    const ok = await deleteUser(deletingUser.id_user);
+    if (ok) {
+      showToast('Usuario eliminado', 'success');
+      await loadData();
+    } else {
+      showToast('No se pudo eliminar', 'error');
+    }
+    setIsSubmitting(false);
+    setShowDeleteModal(false);
+  };
+
+  // ─── Export ──────────────────────────────────────────────────────────────────
+  const handleExport = async () => {
+    try {
+      await exportUsers();
+    } catch {
+      showToast('Error al exportar', 'error');
     }
   };
 
-  const handleVerUsuario = (usuario: Usuario) => {
-    setViewingUsuario(usuario);
-    setShowViewModal(true);
-  };
-
-  const toggleActive = (id: number) => {
-    setUsuarios(usuarios.map(u =>
-      u.id === id ? { ...u, activo: !u.activo } : u
-    ));
-  };
-
-  const exportarReporte = () => {
-    const csv = [
-      ['Nombre', 'Documento', 'Email', 'Celular', 'Rol', 'Estado'].join(','),
-      ...usuarios.map(u => [
-        u.nombre,
-        `${u.tipoDoc} ${u.numeroDoc}`,
-        u.email,
-        u.celular,
-        u.role,
-        u.activo ? 'Activo' : 'Inactivo'
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `reporte-usuarios-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  };
-
-  const filteredUsuarios = usuarios.filter(u =>
-    (u.nombre?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-    (u.email?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-    (u.numeroDoc ?? '').includes(searchTerm) ||
-    (u.role?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
-  );
-
-  // Paginación
-  const totalPages = Math.ceil(filteredUsuarios.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedUsuarios = filteredUsuarios.slice(startIndex, endIndex);
-
-  const handlePreviousPage = () => {
-    setCurrentPage(prev => Math.max(prev - 1, 1));
-  };
-
-  const handleNextPage = () => {
-    setCurrentPage(prev => Math.min(prev + 1, totalPages));
-  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-gray-500 text-sm">Cargando usuarios...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-gray-900 mb-2">Gestión de Usuarios</h2>
-          <p className="text-gray-600">Administra los usuarios del sistema y sus roles</p>
+          <h2 className="text-gray-900 font-bold text-lg mb-1">Gestión de Usuarios</h2>
+          <p className="text-gray-500 text-xs">Administra los usuarios del sistema y sus roles</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2">
           <Button onClick={() => setShowReporte(true)} variant="secondary">
-            <Download size={20} />
-            Reporte
+            <Download size={16} /> Reporte
           </Button>
           <Button onClick={handleCreate} variant="primary">
-            <Plus size={20} />
-            Nuevo Usuario
+            <Plus size={16} /> Nuevo Usuario
           </Button>
         </div>
       </div>
@@ -326,108 +265,112 @@ export default function UsuariosManager() {
       {/* Search */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <Input
-            placeholder="Buscar usuarios..."
+            placeholder="Buscar por nombre, email, documento o rol..."
             value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="pl-10"
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 text-sm"
           />
         </div>
       </div>
 
-      {/* Usuarios List */}
+      {/* Tabla */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left py-4 px-6 text-gray-600">Usuario</th>
-                <th className="text-left py-4 px-6 text-gray-600">Documento</th>
-                <th className="text-left py-4 px-6 text-gray-600">Contacto</th>
-                <th className="text-left py-4 px-6 text-gray-600">Rol</th>
-                <th className="text-center py-4 px-6 text-gray-600">Estado</th>
-                <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
+                <th className="text-left py-3 px-4 text-gray-600 font-medium">Usuario</th>
+                <th className="text-left py-3 px-4 text-gray-600 font-medium">Documento</th>
+                <th className="text-left py-3 px-4 text-gray-600 font-medium">Contacto</th>
+                <th className="text-left py-3 px-4 text-gray-600 font-medium">Rol</th>
+                <th className="text-center py-3 px-4 text-gray-600 font-medium">Estado</th>
+                <th className="text-right py-3 px-4 text-gray-600 font-medium">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredUsuarios.length === 0 ? (
+              {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-500">
-                    <Users className="mx-auto mb-4 text-gray-300" size={48} />
-                    <p>No se encontraron usuarios</p>
+                  <td colSpan={6} className="py-12 text-center text-gray-400">
+                    <Users className="mx-auto mb-2 text-gray-300" size={40} />
+                    <p className="text-sm">No se encontraron usuarios</p>
                   </td>
                 </tr>
               ) : (
-                paginatedUsuarios.map((usuario) => (
-                  <tr key={usuario.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6">
+                paginated.map(user => (
+                  <tr key={user.id_user} className="hover:bg-gray-50 transition-colors">
+                    <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white">
-                          {usuario.nombre[0]?.toUpperCase()}
+                        <div className="w-9 h-9 bg-gradient-to-br from-gray-600 to-gray-800 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0">
+                          {user.name[0]?.toUpperCase()}
                         </div>
                         <div>
-                          <div className="text-gray-900">{usuario.nombre}</div>
-                          <div className="text-gray-500">{usuario.email}</div>
+                          <p className="font-medium text-gray-900 text-sm">{user.name}</p>
+                          <p className="text-xs text-gray-500">{user.email}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="py-4 px-6">
-                      <div className="text-gray-700">{usuario.tipoDoc}</div>
-                      <div className="text-gray-500">{usuario.numeroDoc}</div>
+                    <td className="py-3 px-4">
+                      <p className="text-xs text-gray-500">{user.type_doc_name}</p>
+                      <p className="text-sm text-gray-700">{user.doc_identity}</p>
                     </td>
-                    <td className="py-4 px-6">
-                      <div className="text-gray-700">{usuario.celular}</div>
-                      <div className="text-gray-500 text-sm">{usuario.direccion}</div>
+                    <td className="py-3 px-4">
+                      <p className="text-sm text-gray-700">{user.phone}</p>
+                      {user.address && <p className="text-xs text-gray-500 truncate max-w-[140px]">{user.address}</p>}
                     </td>
-                    <td className="py-4 px-6">
-                      <span className={`inline-flex px-3 py-1 rounded-full text-xs ${
-                        usuario.role === 'Administrador' ? 'bg-purple-100 text-purple-700' :
-                        usuario.role === 'Empleado' ? 'bg-blue-100 text-blue-700' :
-                        'bg-gray-100 text-gray-700'
+                    <td className="py-3 px-4">
+                      <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                        user.role_name?.toLowerCase() === 'administrador' ? 'bg-purple-100 text-purple-700' :
+                        user.role_name?.toLowerCase() === 'empleado'      ? 'bg-blue-100 text-blue-700' :
+                                                                             'bg-gray-100 text-gray-700'
                       }`}>
-                        {usuario.role}
+                        {user.role_name}
                       </span>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="py-3 px-4">
                       <div className="flex justify-center">
                         <button
-                          onClick={() => toggleActive(usuario.id)}
-                          className={`relative w-12 h-6 rounded-full transition-colors ${
-                            usuario.activo ? 'bg-green-500' : 'bg-gray-300'
-                          }`}
+                          onClick={() => handleToggle(user)}
+                          title={user.is_active ? 'Desactivar' : 'Activar'}
+                          style={{
+                            position: 'relative',
+                            width: '44px',
+                            height: '24px',
+                            borderRadius: '9999px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            backgroundColor: user.is_active ? '#22c55e' : '#9ca3af',
+                            transition: 'background-color 0.2s',
+                          }}
                         >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                            usuario.activo ? 'translate-x-6' : 'translate-x-0'
-                          }`} />
+                          <div style={{
+                            position: 'absolute',
+                            top: '2px',
+                            left: user.is_active ? '22px' : '2px',
+                            width: '20px',
+                            height: '20px',
+                            borderRadius: '9999px',
+                            backgroundColor: 'white',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                            transition: 'left 0.2s',
+                          }} />
                         </button>
                       </div>
                     </td>
-                    <td className="py-4 px-6">
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => handleVerUsuario(usuario)}
-                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
-                          title="Ver"
-                        >
-                          <Eye size={18} />
+                    <td className="py-3 px-4">
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => { setViewingUser(user); setShowViewModal(true); }}
+                          className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors">
+                          <Eye size={15} />
                         </button>
-                        <button
-                          onClick={() => handleEdit(usuario)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                          title="Editar"
-                        >
-                          <Edit2 size={18} />
+                        <button onClick={() => handleEdit(user)}
+                          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
+                          <Edit2 size={15} />
                         </button>
-                        <button
-                          onClick={() => handleDelete(usuario.id)}
-                          className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={18} />
+                        <button onClick={() => handleDelete(user)}
+                          className="p-1.5 hover:bg-red-50 rounded-lg text-red-500 transition-colors">
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </td>
@@ -438,325 +381,265 @@ export default function UsuariosManager() {
           </table>
         </div>
 
-        {/* Pagination Controls */}
-        <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            Mostrando <span className="font-medium">{startIndex + 1}</span> a <span className="font-medium">{Math.min(endIndex, filteredUsuarios.length)}</span> de <span className="font-medium">{filteredUsuarios.length}</span> usuarios
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handlePreviousPage}
-              disabled={currentPage === 1}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Anterior
-            </button>
-            <div className="flex items-center gap-2">
-              {(() => {
-                const pages: number[] = [];
-                let start = Math.max(1, currentPage - 2);
-                let end = Math.min(totalPages, start + 4);
-                start = Math.max(1, end - 4);
-                for (let p = start; p <= end; ++p) pages.push(p);
-                return pages.map(page => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`px-3 py-2 rounded-lg transition-colors ${
-                      currentPage === page
-                        ? 'bg-gray-900 text-white'
-                        : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
+        {/* Paginación */}
+        {totalPages > 1 && (
+          <div className="bg-gray-50 border-t border-gray-200 px-4 py-3 flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              {filtered.length} usuarios — página {currentPage} de {totalPages}
+            </p>
+            <div className="flex gap-1">
+              <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-40">
+                Anterior
+              </button>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                const page = Math.max(1, currentPage - 2) + i;
+                if (page > totalPages) return null;
+                return (
+                  <button key={page} onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                      currentPage === page ? 'bg-gray-900 text-white' : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                    }`}>
                     {page}
                   </button>
-                ));
-              })()}
+                );
+              })}
+              <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-40">
+                Siguiente
+              </button>
             </div>
-            <button
-              onClick={handleNextPage}
-              disabled={currentPage === totalPages}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Siguiente
-            </button>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Modal Create/Edit */}
-      <Modal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        title={editingUsuario ? 'Editar Usuario' : 'Nuevo Usuario'}
-      >
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+      {/* ─── Modal Crear / Editar ───────────────────────────────────────────── */}
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingUser ? 'Editar Usuario' : 'Nuevo Usuario'} size="lg">
+        <div className="space-y-4 text-sm max-h-[70vh] overflow-y-auto pr-1">
+
+          {/* Nombre */}
           <div>
-            <label className="block text-gray-700 mb-2">Nombre Completo *</label>
-            <Input
-              value={formData.nombre}
-              onChange={(e) => handleFieldChange('nombre', e.target.value)}
-              placeholder="Juan Pérez"
-              className={formData.nombre && !formErrors.nombre ? 'border-green-500' : formErrors.nombre ? 'border-red-500' : ''}
-            />
-            {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
-            {formData.nombre && !formErrors.nombre && <p className="text-green-600 text-xs mt-1">✓ Nombre válido</p>}
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Nombre completo *</label>
+            <Input value={formData.name} onChange={(e) => setField('name', e.target.value)} placeholder="Juan Pérez"
+              className={formErrors.name ? 'border-red-400' : ''} />
+            {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Tipo doc + Número doc */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-gray-700 mb-2">Tipo de Documento *</label>
-              <select
-                value={formData.tipoDoc}
-                onChange={(e) => handleFieldChange('tipoDoc', e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-              >
-                <option value="CC">Cédula de Ciudadanía</option>
-                <option value="CE">Cédula de Extranjería</option>
-                <option value="TI">Tarjeta de Identidad</option>
-                <option value="PAS">Pasaporte</option>
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Tipo de documento *</label>
+              <select value={formData.type_doc} onChange={(e) => setField('type_doc', e.target.value)}
+                className={`w-full h-9 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.type_doc ? 'border-red-400' : 'border-gray-300'}`}>
+                <option value="">Seleccionar...</option>
+                {typeDocs.map(t => <option key={t.id_doc} value={t.id_doc}>{t.name}</option>)}
               </select>
-              {formErrors.tipoDoc && <p className="text-red-600 text-sm mt-1">{formErrors.tipoDoc}</p>}
+              {formErrors.type_doc && <p className="text-red-500 text-xs mt-1">{formErrors.type_doc}</p>}
             </div>
-
             <div>
-              <label className="block text-gray-700 mb-2">Número de Documento *</label>
-              <Input
-                value={formData.numeroDoc}
-                onChange={(e) => handleFieldChange('numeroDoc', e.target.value)}
-                placeholder="1234567890"
-                className={formData.numeroDoc && !formErrors.numeroDoc ? 'border-green-500' : formErrors.numeroDoc ? 'border-red-500' : ''}
-              />
-              {formErrors.numeroDoc && <p className="text-red-600 text-sm mt-1">{formErrors.numeroDoc}</p>}
-              {formData.numeroDoc && !formErrors.numeroDoc && <p className="text-green-600 text-xs mt-1">✓ Documento válido</p>}
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Número de documento *</label>
+              <Input value={formData.doc_identity} onChange={(e) => setField('doc_identity', e.target.value)} placeholder="1234567890"
+                className={formErrors.doc_identity ? 'border-red-400' : ''} />
+              {formErrors.doc_identity && <p className="text-red-500 text-xs mt-1">{formErrors.doc_identity}</p>}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Celular + Rol */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-gray-700 mb-2">Celular *</label>
-              <Input
-                value={formData.celular}
-                onChange={(e) => handleFieldChange('celular', e.target.value)}
-                placeholder="3001234567"
-                className={formData.celular && !formErrors.celular ? 'border-green-500' : formErrors.celular ? 'border-red-500' : ''}
-              />
-              {formErrors.celular && <p className="text-red-600 text-sm mt-1">{formErrors.celular}</p>}
-              {formData.celular && !formErrors.celular && <p className="text-green-600 text-xs mt-1">✓ Celular válido</p>}
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Celular *</label>
+              <Input value={formData.phone} onChange={(e) => setField('phone', e.target.value)} placeholder="3001234567"
+                className={formErrors.phone ? 'border-red-400' : ''} />
+              {formErrors.phone && <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>}
             </div>
-
             <div>
-              <label className="block text-gray-700 mb-2">Rol *</label>
-              <select
-                value={formData.roleId}
-                onChange={(e) => handleFieldChange('roleId', e.target.value)}
-                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 ${formData.roleId && !formErrors.roleId ? 'border-green-500' : formErrors.roleId ? 'border-red-500' : 'border-gray-300'}`}
-              >
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Rol *</label>
+              <select value={formData.id_rol} onChange={(e) => setField('id_rol', e.target.value)}
+                className={`w-full h-9 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.id_rol ? 'border-red-400' : 'border-gray-300'}`}>
                 <option value="">Seleccionar rol...</option>
-                {roles.filter((r: any) => r.activo).map((r: any) => (
-                  <option key={r.id} value={r.id}>{r.nombre}</option>
-                ))}
+                {roles.filter(r => r.is_active).map(r => <option key={r.idRol} value={String(r.idRol)}>{r.name}</option>)}
               </select>
-              {formErrors.roleId && <p className="text-red-600 text-sm mt-1">{formErrors.roleId}</p>}
-              {formData.roleId && !formErrors.roleId && <p className="text-green-600 text-xs mt-1">✓ Rol seleccionado</p>}
+              {formErrors.id_rol && <p className="text-red-500 text-xs mt-1">{formErrors.id_rol}</p>}
             </div>
           </div>
 
+          {/* Email */}
           <div>
-            <label className="block text-gray-700 mb-2">Correo Electrónico *</label>
-            <Input
-              type="email"
-              value={formData.email}
-              onChange={(e) => handleFieldChange('email', e.target.value)}
-              placeholder="usuario@ejemplo.com"
-              className={formData.email && !formErrors.email ? 'border-green-500' : formErrors.email ? 'border-red-500' : ''}
-            />
-            {formErrors.email && <p className="text-red-600 text-sm mt-1">{formErrors.email}</p>}
-            {formData.email && !formErrors.email && <p className="text-green-600 text-xs mt-1">✓ Email válido</p>}
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Correo electrónico *</label>
+            <Input type="email" value={formData.email} onChange={(e) => setField('email', e.target.value)} placeholder="usuario@ejemplo.com"
+              className={formErrors.email ? 'border-red-400' : ''} />
+            {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
           </div>
 
+          {/* Dirección */}
           <div>
-            <label className="block text-gray-700 mb-2">Dirección</label>
-            <Input
-              value={formData.direccion}
-              onChange={(e) => handleFieldChange('direccion', e.target.value)}
-              placeholder="Calle 123 # 45-67"
-              className={formData.direccion && !formErrors.direccion ? 'border-green-500' : formErrors.direccion ? 'border-red-500' : ''}
-            />
-            {formErrors.direccion && <p className="text-red-600 text-sm mt-1">{formErrors.direccion}</p>}
-            {formData.direccion && !formErrors.direccion && <p className="text-green-600 text-xs mt-1">✓ Dirección válida</p>}
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Dirección</label>
+            <Input value={formData.address} onChange={(e) => setField('address', e.target.value)} placeholder="Calle 123 # 45-67" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Contraseñas */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-gray-700 mb-2">
-                Contraseña {editingUsuario ? '(dejar vacío para no cambiar)' : '*'}
+              <label className="block text-gray-700 font-medium mb-1 text-xs">
+                Contraseña {editingUser ? '(dejar vacío para no cambiar)' : '*'}
               </label>
               <div className="relative">
-                <Input
-                  type={showPassword ? 'text' : 'password'}
-                  value={formData.password}
-                  onChange={(e) => handleFieldChange('password', e.target.value)}
-                  placeholder="••••••••"
-                  className={formErrors.password ? 'border-red-500' : formData.password && !formErrors.password ? 'border-green-500' : ''}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                <Input type={showPass ? 'text' : 'password'} value={formData.password}
+                  onChange={(e) => setField('password', e.target.value)} placeholder="••••••••"
+                  className={formErrors.password ? 'border-red-400' : ''} />
+                <button type="button" onClick={() => setShowPass(p => !p)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
-              {formErrors.password && <p className="text-red-600 text-sm mt-1">{formErrors.password}</p>}
-              {formData.password && !formErrors.password && <p className="text-green-600 text-xs mt-1">✓ Contraseña válida</p>}
-              <p className="text-xs text-gray-500 mt-1">
-                Mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial
-              </p>
+              {formErrors.password && <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>}
+              <p className="text-xs text-gray-400 mt-1">8+ chars, mayúscula, minúscula, número y símbolo</p>
             </div>
-
             <div>
-              <label className="block text-gray-700 mb-2">
-                Repetir Contraseña {editingUsuario ? '' : '*'}
+              <label className="block text-gray-700 font-medium mb-1 text-xs">
+                Repetir contraseña {editingUser ? '' : '*'}
               </label>
               <div className="relative">
-                <Input
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={formData.confirmPassword}
-                  onChange={(e) => handleFieldChange('confirmPassword', e.target.value)}
-                  placeholder="••••••••"
-                  className={formErrors.confirmPassword ? 'border-red-500' : formData.confirmPassword && !formErrors.confirmPassword && formData.password === formData.confirmPassword ? 'border-green-500' : ''}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                >
-                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                <Input type={showConfirm ? 'text' : 'password'} value={formData.confirmPassword}
+                  onChange={(e) => setField('confirmPassword', e.target.value)} placeholder="••••••••"
+                  className={formErrors.confirmPassword ? 'border-red-400' : ''} />
+                <button type="button" onClick={() => setShowConfirm(p => !p)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  {showConfirm ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
-              {formErrors.confirmPassword && <p className="text-red-600 text-sm mt-1">{formErrors.confirmPassword}</p>}
-              {formData.password && formData.confirmPassword && !formErrors.confirmPassword && (
-                <p className="text-green-600 text-xs mt-1">✓ Las contraseñas coinciden</p>
-              )}
+              {formErrors.confirmPassword && <p className="text-red-500 text-xs mt-1">{formErrors.confirmPassword}</p>}
             </div>
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t">
-            <Button onClick={() => setShowModal(false)} variant="secondary">
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} variant="primary">
-              {editingUsuario ? 'Guardar Cambios' : 'Crear Usuario'}
+          <div className="flex gap-3 justify-end pt-3 border-t">
+            <Button onClick={() => setShowModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={handleSave} variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Guardando...' : editingUser ? 'Guardar cambios' : 'Crear usuario'}
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* Modal View Usuario */}
-      <Modal
-        isOpen={showViewModal}
-        onClose={() => setShowViewModal(false)}
-        title="Detalles del Usuario"
-      >
-        {viewingUsuario && (
-          <div className="space-y-6">
-            <div className="bg-gray-50 rounded-lg p-6">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-16 h-16 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white text-2xl">
-                  {viewingUsuario.nombre[0]?.toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">{viewingUsuario.nombre}</h3>
-                  <p className="text-gray-600">{viewingUsuario.email}</p>
-                </div>
+      {/* ─── Modal Ver Usuario ──────────────────────────────────────────────── */}
+      <Modal isOpen={showViewModal} onClose={() => setShowViewModal(false)} title="Detalle del Usuario" size="md">
+        {viewingUser && (
+          <div className="space-y-5 text-sm">
+            <div className="flex items-center gap-4 bg-gray-50 rounded-xl p-4">
+              <div className="w-14 h-14 bg-gradient-to-br from-gray-600 to-gray-800 rounded-full flex items-center justify-center text-white text-xl font-bold shrink-0">
+                {viewingUser.name[0]?.toUpperCase()}
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Tipo de Documento</label>
-                  <div className="text-gray-900 font-medium">{viewingUsuario.tipoDoc}</div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Número de Documento</label>
-                  <div className="text-gray-900 font-medium">{viewingUsuario.numeroDoc}</div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Celular</label>
-                  <div className="text-gray-900 font-medium">{viewingUsuario.celular}</div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Rol</label>
-                  <div className="text-gray-900 font-medium">{viewingUsuario.role}</div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Estado</label>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${viewingUsuario.activo ? 'bg-green-500' : 'bg-gray-400'}`} />
-                    <span className="text-gray-900 font-medium">{viewingUsuario.activo ? 'Activo' : 'Inactivo'}</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Fecha de Creación</label>
-                  <div className="text-gray-900 font-medium">{new Date(viewingUsuario.createdAt).toLocaleDateString()}</div>
-                </div>
+              <div>
+                <p className="font-bold text-gray-900">{viewingUser.name}</p>
+                <p className="text-xs text-gray-500">{viewingUser.email}</p>
+                <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                  viewingUser.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {viewingUser.is_active ? 'Activo' : 'Inactivo'}
+                </span>
               </div>
+            </div>
 
-              {viewingUsuario.direccion && (
-                <div className="mt-4">
-                  <label className="block text-sm text-gray-600 mb-1">Dirección</label>
-                  <div className="text-gray-900 font-medium">{viewingUsuario.direccion}</div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Tipo de documento</p>
+                <p className="font-medium text-gray-900">{viewingUser.type_doc_name}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Número de documento</p>
+                <p className="font-medium text-gray-900">{viewingUser.doc_identity}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Celular</p>
+                <p className="font-medium text-gray-900">{viewingUser.phone}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Rol</p>
+                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                  viewingUser.role_name?.toLowerCase() === 'administrador' ? 'bg-purple-100 text-purple-700' :
+                  viewingUser.role_name?.toLowerCase() === 'empleado'      ? 'bg-blue-100 text-blue-700' :
+                                                                              'bg-gray-100 text-gray-700'
+                }`}>
+                  {viewingUser.role_name}
+                </span>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Fecha de creación</p>
+                <p className="font-medium text-gray-900">{new Date(viewingUser.created_at).toLocaleDateString('es-CO')}</p>
+              </div>
+              {viewingUser.address && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Dirección</p>
+                  <p className="font-medium text-gray-900">{viewingUser.address}</p>
                 </div>
               )}
             </div>
 
-            <div className="flex gap-3 justify-end">
-              <Button onClick={() => setShowViewModal(false)} variant="primary">
-                Cerrar
-              </Button>
+            <div className="flex justify-end">
+              <Button onClick={() => setShowViewModal(false)} variant="primary">Cerrar</Button>
             </div>
           </div>
         )}
       </Modal>
 
-      {/* Modal Reporte */}
-      <Modal
-        isOpen={showReporte}
-        onClose={() => setShowReporte(false)}
-        title="Reporte de Usuarios"
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-gray-600 mb-1">Total Usuarios</div>
-              <div className="text-2xl text-gray-900">{usuarios.length}</div>
+      {/* ─── Modal Eliminar ─────────────────────────────────────────────────── */}
+      <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Eliminar Usuario" size="sm">
+        <div className="space-y-4 text-sm">
+          <p className="text-gray-700">¿Eliminar a <strong>{deletingUser?.name}</strong>? Esta acción no se puede deshacer.</p>
+          <div className="flex gap-3 justify-end">
+            <Button onClick={() => setShowDeleteModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={confirmDelete} variant="primary" disabled={isSubmitting} className="bg-red-600 hover:bg-red-700">
+              {isSubmitting ? 'Eliminando...' : 'Eliminar'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Modal Toggle Estado ────────────────────────────────────────────── */}
+      <Modal isOpen={showToggleModal} onClose={() => setShowToggleModal(false)} title="Cambiar Estado" size="sm">
+        <div className="space-y-4 text-sm">
+          <p className="text-gray-700">
+            ¿Deseas <strong>{togglingUser?.is_active ? 'desactivar' : 'activar'}</strong> a <strong>{togglingUser?.name}</strong>?
+          </p>
+          <div className="flex gap-3 justify-end">
+            <Button onClick={() => setShowToggleModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={confirmToggle} variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Procesando...' : 'Confirmar'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Modal Reporte ──────────────────────────────────────────────────── */}
+      <Modal isOpen={showReporte} onClose={() => setShowReporte(false)} title="Reporte de Usuarios" size="sm">
+        <div className="space-y-4 text-sm">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-500 mb-1">Total</p>
+              <p className="text-2xl font-bold text-gray-900">{users.length}</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-gray-600 mb-1">Activos</div>
-              <div className="text-2xl text-green-600">{usuarios.filter(u => u.activo).length}</div>
+            <div className="bg-green-50 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-500 mb-1">Activos</p>
+              <p className="text-2xl font-bold text-green-600">{users.filter(u => u.is_active).length}</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-gray-600 mb-1">Inactivos</div>
-              <div className="text-2xl text-red-600">{usuarios.filter(u => !u.activo).length}</div>
+            <div className="bg-red-50 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-500 mb-1">Inactivos</p>
+              <p className="text-2xl font-bold text-red-500">{users.filter(u => !u.is_active).length}</p>
             </div>
           </div>
 
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-gray-600 mb-2">Por Rol</div>
-            {roles.map((rol: any) => {
-              const count = usuarios.filter(u => u.role === (rol.name || rol.nombre)).length;
-              return (
-                <div key={rol.id} className="flex justify-between items-center py-1">
-                  <span className="text-gray-700">{rol.name || rol.nombre}</span>
-                  <span className="text-gray-900">{count}</span>
-                </div>
-              );
-            })}
+          <div className="bg-gray-50 rounded-lg p-3">
+            <p className="text-xs text-gray-500 mb-2">Por rol</p>
+            {roles.map(r => (
+              <div key={r.idRol} className="flex justify-between py-1 text-xs">
+                <span className="text-gray-700">{r.name}</span>
+                <span className="font-medium text-gray-900">{users.filter(u => u.id_rol === r.idRol).length}</span>
+              </div>
+            ))}
           </div>
 
-          <Button onClick={exportarReporte} variant="primary" className="w-full">
-            <Download size={20} />
-            Exportar Reporte
+          <Button onClick={handleExport} variant="primary" className="w-full">
+            <Download size={16} /> Exportar Excel
           </Button>
         </div>
       </Modal>

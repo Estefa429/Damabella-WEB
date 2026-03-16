@@ -335,7 +335,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
       case 'clientes':
         return <ClientesManager />;
       case 'cliente-detalle':
-        return <ClienteDetallePage cliente={clienteDetalleActual} onBack={() => setCurrentPage('clientes')} />;
+        return <ClienteDetallePage clientId={clienteDetalleActual?.id_client} onBack={() => setCurrentPage('clientes')} />;
       case 'pedidos':
         return <PedidosManager />;
       case 'ventas':

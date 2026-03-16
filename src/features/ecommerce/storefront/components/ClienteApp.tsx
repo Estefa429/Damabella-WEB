@@ -17,7 +17,7 @@ import { Modal } from '../../../../shared/components/native';
 interface ClienteAppProps {
   currentUser: any;
   isAuthenticated: boolean;
-  onLogin: (user: any) => void;
+  onLogin: () => void ;
   onLogout: () => void;
 }
 
@@ -88,8 +88,7 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const handleLoginSuccess = (user: any) => {
-    onLogin(user);
+  const handleLoginSuccess = () => {
     setCurrentView('home');
   };
 

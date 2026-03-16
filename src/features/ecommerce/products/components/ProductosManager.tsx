@@ -1,981 +1,562 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Search, Image as ImageIcon, Package, Upload, AlertCircle, CheckCircle, Download } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Search, Package, Eye, Edit2, Trash2, Download, AlertCircle } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
-import validateField from '../../../../shared/utils/validation';
-import { Eye, Edit2, Trash2, X } from 'lucide-react';
+import { useToast } from '../../../../shared/components/native';
 
-const STORAGE_KEY = 'damabella_productos';
-const CATEGORIAS_KEY = 'damabella_categorias';
-const PROVEEDORES_KEY = 'damabella_proveedores';
-const TALLAS_KEY = 'damabella_tallas';
-const COLORES_KEY = 'damabella_colores';
+// ─── Services ─────────────────────────────────────────────────────────────────
+import {
+  getAllProducts,
+  getAllInventory,
+  updateProduct,
+  patchProductState,
+  deleteProduct,
+  Product,
+  Inventory,
+} from '@/features/ecommerce/products/services/productsService';
+import { getAllVariants, VariantProduct } from '@/features/purchases/services/PurchasesService';
+import { getAllCategories, Categories } from '@/features/ecommerce/categories/services/categoriesService';
 
-interface VarianteTalla {
-  talla: string;
-  colores: {
-    color: string;
-    cantidad: number;
-  }[];
-}
+// ─── Utils ────────────────────────────────────────────────────────────────────
+const formatCOP = (value: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
 
-interface Producto {
-  id: number;
-  nombre: string;
-  proveedor: string;
-  categoria: string;
-  categoryId?: string;  // ✅ ID de la categoría (desde Compras)
-  precioVenta: number;
-  activo: boolean;
-  variantes: VarianteTalla[];
-  imagen?: string;
-  createdAt: string;
-  // Campos opcionales creados desde ComprasManager
-  referencia?: string;
-  precioCompra?: number;
-  createdFromSKU?: string;
-  updatedAt?: string;
-  lastUpdatedFrom?: string;
-}
-
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function ProductosManager() {
-  const getColoresTemporales = () => {
-    return [
-      { nombre: 'Negro', hex: '#000000' },
-      { nombre: 'Blanco', hex: '#FFFFFF' },
-      { nombre: 'Gris', hex: '#808080' },
-      { nombre: 'Azul', hex: '#0000FF' },
-      { nombre: 'Rojo', hex: '#FF0000' },
-      { nombre: 'Verde', hex: '#008000' },
-      { nombre: 'Amarillo', hex: '#FFFF00' },
-      { nombre: 'Rosa', hex: '#FFC0CB' },
-      { nombre: 'Naranja', hex: '#FFA500' },
-      { nombre: 'Púrpura', hex: '#800080' },
-      { nombre: 'Beige', hex: '#F5F5DC' },
-      { nombre: 'Marrón', hex: '#A52A2A' },
-      { nombre: 'Azul Marino', hex: '#000080' },
-      { nombre: 'Turquesa', hex: '#40E0D0' },
-      { nombre: 'Dorado', hex: '#FFD700' }
-    ];
-  };
+  const { showToast } = useToast();
 
-  const [productos, setProductos] = useState<Producto[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    let productos = stored ? JSON.parse(stored) : [];
-    
-    // 🔄 MIGRACIÓN AUTOMÁTICA: Resolver categoryId → categoria para productos antiguos
-    const categorias = (() => {
-      const catStored = localStorage.getItem(CATEGORIAS_KEY);
-      return catStored ? JSON.parse(catStored) : [
-        { id: 1, name: 'Vestidos Largos' },
-        { id: 2, name: 'Vestidos Cortos' },
-        { id: 3, name: 'Sets' },
-        { id: 4, name: 'Enterizos' }
-      ];
-    })();
-    
-    // Revisar cada producto
-    const productosActualizados = productos.map((p: any) => {
-      // Si tiene categoryId pero NO tiene categoria (campo textual)
-      if (p.categoryId && !p.categoria) {
-        const categoriaNombre = categorias.find((c: any) => 
-          String(c.id) === String(p.categoryId) || c.name === p.categoryId
-        )?.name;
-        
-        if (categoriaNombre) {
-          console.log(`🔄 [ProductosManager-INIT] Migrando ${p.nombre}: categoryId="${p.categoryId}" → categoria="${categoriaNombre}"`);
-          return {
-            ...p,
-            categoria: categoriaNombre  // ✅ Guardar el nombre
-          };
-        }
-      }
-      return p;
-    });
-    
-    // Si hubo cambios, guardar
-    if (JSON.stringify(productos) !== JSON.stringify(productosActualizados)) {
-      console.log('💾 [ProductosManager-INIT] Guardando productos migrados...');
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(productosActualizados));
-    }
-    
-    return productosActualizados;
-  });
+  // ─── Data ────────────────────────────────────────────────────────────────────
+  const [products,   setProducts]   = useState<Product[]>([]);
+  const [variants,   setVariants]   = useState<VariantProduct[]>([]);
+  const [inventory,  setInventory]  = useState<Inventory[]>([]);
+  const [categories, setCategories] = useState<Categories[]>([]);
+  const [loading,    setLoading]    = useState(true);
 
-  const [categorias, setCategorias] = useState(() => {
-    const stored = localStorage.getItem(CATEGORIAS_KEY);
-    return stored ? JSON.parse(stored) : [
-      { id: 1, name: 'Vestidos Largos' },
-      { id: 2, name: 'Vestidos Cortos' },
-      { id: 3, name: 'Sets' },
-      { id: 4, name: 'Enterizos' }
-    ];
-  });
-
-  // Polling para detectar nuevas categorías cada 1 segundo
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const stored = localStorage.getItem(CATEGORIAS_KEY);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setCategorias(parsed);
-          console.log('[ProductosManager] ✅ Categorías actualizadas:', parsed.length);
-          
-          // 🔄 SINCRONIZACIÓN: Resolver categoryId → categoria para productos que lo necesiten
-          setProductos(prevProductos => {
-            const productosActualizados = prevProductos.map((p: any) => {
-              if (p.categoryId && !p.categoria) {
-                const categoriaNombre = parsed.find((c: any) => 
-                  String(c.id) === String(p.categoryId) || c.name === p.categoryId
-                )?.name;
-                
-                if (categoriaNombre) {
-                  console.log(`✅ [ProductosManager-SYNC] Resolviendo categoría: ${p.nombre} = "${categoriaNombre}"`);
-                  return {
-                    ...p,
-                    categoria: categoriaNombre
-                  };
-                }
-              }
-              return p;
-            });
-            
-            // Si hubo cambios, guardar
-            if (JSON.stringify(prevProductos) !== JSON.stringify(productosActualizados)) {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(productosActualizados));
-            }
-            
-            return productosActualizados;
-          });
-        } catch (error) {
-          console.error('[ProductosManager] Error al actualizar categorías:', error);
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const [proveedores, setProveedores] = useState(() => {
-    const stored = localStorage.getItem(PROVEEDORES_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
-
-  // Polling para detectar nuevos proveedores cada 1 segundo
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const stored = localStorage.getItem(PROVEEDORES_KEY);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setProveedores(parsed);
-        } catch (error) {
-          console.error('[ProductosManager] Error al actualizar proveedores:', error);
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const [tallas, setTallas] = useState(() => {
-    const stored = localStorage.getItem(TALLAS_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        const mapped = parsed.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
-        // Solo usar si tiene contenido
-        if (mapped.length > 0) return mapped;
-      } catch {
-        // Si hay error, usar por defecto
-      }
-    }
-    // SIEMPRE retornar valores por defecto si localStorage está vacío o es inválido
-    return ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
-  });
-
-  // Polling para detectar nuevas tallas cada 1 segundo
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const stored = localStorage.getItem(TALLAS_KEY);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          const newTallas = parsed.map((t: any) => t.abbreviation || t.name || t).filter(Boolean);
-          // Solo actualizar si tiene contenido, sino mantener los valores por defecto
-          if (newTallas.length > 0) {
-            setTallas(newTallas);
-          }
-        } catch (error) {
-          console.error('[ProductosManager] Error al actualizar tallas:', error);
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const [coloresDisponibles, setColoresDisponibles] = useState(() => {
-    const stored = localStorage.getItem(COLORES_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        const mapped = parsed.map((c: any) => ({
-          nombre: c.name || c.nombre || '',
-          hex: c.hexCode || c.hex || '#000000'
-        })).filter((c: any) => c.nombre);
-        // Solo usar si tiene contenido
-        if (mapped.length > 0) return mapped;
-      } catch {
-        // Si hay error, usar por defecto
-      }
-    }
-    // SIEMPRE retornar valores por defecto si localStorage está vacío o es inválido
-    return getColoresTemporales();
-  });
-
-  // Polling para detectar nuevos colores cada 1 segundo
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const stored = localStorage.getItem(COLORES_KEY);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          const newColores = parsed.map((c: any) => ({
-            nombre: c.name || c.nombre || '',
-            hex: c.hexCode || c.hex || '#000000'
-          })).filter((c: any) => c.nombre);
-          // Solo actualizar si tiene contenido, sino mantener los valores por defecto
-          if (newColores.length > 0) {
-            setColoresDisponibles(newColores);
-          }
-        } catch (error) {
-          console.error('[ProductosManager] Error al actualizar colores:', error);
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editMode, setEditMode] = useState(false);  // ✅ Diferenciar crear vs editar
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [viewingProduct, setViewingProduct] = useState<Producto | null>(null);
-  const [editingProduct, setEditingProduct] = useState<Producto | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  // ─── UI ──────────────────────────────────────────────────────────────────────
+  const [searchTerm,  setSearchTerm]  = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-  
-  const [formData, setFormData] = useState({
-    nombre: '',
-    proveedor: '',
-    categoria: '',
-    precioVenta: '',
-    imagen: '',
-    variantes: [] as VarianteTalla[]
-  });
+  const itemsPerPage = 12;
 
-  const [formErrors, setFormErrors] = useState<any>({});
-  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-  const [productToDelete, setProductToDelete] = useState<number | null>(null);
-  const [showConfirmToggle, setShowConfirmToggle] = useState(false);
-  const [productToToggle, setProductToToggle] = useState<number | null>(null);
-  const [showAlert, setShowAlert] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
+  // ─── Modals ──────────────────────────────────────────────────────────────────
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditModal,   setShowEditModal]   = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showToggleModal, setShowToggleModal] = useState(false);
 
-  const [nuevaVariante, setNuevaVariante] = useState({
-    talla: '',
-    colores: [{ color: '', cantidad: 0 }]
-  });
+  const [viewingProduct,  setViewingProduct]  = useState<Product | null>(null);
+  const [editingProduct,  setEditingProduct]  = useState<Product | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
+  const [togglingProduct, setTogglingProduct] = useState<Product | null>(null);
+  const [isSubmitting,    setIsSubmitting]    = useState(false);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(productos));
-  }, [productos]);
+  // ─── Edit form ───────────────────────────────────────────────────────────────
+  const [editName,     setEditName]     = useState('');
+  const [editPrice,    setEditPrice]    = useState('');
+  const [editCategory, setEditCategory] = useState<number | null>(null);
+  const [editErrors,   setEditErrors]   = useState<Record<string, string>>({});
+  const [editPurchasePrice, setEditPurchasePrice] = useState('');
 
-  const handleCreate = () => {
-    // ❌ PROHIBIDO: No se pueden crear nuevos productos desde este módulo
-    // Solo Compras puede crear productos
-    setShowAlert({ 
-      visible: true, 
-      message: '❌ Los productos se crean SOLO desde el módulo Compras. Este módulo solo permite editar metadatos.', 
-      type: 'error' 
-    });
-  };
-
-  const handleEdit = (producto: Producto) => {
-    setEditingProduct(producto);
-    setEditMode(true);  // ✅ Modo editar
-    setFormData({
-      nombre: producto.nombre || '',
-      proveedor: producto.proveedor || '',
-      categoria: producto.categoria || '',
-      precioVenta: producto.precioVenta ? producto.precioVenta.toString() : '',
-      imagen: producto.imagen || '',
-      variantes: producto.variantes && producto.variantes.length > 0 
-        ? producto.variantes 
-        : []
-    });
-    // ✅ RESET nuevaVariante al editar - NO heredar valores anteriores
-    setNuevaVariante({
-      talla: '',
-      colores: [{ color: '', cantidad: 0 }]
-    });
-    setFormErrors({});  // ✅ Limpiar errores previos
-    setShowModal(true);
-  };
-
-  const handleViewDetail = (producto: Producto) => {
-    setViewingProduct(producto);
-    setShowDetailModal(true);
-  };
-
-  const agregarVariante = () => {
-    // ❌ PROHIBIDO: No se pueden crear variantes desde este módulo
-    // Solo Compras puede crear variantes
-    setShowAlert({ 
-      visible: true, 
-      message: '❌ Las variantes se crean SOLO desde el módulo Compras. Este módulo permite verlas en lectura, no crearlas.', 
-      type: 'error' 
-    });
-  };
-
-  const eliminarVariante = (tallaIndex: number) => {
-    setFormData({
-      ...formData,
-      variantes: formData.variantes.filter((_, i) => i !== tallaIndex)
-    });
-  };
-
-  const handleSave = () => {
-    const errors: any = {};
-    const nombreErr = validateField('nombre', formData.nombre);
-    if (nombreErr) errors.nombre = nombreErr;
-    if (!formData.proveedor) errors.proveedor = 'Este campo es obligatorio';
-    if (!formData.categoria) errors.categoria = 'Este campo es obligatorio';
-    const precioErr = validateField('price', formData.precioVenta);
-    if (precioErr) errors.precioVenta = precioErr;
-
-    // ❌ PROHIBICIÓN: NO se puede crear producto nuevo (sin editingProduct)
-    if (!editingProduct) {
-      setShowAlert({ 
-        visible: true, 
-        message: '❌ No se pueden crear nuevos productos desde este módulo. Solo editar metadatos de productos existentes.', 
-        type: 'error' 
-      });
-      return;
+  // ─── Load data ───────────────────────────────────────────────────────────────
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [prods, vars, inv, cats] = await Promise.all([
+        getAllProducts(),
+        getAllVariants(),
+        getAllInventory(),
+        getAllCategories(),
+      ]);
+      if (prods) setProducts(prods);
+      if (vars)  setVariants(vars);
+      if (inv)   setInventory(inv);
+      if (cats)  setCategories(cats);
+    } catch {
+      showToast('Error cargando productos', 'error');
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      return;
-    }
+  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
-    const productoData = {
-      nombre: formData.nombre,
-      proveedor: formData.proveedor,
-      categoria: formData.categoria,
-      precioVenta: parseFloat(formData.precioVenta),
-      activo: editingProduct ? editingProduct.activo : true,
-      variantes: editingProduct.variantes,  // ✅ Mantener variantes sin cambios - NO editar
-      imagen: formData.imagen,
-      createdAt: editingProduct ? editingProduct.createdAt : new Date().toISOString()
-    };
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+  const getProductVariants = (productId: number) =>
+    variants.filter(v => v.product === productId);
 
-    if (editingProduct) {
-      // 🔧 MERGE COMPLETO: Mantener campos existentes que no se editen
-      const productoActualizado = {
-        ...editingProduct,  // Primero mantener TODO el producto existente
-        ...productoData,     // Luego sobrescribir SOLO los campos editados
-        id: editingProduct.id,  // Asegurar que el ID no cambie
-        variantes: editingProduct.variantes,  // ✅ NUNCA editar variantes desde aquí
-        categoryId: editingProduct.categoryId  // ✅ Mantener categoryId intacto
-      };
-      
-      console.log(`📝 [ProductosManager] Actualizando metadatos del producto:`, {
-        id: productoActualizado.id,
-        nombre: productoActualizado.nombre,
-        categoria: productoActualizado.categoria,
-        precioVenta: productoActualizado.precioVenta,
-        variantesMantenidas: productoActualizado.variantes.length,
-        camposEditados: ['nombre', 'categoria', 'precioVenta', 'proveedor', 'imagen'],
-        camposProtegidos: ['categoryId', 'variantes', 'referencia', 'precioCompra']
-      });
-      
-      setProductos(productos.map(p => 
-        p.id === editingProduct.id ? productoActualizado : p
-      ));
-      setShowAlert({ visible: true, message: '✅ Metadatos del producto actualizados. Las variantes se crean desde Compras.', type: 'success' });
-    }
-    
-    setShowModal(false);
-    setEditMode(false);
-    setFormErrors({});
-    setNuevaVariante({ talla: '', colores: [{ color: '', cantidad: 0 }] });
-  };
+  const getVariantStock = (variantId: number) =>
+    inventory.find(i => i.variant === variantId)?.stock ?? 0;
 
-  const handleFieldChange = (field: string, value: any) => {
-    setFormData({ ...formData, [field]: value });
-    let err = '';
-    if (field === 'nombre') err = validateField('nombre', value);
-    else if (field === 'precioVenta') err = validateField('price', value);
-    else if (field === 'proveedor' || field === 'categoria') err = value ? '' : 'Este campo es obligatorio';
+  const getTotalStock = (productId: number) =>
+    getProductVariants(productId).reduce((sum, v) => sum + getVariantStock(v.id_variant), 0);
 
-    if (err) setFormErrors({ ...formErrors, [field]: err });
-    else {
-      const { [field]: _removed, ...rest } = formErrors;
-      setFormErrors(rest);
-    }
-  };
-
-  const handleDelete = (id: number) => {
-    setProductToDelete(id);
-    setShowConfirmDelete(true);
-  };
-
-  const confirmDelete = () => {
-    if (productToDelete) {
-      setProductos(productos.filter(p => p.id !== productToDelete));
-      setShowAlert({ visible: true, message: 'Producto eliminado exitosamente', type: 'success' });
-    }
-    setShowConfirmDelete(false);
-    setProductToDelete(null);
-  };
-
-  const toggleActive = (id: number) => {
-    setProductToToggle(id);
-    setShowConfirmToggle(true);
-  };
-
-  const confirmToggle = () => {
-    if (productToToggle) {
-      const producto = productos.find(p => p.id === productToToggle);
-      setProductos(productos.map(p => 
-        p.id === productToToggle ? { ...p, activo: !p.activo } : p
-      ));
-      const nuevoEstado = !producto?.activo ? 'activado' : 'desactivado';
-      setShowAlert({ visible: true, message: `Producto ${nuevoEstado} exitosamente`, type: 'success' });
-    }
-    setShowConfirmToggle(false);
-    setProductToToggle(null);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, imagen: reader.result as string });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const filteredProducts = productos.filter(p => {
-    const searchLower = searchTerm.toLowerCase();
+  // ─── Filter & paginate ───────────────────────────────────────────────────────
+  const filtered = products.filter(p => {
+    const q = searchTerm.toLowerCase();
     return (
-      (p.nombre?.toLowerCase() ?? '').includes(searchLower) ||
-      (p.categoria?.toLowerCase() ?? '').includes(searchLower) ||
-      (p.proveedor?.toLowerCase() ?? '').includes(searchLower) ||
-      (p.activo ? 'activo' : 'inactivo').includes(searchLower) ||
-      p.precioVenta.toString().includes(searchLower) ||
-      (p.variantes || []).some(v => 
-        (v.talla?.toLowerCase() ?? '').includes(searchLower) ||
-        (v.colores || []).some(c => (c.color?.toLowerCase() ?? '').includes(searchLower))
-      )
+      p.name.toLowerCase().includes(q) ||
+      p.category_name.toLowerCase().includes(q) ||
+      (p.is_active ? 'activo' : 'inactivo').includes(q)
     );
   });
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginated  = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const getTotalStock = (producto: Producto) => {
-    if (!producto.variantes || !Array.isArray(producto.variantes)) {
-      return 0;
-    }
-    return producto.variantes.reduce((totalVariantes, variante) => {
-      if (!variante.colores || !Array.isArray(variante.colores)) {
-        return totalVariantes;
-      }
-      return totalVariantes + variante.colores.reduce((totalColores, color) => totalColores + (color.cantidad || 0), 0);
-    }, 0);
+  // ─── Edit ────────────────────────────────────────────────────────────────────
+  const handleEdit = (product: Product) => {
+    setEditingProduct(product);
+    setEditName(product.name);
+    setEditPrice(String(product.price));
+    setEditPurchasePrice(String(product.purchase_price));
+    setEditCategory(product.category);
+    setEditErrors({});
+    setShowEditModal(true);
   };
 
+  const handleSaveEdit = async () => {
+    const errors: Record<string, string> = {};
+    if (!editName.trim())                     errors.name     = 'El nombre es obligatorio';
+    if (!editPrice || Number(editPrice) <= 0) errors.price    = 'El precio debe ser mayor a 0';
+    if (!editPurchasePrice || Number(editPurchasePrice) <= 0) errors.purchasePrice = 'El precio de compra debe ser mayor a 0';
+    if (!editCategory)                        errors.category = 'Selecciona una categoría';
+    setEditErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    if (!editingProduct) return;
+
+    setIsSubmitting(true);
+    const result = await updateProduct(editingProduct.id_product, {
+      name:      editName.trim(),
+      price:     Number(editPrice),
+      purchase_price: Number(editPurchasePrice),
+      category:  editCategory!,
+      is_active: editingProduct.is_active,
+    });
+
+    if (result) {
+      showToast('Producto actualizado', 'success');
+      await loadData();
+      setShowEditModal(false);
+    } else {
+      showToast('Error al actualizar', 'error');
+    }
+    setIsSubmitting(false);
+  };
+
+  // ─── Toggle ──────────────────────────────────────────────────────────────────
+  const handleToggle = (product: Product) => {
+    setTogglingProduct(product);
+    setShowToggleModal(true);
+  };
+
+  const confirmToggle = async () => {
+    if (!togglingProduct) return;
+    setIsSubmitting(true);
+    const ok = await patchProductState(togglingProduct.id_product, !togglingProduct.is_active);
+    if (ok) {
+      showToast(`Producto ${!togglingProduct.is_active ? 'activado' : 'desactivado'}`, 'success');
+      await loadData();
+    } else {
+      showToast('Error al cambiar estado', 'error');
+    }
+    setIsSubmitting(false);
+    setShowToggleModal(false);
+  };
+
+  // ─── Delete ──────────────────────────────────────────────────────────────────
+  const handleDelete = (product: Product) => {
+    setDeletingProduct(product);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingProduct) return;
+    setIsSubmitting(true);
+    const ok = await deleteProduct(deletingProduct.id_product);
+    if (ok) {
+      showToast('Producto eliminado', 'success');
+      await loadData();
+    } else {
+      showToast('No se pudo eliminar — puede tener variantes o compras asociadas', 'error');
+    }
+    setIsSubmitting(false);
+    setShowDeleteModal(false);
+  };
+
+  // ─── Export ──────────────────────────────────────────────────────────────────
   const exportToExcel = () => {
-    const headers = ['Nombre', 'Categoría', 'Proveedor', 'Precio', 'Estado', 'Stock Total', 'Tallas', 'Colores'];
-    const rows = productos.map(p => [
-      p.nombre,
-      p.categoria,
-      p.proveedor,
-      p.precioVenta,
-      p.activo ? 'Activo' : 'Inactivo',
-      getTotalStock(p),
-      (p.variantes || []).map(v => v.talla).join(' / ') || 'Sin tallas',
-      (p.variantes || []).flatMap(v => v.colores.map(c => c.color)).join(' / ') || 'Sin colores'
+    const headers = ['ID', 'Nombre', 'Categoría', 'Precio', 'Estado', 'Stock Total', 'Variantes'];
+    const rows = products.map(p => [
+      p.id_product,
+      p.name,
+      p.category_name,
+      p.price,
+      p.is_active ? 'Activo' : 'Inactivo',
+      getTotalStock(p.id_product),
+      getProductVariants(p.id_product).map(v => `${v.size_name}/${v.color_name}`).join(' | ') || 'Sin variantes',
     ]);
-    
-    const csvContent = [
-      headers.join('\t'),
-      ...rows.map(row => row.join('\t'))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/plain;charset=utf-8;' });
+    const csv  = [headers, ...rows].map(r => r.join('\t')).join('\n');
+    const blob = new Blob([csv], { type: 'text/plain;charset=utf-8;' });
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
+    link.href     = URL.createObjectURL(blob);
     link.download = `productos_${new Date().toISOString().split('T')[0]}.xlsx`;
     link.click();
   };
 
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-  const currentProducts = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  // ─── Loading ─────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-gray-500 text-sm">Cargando productos...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Alert Modal */}
-      <Modal
-        isOpen={showAlert.visible}
-        onClose={() => setShowAlert({ ...showAlert, visible: false })}
-        title={showAlert.type === 'error' ? 'Error' : showAlert.type === 'success' ? 'Éxito' : 'Información'}
-        size="sm"
-      >
-        <div className="flex items-center gap-3">
-          {showAlert.type === 'error' && <AlertCircle className="text-red-600" size={24} />}
-          {showAlert.type === 'success' && <CheckCircle className="text-green-600" size={24} />}
-          <p className="text-gray-700">{showAlert.message}</p>
-        </div>
-        <div className="flex justify-end gap-2 mt-4">
-          <Button onClick={() => setShowAlert({ ...showAlert, visible: false })} variant="primary">
-            Aceptar
-          </Button>
-        </div>
-      </Modal>
-
-      {/* Confirm Delete Modal */}
-      <Modal
-        isOpen={showConfirmDelete}
-        onClose={() => setShowConfirmDelete(false)}
-        title="Confirmar Eliminación"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-gray-700">¿Está seguro de que desea eliminar este producto? Esta acción no se puede deshacer.</p>
-          <div className="flex gap-2 justify-end">
-            <Button onClick={() => setShowConfirmDelete(false)} variant="secondary">
-              Cancelar
-            </Button>
-            <Button onClick={confirmDelete} variant="primary" className="bg-red-600 hover:bg-red-700">
-              Eliminar
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Confirm Toggle Modal */}
-      <Modal
-        isOpen={showConfirmToggle}
-        onClose={() => setShowConfirmToggle(false)}
-        title="Confirmar Cambio de Estado"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-gray-700">¿Desea cambiar el estado de este producto?</p>
-          <div className="flex gap-2 justify-end">
-            <Button onClick={() => setShowConfirmToggle(false)} variant="secondary">
-              Cancelar
-            </Button>
-            <Button onClick={confirmToggle} variant="primary">
-              Confirmar
-            </Button>
-          </div>
-        </div>
-      </Modal>
+    <div className="space-y-5">
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-gray-900 mb-2">Gestión de Productos</h2>
-          <p className="text-gray-600">Administra el inventario con múltiples tallas y colores por producto</p>
+          <h2 className="text-gray-900 font-bold text-lg mb-1">Gestión de Productos</h2>
+          <p className="text-gray-500 text-xs">
+            {products.length} productos · {variants.length} variantes
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={exportToExcel} variant="secondary">
-            <Download size={20} />
-            Descargar Excel
-          </Button>
-        </div>
+        <Button onClick={exportToExcel} variant="secondary">
+          <Download size={16} />
+          Exportar Excel
+        </Button>
+      </div>
+
+      {/* Aviso */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-center gap-2">
+        <AlertCircle size={14} className="shrink-0" />
+        Los productos y variantes se crean desde el módulo <strong className="mx-1">Compras</strong>. Aquí solo puedes editar metadatos, cambiar estado o eliminar.
       </div>
 
       {/* Search */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <Input
-            placeholder="Buscar productos..."
+            placeholder="Buscar por nombre, categoría o estado..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-10 text-sm"
           />
         </div>
       </div>
 
-      {/* Products Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {currentProducts.length === 0 ? (
-          <div className="col-span-full py-12 text-center text-gray-500">
-            <Package className="mx-auto mb-4 text-gray-300" size={48} />
-            <p>No se encontraron productos</p>
+      {/* Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {paginated.length === 0 ? (
+          <div className="col-span-full py-16 text-center text-gray-400">
+            <Package className="mx-auto mb-3 text-gray-300" size={48} />
+            <p className="text-sm">No se encontraron productos</p>
+            <p className="text-xs mt-1">Los productos se crean desde el módulo Compras</p>
           </div>
         ) : (
-          currentProducts.map((producto) => (
-            <div key={producto.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
-              {/* Imagen del producto */}
-              <div className="h-48 bg-gray-100 relative">
-                {producto.imagen ? (
-                  <img
-                    src={producto.imagen}
-                    alt={producto.nombre}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <ImageIcon className="text-gray-300" size={48} />
-                  </div>
-                )}
-                <div className="absolute top-2 right-2">
-                  <button
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => toggleActive(producto.id)}
-                    aria-pressed={producto.activo}
-                    title={producto.activo ? 'Inactivar producto' : 'Activar producto'}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${producto.activo ? 'bg-green-500' : 'bg-gray-400'}`}>
-                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${producto.activo ? 'translate-x-6' : 'translate-x-0'}`} />
-                  </button>
-                </div>
-              </div>
+          paginated.map(product => {
+            const stock       = getTotalStock(product.id_product);
+            const productVars = getProductVariants(product.id_product);
 
-              {/* Información del producto */}
-              <div className="p-4">
-                <h3 className="text-gray-900 mb-1">{producto.nombre}</h3>
-                <p className="text-sm text-gray-500 mb-3">{producto.categoria}</p>
-                
-                <div className="mb-4">
-                  <div className="text-2xl font-bold text-gray-900">
-                    ${(producto.precioVenta || 0).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-gray-600 mt-1">
-                    Stock total: <span className="font-semibold">{getTotalStock(producto)}</span> unidades
+            return (
+              <div
+                key={product.id_product}
+                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+              >
+                {/* Placeholder imagen */}
+                <div className="h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative">
+                  <Package className="text-gray-300" size={40} />
+
+                  {/* Toggle activo */}
+                  <button
+                    onClick={() => handleToggle(product)}
+                    title={product.is_active ? 'Desactivar' : 'Activar'}
+                    className={`absolute top-2 right-2 w-11 h-6 rounded-full transition-colors ${
+                      product.is_active ? 'bg-green-500' : 'bg-gray-400'
+                    }`}
+                  >
+                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      product.is_active ? 'translate-x-5' : 'translate-x-0'
+                    }`} />
+                  </button>
+
+                  {/* Badge stock */}
+                  <div className={`absolute bottom-2 left-2 text-xs px-2 py-0.5 rounded-full font-medium ${
+                    stock > 20 ? 'bg-green-100 text-green-700' :
+                    stock > 5  ? 'bg-yellow-100 text-yellow-700' :
+                    stock > 0  ? 'bg-red-100 text-red-700' :
+                                 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {stock > 0 ? `${stock} uds` : 'Sin stock'}
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleViewDetail(producto)}
-                    className="flex-1 px-3 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors text-blue-600 flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Eye size={16} />
-                    Ver Detalle
-                  </button>
-                  <button
-                    onClick={() => handleEdit(producto)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(producto.id)}
-                    className="px-3 py-2 border border-red-200 rounded-lg hover:bg-red-50 transition-colors text-red-600"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                <div className="p-4">
+                  <h3 className="font-semibold text-gray-900 text-sm mb-0.5 truncate">{product.name}</h3>
+                  <p className="text-xs text-gray-500 mb-3">{product.category_name}</p>
+
+                  <div className="text-xl font-bold text-gray-900 mb-2">
+                    {formatCOP(product.price)}
+                  </div>
+                  <div className="text-xs text-gray-500 mb-2">
+                    Compra: {formatCOP(product.purchase_price)}
+                  </div>
+
+                  {/* Variantes resumen */}
+                  {productVars.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {productVars.slice(0, 3).map(v => (
+                        <span key={v.id_variant} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                          {v.size_name}/{v.color_name}
+                        </span>
+                      ))}
+                      {productVars.length > 3 && (
+                        <span className="text-xs text-gray-400">+{productVars.length - 3} más</span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setViewingProduct(product); setShowDetailModal(true); }}
+                      className="flex-1 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 flex items-center justify-center gap-1 text-xs transition-colors"
+                    >
+                      <Eye size={13} /> Ver
+                    </button>
+                    <button
+                      onClick={() => handleEdit(product)}
+                      className="px-2 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(product)}
+                      className="px-2 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between mt-4">
-        <button
-          onClick={() => setCurrentPage(currentPage - 1)}
-          disabled={currentPage === 1}
-          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-gray-700"
-        >
-          Anterior
-        </button>
-        <div className="text-gray-600">
-          Página {currentPage} de {totalPages}
+      {/* Paginación */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-gray-500">
+            {filtered.length} productos — página {currentPage} de {totalPages}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+            >
+              Anterior
+            </button>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+            >
+              Siguiente
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => setCurrentPage(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-gray-700"
-        >
-          Siguiente
-        </button>
-      </div>
+      )}
 
-      {/* Modal Ver Detalle */}
-      <Modal
-        isOpen={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
-        title="Detalle del Producto"
-        size="lg"
-      >
-        {viewingProduct && (
-          <div className="space-y-6">
-            {/* Imagen */}
-            {viewingProduct.imagen && (
-              <div className="flex justify-center">
-                <img
-                  src={viewingProduct.imagen}
-                  alt={viewingProduct.nombre}
-                  className="w-full max-w-md h-64 object-cover rounded-lg"
-                />
-              </div>
-            )}
-
-            {/* Información básica */}
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-600">Nombre</p>
-                <p className="text-xl font-semibold text-gray-900">{viewingProduct.nombre}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Categoría</p>
-                <p className="font-medium text-gray-900">{viewingProduct.categoria}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Precio</p>
-                <p className="text-3xl font-bold text-gray-900">${viewingProduct.precioVenta.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Estado</p>
-                <span className={`inline-block px-3 py-1 rounded-full text-sm ${
-                  viewingProduct.activo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                }`}>
-                  {viewingProduct.activo ? 'Activo' : 'Inactivo'}
-                </span>
-              </div>
-            </div>
-
-            {/* Variantes disponibles */}
-            <div className="border-t pt-4">
-              <h3 className="font-semibold text-gray-900 mb-4">Tallas y Colores Disponibles</h3>
-              
-              {!viewingProduct.variantes || viewingProduct.variantes.length === 0 ? (
-                <p className="text-sm text-gray-600">No hay variantes configuradas</p>
-              ) : (
-                <div className="space-y-4">
-                  {viewingProduct.variantes.map((variante, index) => (
-                    <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                      <h4 className="font-semibold text-gray-900 mb-3">Talla: {variante.talla}</h4>
-                      
-                      {variante.colores.length === 0 ? (
-                        <p className="text-sm text-gray-600">No hay colores disponibles</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {variante.colores.map((colorItem, colorIndex) => {
-                            const colorInfo = coloresDisponibles.find(c => c.nombre === colorItem.color);
-                            return (
-                              <div
-                                key={colorIndex}
-                                className="flex items-center justify-between bg-white p-3 rounded-md"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div
-                                    className="w-8 h-8 rounded border border-gray-300"
-                                    style={{ backgroundColor: colorInfo?.hex || '#000000' }}
-                                  />
-                                  <span className="font-medium text-gray-900">{colorItem.color}</span>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-sm text-gray-600">Stock</p>
-                                  <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                                    colorItem.cantidad > 20
-                                      ? 'bg-green-100 text-green-700'
-                                      : colorItem.cantidad > 10
-                                      ? 'bg-yellow-100 text-yellow-700'
-                                      : 'bg-red-100 text-red-700'
-                                  }`}>
-                                    {colorItem.cantidad} unidades
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+      {/* ─── Modal Ver Detalle ──────────────────────────────────────────────── */}
+      <Modal isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} title="Detalle del Producto" size="lg">
+        {viewingProduct && (() => {
+          const productVars = getProductVariants(viewingProduct.id_product);
+          const totalStock  = getTotalStock(viewingProduct.id_product);
+          return (
+            <div className="space-y-5 text-sm">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Nombre</p>
+                  <p className="font-semibold text-gray-900">{viewingProduct.name}</p>
                 </div>
-              )}
-            </div>
-
-            {/* Stock total */}
-            {viewingProduct.variantes && viewingProduct.variantes.length > 0 && (
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-gray-900">Stock Total:</span>
-                  <span className="text-2xl font-bold text-gray-900">
-                    {getTotalStock(viewingProduct)} unidades
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Categoría</p>
+                  <p className="font-medium">{viewingProduct.category_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Precio</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCOP(viewingProduct.price)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Precio de compra</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCOP(viewingProduct.purchase_price)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Estado</p>
+                  <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                    viewingProduct.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {viewingProduct.is_active ? 'Activo' : 'Inactivo'}
                   </span>
                 </div>
               </div>
-            )}
-          </div>
-        )}
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold text-gray-900 mb-3">
+                  Variantes ({productVars.length}) — Stock total:{' '}
+                  <span className="text-gray-700">{totalStock} uds</span>
+                </h4>
+                {productVars.length === 0 ? (
+                  <p className="text-xs text-gray-400">Sin variantes. Se crean desde Compras.</p>
+                ) : (
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left py-2 px-3 text-gray-600">SKU</th>
+                          <th className="text-left py-2 px-3 text-gray-600">Talla</th>
+                          <th className="text-left py-2 px-3 text-gray-600">Color</th>
+                          <th className="text-right py-2 px-3 text-gray-600">Stock</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {productVars.map(v => {
+                          const stock = getVariantStock(v.id_variant);
+                          return (
+                            <tr key={v.id_variant}>
+                              <td className="py-2 px-3 font-mono text-gray-500">{v.sku}</td>
+                              <td className="py-2 px-3 text-gray-700">{v.size_name}</td>
+                              <td className="py-2 px-3 text-gray-700">{v.color_name}</td>
+                              <td className="py-2 px-3 text-right">
+                                <span className={`px-2 py-0.5 rounded-full font-medium ${
+                                  stock > 20 ? 'bg-green-100 text-green-700' :
+                                  stock > 5  ? 'bg-yellow-100 text-yellow-700' :
+                                  stock > 0  ? 'bg-red-100 text-red-700' :
+                                               'bg-gray-100 text-gray-400'
+                                }`}>
+                                  {stock}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
-      {/* Modal Create/Edit */}
-      <Modal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditMode(false);  // ✅ Resetear modo
-          setFormErrors({});
-          setEditingProduct(null);
-          setFormData({
-            nombre: '',
-            proveedor: '',
-            categoria: '',
-            precioVenta: '',
-            imagen: '',
-            variantes: []
-          });
-          setNuevaVariante({ talla: '', colores: [{ color: '', cantidad: 0 }] });
-        }}
-        title={editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
-        size="lg"
-      >
-        <div className="space-y-4">
-          {/* Información Básica - Reorganizada */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-gray-700 mb-2">Nombre del Producto *</label>
-              <Input
-                value={formData.nombre}
-                onChange={(e) => handleFieldChange('nombre', e.target.value)}
-                placeholder="Ej: Vestido Elegante"
-                required
-              />
-              {formErrors.nombre && <p className="text-red-600 text-sm mt-1">{formErrors.nombre}</p>}
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-2">Precio de Venta *</label>
-              <Input
-                type="number"
-                value={formData.precioVenta}
-                onChange={(e) => handleFieldChange('precioVenta', e.target.value)}
-                placeholder="0"
-                required
-              />
-              {formErrors.precioVenta && <p className="text-red-600 text-sm mt-1">{formErrors.precioVenta}</p>}
-            </div>
+      {/* ─── Modal Editar ───────────────────────────────────────────────────── */}
+      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Editar Producto" size="md">
+        <div className="space-y-4 text-sm">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+            Solo puedes editar nombre, precio y categoría. Las variantes se gestionan desde Compras.
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-gray-700 mb-2">Categoría *</label>
-              <select
-                value={formData.categoria}
-                onChange={(e) => handleFieldChange('categoria', e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                required
-              >
-                <option value="">Seleccionar...</option>
-                {categorias.map((cat: any) => (
-                  <option key={cat.id} value={cat.name}>{cat.name}</option>
-                ))}
-              </select>
-              {formErrors.categoria && <p className="text-red-600 text-sm mt-1">{formErrors.categoria}</p>}
-            </div>
-            {/* El campo proveedor se ha eliminado del modal de edición: el proveedor no es editable desde aquí */}
-          </div>
-
-          {/* Imagen */}
           <div>
-            <label className="block text-gray-700 mb-2">Imagen del Producto</label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-              {formData.imagen ? (
-                <div className="relative">
-                  <img
-                    src={formData.imagen}
-                    alt="Preview"
-                    className="w-full h-48 object-cover rounded-lg mb-2"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, imagen: '' })}
-                    className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              ) : (
-                <label className="cursor-pointer">
-                  <Upload className="mx-auto text-gray-400 mb-2" size={32} />
-                  <p className="text-gray-600">Haz clic para subir una imagen</p>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                  />
-                </label>
-              )}
-            </div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Nombre *</label>
+            <Input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Nombre del producto"
+              className={editErrors.name ? 'border-red-400' : ''}
+            />
+            {editErrors.name && <p className="text-red-500 text-xs mt-1">{editErrors.name}</p>}
           </div>
 
-          {/* Variantes - SOLO LECTURA */}
-          <div className="border-t pt-4">
-            <h4 className="text-gray-900 mb-3">Variantes Actuales</h4>
-            
-            {/* 🔒 Mensaje de protección */}
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
-              <strong>🔒 Variantes en modo lectura:</strong> Las variantes solo se crean desde el módulo <strong>Compras</strong>. El inventario se gestiona automáticamente desde allí.
-            </div>
-
-            {/* Variantes agregadas - SOLO LECTURA */}
-            {formData.variantes.length > 0 && (
-              <div className="space-y-2">
-                {formData.variantes.map((variante, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
-                    <div className="font-medium text-gray-900 mb-2">Talla {variante.talla}</div>
-                    <div className="text-sm text-gray-600">
-                      {variante.colores.map((c, i) => (
-                        <span key={i}>
-                          {c.color}: {c.cantidad} unid.
-                          {i < variante.colores.length - 1 ? ' | ' : ''}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {formData.variantes.length === 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
-                Este producto aún no tiene variantes. Se crean automáticamente desde el módulo <strong>Compras</strong>.
-              </div>
-            )}
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Precio *</label>
+            <Input
+              type="number"
+              value={editPrice}
+              onChange={(e) => setEditPrice(e.target.value)}
+              placeholder="0"
+              className={editErrors.price ? 'border-red-400' : ''}
+            />
+            {editErrors.price && <p className="text-red-500 text-xs mt-1">{editErrors.price}</p>}
           </div>
 
-          <div className="flex gap-3 justify-end pt-4">
-            <Button onClick={() => {
-              setShowModal(false);
-              setFormErrors({});
-              setEditingProduct(null);
-              setFormData({
-                nombre: '',
-                proveedor: '',
-                categoria: '',
-                precioVenta: '',
-                imagen: '',
-                variantes: []
-              });
-              setNuevaVariante({ talla: '', colores: [{ color: '', cantidad: 0 }] });
-            }} variant="secondary">
-              Cancelar
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Precio de compra *</label>
+            <Input
+              type="number"
+              value={editPurchasePrice}
+              onChange={(e) => setEditPurchasePrice(e.target.value)}
+              placeholder="0"
+              className={editErrors.purchasePrice ? 'border-red-400' : ''}
+            />
+            {editErrors.purchasePrice && <p className="text-red-500 text-xs mt-1">{editErrors.purchasePrice}</p>}
+          </div>
+
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Categoría *</label>
+            <select
+              value={editCategory ?? ''}
+              onChange={(e) => setEditCategory(Number(e.target.value) || null)}
+              className={`w-full h-10 px-3 border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 ${
+                editErrors.category ? 'border-red-400' : 'border-gray-300'
+              }`}
+            >
+              <option value="">Seleccionar categoría...</option>
+              {categories.map(c => (
+                <option key={c.id_category} value={c.id_category}>{c.name}</option>
+              ))}
+            </select>
+            {editErrors.category && <p className="text-red-500 text-xs mt-1">{editErrors.category}</p>}
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button onClick={() => setShowEditModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={handleSaveEdit} variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Guardando...' : 'Guardar cambios'}
             </Button>
-            <Button onClick={handleSave} variant="primary">
-              {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Modal Eliminar ─────────────────────────────────────────────────── */}
+      <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Eliminar Producto" size="sm">
+        <div className="space-y-4 text-sm">
+          <p className="text-gray-700">
+            ¿Eliminar <strong>{deletingProduct?.name}</strong>? Esta acción no se puede deshacer.
+          </p>
+          <p className="text-xs text-red-600 bg-red-50 rounded-lg p-2">
+            Si el producto tiene variantes o compras asociadas no se podrá eliminar.
+          </p>
+          <div className="flex gap-3 justify-end">
+            <Button onClick={() => setShowDeleteModal(false)} variant="secondary">Cancelar</Button>
+            <Button
+              onClick={confirmDelete}
+              variant="primary"
+              disabled={isSubmitting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isSubmitting ? 'Eliminando...' : 'Eliminar'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Modal Toggle Estado ────────────────────────────────────────────── */}
+      <Modal isOpen={showToggleModal} onClose={() => setShowToggleModal(false)} title="Cambiar Estado" size="sm">
+        <div className="space-y-4 text-sm">
+          <p className="text-gray-700">
+            ¿Deseas <strong>{togglingProduct?.is_active ? 'desactivar' : 'activar'}</strong> el producto{' '}
+            <strong>{togglingProduct?.name}</strong>?
+          </p>
+          <div className="flex gap-3 justify-end">
+            <Button onClick={() => setShowToggleModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={confirmToggle} variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Procesando...' : 'Confirmar'}
             </Button>
           </div>
         </div>

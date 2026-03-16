@@ -81,7 +81,7 @@ export default function RolesModule() {
   });
   const [formErrors, setFormErrors] = useState<any>({});
 
-  const canDelete = user?.role === 'Administrador';
+  const canDelete = user?.rol_name === 'Administrador';
 
   // Validar nombre sin caracteres especiales
   const validateRoleName = (name: string): string => {

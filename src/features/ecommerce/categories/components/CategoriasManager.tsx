@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Edit2, Package, Search, FolderTree, AlertTriangle, Eye, Grid3x3, List, Trash2, Loader } from 'lucide-react';
 import { Button, Input, Modal, useToast } from '../../../../shared/components/native';
-import { usePermissions } from '../../../../shared/hooks/usePermissions';
+import { usePermissions } from '@/shared/hooks';
 import { 
   getAllCategories, 
   createCategories, 
