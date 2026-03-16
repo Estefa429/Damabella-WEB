@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { Button, Input, Label, useToast } from '../../../../shared/components/native';
-import { validateCredentials } from '../../../../shared/utils/initializeStorage';
-import { registrarClienteDesdeEcommerce, isEmailUnique, isDocumentoUnique } from '../../../../services/clienteRegistroService';
+import { useAuth } from '@/shared';
+import { registrarClienteDesdeEcommerce, isEmailUnique, isDocumentoUnique, CIUDADES_COLOMBIA } from '../../../../services/clienteRegistroService';
+import { getAllTypesDocs, TypesDocs } from '@/features/suppliers/services/providersService'; 
 
 interface LoginModalProps {
   onClose: () => void;
-  onLogin: (user: any) => void;
+  onLogin: () => void;
 }
 
 const validatePassword = (password: string) => {
@@ -24,17 +25,16 @@ const validateNombre = (nombre: string) => {
   return regex.test(nombre);
 };
 
-const validateDocumento = (tipoDoc: string, numeroDoc: string) => {
+const validateDocumento = (tipoDoc: number, numeroDoc: string) => {
   switch(tipoDoc) {
-    case 'TI':
-    case 'CC':
+    //  return /^\d+$/.test(numeroDoc) && numeroDoc.length >= 6 && numeroDoc.length <= 12;
+    //  return /^\d+$/.test(numeroDoc) && numeroDoc.length >= 6 && numeroDoc.length <= 12;
+    case 1:
+    case 2:
+    case 3:
       return /^\d+$/.test(numeroDoc) && numeroDoc.length >= 6 && numeroDoc.length <= 12;
-    case 'CE':
-      return /^\d{10,11}$/.test(numeroDoc);
-    case 'PAS':
-      return /^[A-Z0-9]{6,9}$/.test(numeroDoc);
     default:
-      return false;
+      return numeroDoc.length >= 6;
   }
 };
 
@@ -43,8 +43,18 @@ const validateCelular = (celular: string) => {
 };
 
 export function LoginModal({ onClose, onLogin }: LoginModalProps) {
+  const [typesDocs, setTypesDocs] = useState<TypesDocs[]>([]);
+
+    useEffect(() => {
+      const fetchTypesDocs = async () => {
+        const data = await getAllTypesDocs();
+        if (data) setTypesDocs(data);
+      };
+      fetchTypesDocs();
+    }, []);
   const [tab, setTab] = useState<'login' | 'register' | 'recovery'>('login');
   const { showToast } = useToast();
+  const {login} = useAuth()
 
   // Login
   const [loginEmail, setLoginEmail] = useState('');
@@ -54,7 +64,7 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
   // Register
   const [registerData, setRegisterData] = useState({
     nombre: '',
-    tipoDoc: 'CC',
+    tipoDoc: 1,
     numeroDoc: '',
     celular: '',
     ciudad: '',
@@ -74,56 +84,19 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
   const [recoveryNewPassword, setRecoveryNewPassword] = useState('');
-  const [generatedCode, setGeneratedCode] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  // ─── handleLogin — conectar a la API ─────────────────────────────────────────
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const result = await login(loginEmail, loginPassword);
 
-    console.log('\n📱 [LoginModal.handleLogin] ========== INICIANDO LOGIN ==========');
-    console.log(`📧 Email: ${loginEmail}`);
-    console.log(`🔒 Password: ${loginPassword ? '(ingresada)' : '(vacía)'}`);
-
-    const user = validateCredentials(loginEmail, loginPassword);
-
-    if (user) {
-      console.log('\n✅ [LoginModal.handleLogin] Credenciales válidas');
-      
-      if (user.status === 'Inactivo') {
-        console.log('❌ [LoginModal.handleLogin] Cuenta inactiva');
-        showToast('Tu cuenta está inactiva. Contacta al administrador.', 'error');
-        return;
-      }
-      
-      const loginUser = {
-        id: user.id,
-        name: user.nombre,
-        email: user.email,
-        role: user.role,
-        roleId: user.roleId,
-        avatar: null,
-        tipoDoc: user.tipoDoc,
-        numeroDoc: user.numeroDoc,
-        celular: user.celular,
-        direccion: user.direccion,
-        status: user.status,
-      };
-      
-      console.log(`\n👤 [LoginModal.handleLogin] Preparando usuario para login:`);
-      console.log(`  - name: ${loginUser.name}`);
-      console.log(`  - email: ${loginUser.email}`);
-      console.log(`  - role: ${loginUser.role}`);
-      console.log(`  - status: ${loginUser.status}`);
-      console.log(`  - OBJETO COMPLETO:`, JSON.stringify(loginUser, null, 2));
-      
-      console.log('\n📤 [LoginModal.handleLogin] Llamando onLogin()...');
-      onLogin(loginUser);
+    if (result.success) {
       showToast('¡Bienvenido!', 'success');
-      console.log('✅ [LoginModal.handleLogin] ===========================================\n');
+      onLogin(); // solo para notificar al padre que hubo login
       onClose();
     } else {
-      console.log('❌ [LoginModal.handleLogin] Credenciales inválidas');
-      console.log('✅ [LoginModal.handleLogin] ===========================================\n');
-      showToast('Correo o contraseña incorrectos', 'error');
+      showToast(result.message || 'Correo o contraseña incorrectos', 'error');
     }
   };
 
@@ -143,9 +116,6 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
         if (!value.trim()) return 'El número de documento es obligatorio';
         if (!validateDocumento(registerData.tipoDoc, value)) {
           return 'Documento inválido para el tipo seleccionado';
-        }
-        if (!isDocumentoUnique(value, registerData.tipoDoc)) {
-          return 'Este documento ya está registrado';
         }
         return null;
 
@@ -167,7 +137,6 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
       case 'email':
         if (!value.trim()) return 'El email es obligatorio';
         if (!validateEmail(value)) return 'Email inválido (debe comenzar con letra)';
-        if (!isEmailUnique(value)) return 'Este correo ya está registrado';
         return null;
 
       case 'password':
@@ -209,7 +178,7 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
   // Manejar blur para validar campo
   const handleFieldBlur = (fieldName: string) => {
     setTouchedFields(new Set([...touchedFields, fieldName]));
-    const value = registerData[fieldName as keyof typeof registerData] || '';
+    const value = String(registerData[fieldName as keyof typeof registerData] || '');
     const error = validateField(fieldName, value);
     if (error) {
       setRegisterErrors({ ...registerErrors, [fieldName]: error });
@@ -228,7 +197,7 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
     const fields = ['nombre', 'tipoDoc', 'numeroDoc', 'celular', 'ciudad', 'direccion', 'email', 'password', 'confirmPassword'];
     
     fields.forEach(fieldName => {
-      const value = registerData[fieldName as keyof typeof registerData] || '';
+      const value = String(registerData[fieldName as keyof typeof registerData] || '');
       const error = validateField(fieldName, value);
       if (error) {
         newErrors[fieldName] = error;
@@ -245,11 +214,7 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    console.log('\n📝 [LoginModal.handleRegister] ========== INICIANDO REGISTRO ==========');
-    console.log('📋 Datos del formulario:', registerData);
-
     if (!validateRegisterForm()) {
-      console.log('❌ [LoginModal.handleRegister] Validaciones fallaron');
       showToast('Por favor corrige los errores', 'error');
       return;
     }
@@ -257,40 +222,43 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
     setIsSubmitting(true);
 
     try {
-      console.log('✅ [LoginModal.handleRegister] Validaciones pasadas');
-      console.log('🔄 [LoginModal.handleRegister] Llamando registrarClienteDesdeEcommerce...');
+      // ─── Validaciones async contra la API ─────────────────────────────
+      const emailUnico = await isEmailUnique(registerData.email);
+      if (!emailUnico) {
+        setRegisterErrors(prev => ({ ...prev, email: 'Este correo ya está registrado' }));
+        setIsSubmitting(false);
+        return;
+      }
 
-      // Usar el servicio de registro que crea tanto usuario como cliente
-      const result = registrarClienteDesdeEcommerce({
-        nombre: registerData.nombre,
-        tipoDocumento: registerData.tipoDoc,
+      const docUnico = await isDocumentoUnique(registerData.numeroDoc);
+      if (!docUnico) {
+        setRegisterErrors(prev => ({ ...prev, numeroDoc: 'Este documento ya está registrado' }));
+        setIsSubmitting(false);
+        return;
+      }
+
+      // ─── Llamada al servicio ───────────────────────────────────────────
+      const result = await registrarClienteDesdeEcommerce({
+        nombre:          registerData.nombre,
+        tipoDocumento:   registerData.tipoDoc,
         numeroDocumento: registerData.numeroDoc,
-        telefono: registerData.celular,
-        ciudad: registerData.ciudad,
-        email: registerData.email,
-        direccion: registerData.direccion,
-        password: registerData.password,
+        telefono:        registerData.celular,
+        ciudad:          registerData.ciudad,
+        email:           registerData.email,
+        direccion:       registerData.direccion,
+        password:        registerData.password,
       });
 
       if (!result.success) {
-        console.log('❌ [LoginModal.handleRegister] Error:', result.error);
         showToast(result.error || 'Error al registrar', 'error');
         return;
       }
 
-      console.log('✅ [LoginModal.handleRegister] Registro exitoso');
-      console.log('   - Usuario ID:', result.usuario?.id);
-      console.log('   - Cliente ID:', result.cliente?.id);
-      console.log('   - Usuario objeto:', JSON.stringify(result.usuario, null, 2));
-      console.log('   - Cliente objeto:', JSON.stringify(result.cliente, null, 2));
-
       showToast('¡Registro exitoso! Ahora puedes iniciar sesión', 'success');
-      
-      // Resetear formulario
       setTab('login');
       setRegisterData({
         nombre: '',
-        tipoDoc: 'CC',
+        tipoDoc: 0,
         numeroDoc: '',
         celular: '',
         ciudad: '',
@@ -301,94 +269,96 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
       });
       setRegisterErrors({});
       setTouchedFields(new Set());
-      
-      console.log('✅ [LoginModal.handleRegister] Formulario reseteado\n');
       onClose();
+
     } catch (error) {
-      console.error('❌ [LoginModal.handleRegister] Error inesperado:', error);
       showToast('Error al registrar. Intenta de nuevo.', 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleRecoveryStep1 = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const users = localStorage.getItem('damabella_users') ? JSON.parse(localStorage.getItem('damabella_users') || '[]') : [];
-    const user = users.find((u: any) => u.email === recoveryEmail);
-
-    if (!user) {
-      showToast('No se encontró una cuenta con este correo', 'error');
-      return;
-    }
-
-    // Generar código de 6 dígitos
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedCode(code);
-    setRecoveryStep(2);
-    showToast(`Código de verificación: ${code} (guárdalo)`, 'success');
-  };
-
-  const handleRecoveryStep2 = (e: React.FormEvent) => {
+  // ─── handleRecoveryStep1 — solicitar OTP a la API ────────────────────────────
+  const handleRecoveryStep1 = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (recoveryCode !== generatedCode) {
-      showToast('Código incorrecto', 'error');
-      return;
-    }
-
-    setRecoveryStep(3);
-  };
-
-  const handleRecoveryStep3 = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validatePassword(recoveryNewPassword)) {
-      showToast('La contraseña debe tener 8+ caracteres, mayúscula, minúscula, número y especial', 'error');
-      return;
-    }
-
-    const users = localStorage.getItem('damabella_users') ? JSON.parse(localStorage.getItem('damabella_users') || '[]') : [];
-    const userIndex = users.findIndex((u: any) => u.email === recoveryEmail);
-
-    if (userIndex !== -1) {
-      users[userIndex].password = recoveryNewPassword;
-      localStorage.setItem('damabella_users', JSON.stringify(users));
-      showToast('¡Contraseña actualizada! Ahora puedes iniciar sesión', 'success');
-      setTab('login');
-      setRecoveryStep(1);
-      setRecoveryEmail('');
-      setRecoveryCode('');
-      setRecoveryNewPassword('');
-      setGeneratedCode('');
-    }
-  };
-
-  const handlePasswordReset = () => {
-    if (!validatePassword(recoveryNewPassword)) {
-      showToast('La contraseña debe tener 8+ caracteres, mayúscula, minúscula, número y especial', 'error');
-      return;
-    }
-
-    setIsSubmitting(true);
     try {
-      const users = localStorage.getItem('damabella_users') ? JSON.parse(localStorage.getItem('damabella_users') || '[]') : [];
-      const userIndex = users.findIndex((u: any) => u.email === recoveryEmail);
+      const response = await fetch('http://127.0.0.1:8000/api/auth/request-otp/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: recoveryEmail }),
+      });
 
-      if (userIndex !== -1) {
-        users[userIndex].password = recoveryNewPassword;
-        localStorage.setItem('damabella_users', JSON.stringify(users));
+      const data = await response.json();
+
+      if (data.success) {
+        setRecoveryStep(2);
+        showToast('Código enviado a tu correo', 'success');
+      } else {
+        showToast('No se encontró una cuenta con este correo', 'error');
+      }
+    } catch {
+      showToast('Error de conexión', 'error');
+    }
+  };
+
+  // ─── handleRecoveryStep2 — validar OTP ───────────────────────────────────────
+  const handleRecoveryStep2 = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/auth/validate-otp/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: recoveryEmail, code: recoveryCode }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setRecoveryStep(3);
+      } else {
+        showToast('Código incorrecto o expirado', 'error');
+      }
+    } catch {
+      showToast('Error de conexión', 'error');
+    }
+  };
+
+    // ─── handleRecoveryStep3 — resetear contraseña ───────────────────────────────
+  const handleRecoveryStep3 = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validatePassword(recoveryNewPassword)) {
+      showToast('La contraseña debe tener 8+ caracteres, mayúscula, minúscula, número y especial', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/auth/reset-password/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: recoveryEmail,
+          code: recoveryCode,
+          new_password: recoveryNewPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
         showToast('¡Contraseña actualizada! Ahora puedes iniciar sesión', 'success');
         setTab('login');
         setRecoveryStep(1);
         setRecoveryEmail('');
         setRecoveryCode('');
         setRecoveryNewPassword('');
-        setGeneratedCode('');
+      } else {
+        showToast('Error al actualizar la contraseña', 'error');
       }
-    } finally {
-      setIsSubmitting(false);
+    } catch {
+      showToast('Error de conexión', 'error');
     }
   };
 
@@ -563,13 +533,12 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   <select
                     id="reg-tipodoc"
                     value={registerData.tipoDoc}
-                    onChange={(e) => handleFieldChange('tipoDoc', e.target.value)}
+                    onChange={(e) => setRegisterData({...registerData, tipoDoc : Number(e.target.value)})}
                     className="w-full h-10 px-3 border border-gray-300 rounded-xl focus:border-pink-500 focus:ring-2 focus:ring-pink-200 transition-all text-sm"
                   >
-                    <option value="CC">Cédula</option>
-                    <option value="TI">TI</option>
-                    <option value="CE">CE</option>
-                    <option value="PAS">Pasaporte</option>
+                    {typesDocs.map(t => (
+                      <option key={t.id_doc} value={t.id_doc}>{t.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -583,7 +552,7 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                     value={registerData.numeroDoc}
                     onChange={(e) => {
                       let filtered = e.target.value;
-                      if (registerData.tipoDoc === 'PAS') {
+                      if (typesDocs.find(t => t.id_doc === registerData.tipoDoc)?.name?.toUpperCase() === 'PAS') {
                         filtered = e.target.value.replace(/[^A-Z0-9]/g, '').toUpperCase();
                       } else {
                         filtered = e.target.value.replace(/\D/g, '');
@@ -639,23 +608,24 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                   <Label htmlFor="reg-ciudad" className="text-sm font-semibold text-gray-800 block mb-2">
                     Ciudad
                   </Label>
-                  <Input
+                  <select
                     id="reg-ciudad"
-                    placeholder="Bogotá"
                     value={registerData.ciudad}
                     onChange={(e) => handleFieldChange('ciudad', e.target.value)}
                     onBlur={() => handleFieldBlur('ciudad')}
                     className={`w-full h-10 px-3 rounded-xl border text-sm transition-all ${
                       touchedFields.has('ciudad') && registerData.ciudad
-                        ? registerErrors.ciudad 
-                          ? 'border-red-400 bg-red-50 focus:ring-red-200 focus:border-red-500' 
-                          : 'border-green-400 bg-green-50 focus:ring-green-200 focus:border-green-500'
-                        : 'border-gray-300 focus:border-pink-500 focus:ring-pink-200 focus:ring-2'
+                        ? registerErrors.ciudad
+                          ? 'border-red-400 bg-red-50'
+                          : 'border-green-400 bg-green-50'
+                        : 'border-gray-300 focus:border-pink-500 focus:ring-2 focus:ring-pink-200'
                     }`}
-                  />
-                  {registerErrors.ciudad && touchedFields.has('ciudad') && (
-                    <p className="text-red-500 text-xs mt-1">{registerErrors.ciudad}</p>
-                  )}
+                  >
+                    <option value="">Selecciona tu ciudad</option>
+                    {CIUDADES_COLOMBIA.map(ciudad => (
+                      <option key={ciudad} value={ciudad}>{ciudad}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -827,7 +797,6 @@ export function LoginModal({ onClose, onLogin }: LoginModalProps) {
                     setRecoveryEmail('');
                     setRecoveryCode('');
                     setRecoveryNewPassword('');
-                    setGeneratedCode('');
                   }}
                   className="p-2 hover:bg-gray-100 rounded-lg transition"
                 >

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Search, Heart, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
 import { useToast } from '../../../../shared/components/native';
-import { useToast } from '../../../../shared/components/native';
 
 interface HomePageProps {
   onNavigate: (view: string, productId?: string) => void;
@@ -343,4 +342,4 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
       </div>
     </div>
   );
-}
+}}
