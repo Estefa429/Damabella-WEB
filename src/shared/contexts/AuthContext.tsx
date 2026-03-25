@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
+import { API } from '@/services/ApiConfigure';
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface Permissions {
   [module: string]: string[];
@@ -46,13 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/auth/login/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const response = await API.post('/auth/login/', {
+        email,
+        password
       });
 
-      const data = await response.json();
+      const data = response.data;
 
       if (data.success) {
         // Guardar tokens
