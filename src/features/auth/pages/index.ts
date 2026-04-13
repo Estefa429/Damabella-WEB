@@ -1,3 +1,4 @@
 export { Login } from './Login';
-export { default as Register } from '@/Register';
+export { LoginPage } from './LoginPage';
+export { RegisterPage } from './RegisterPage';
 export { RecoverPassword } from './RecoverPassword';

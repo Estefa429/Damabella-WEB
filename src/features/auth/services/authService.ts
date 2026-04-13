@@ -44,6 +44,52 @@ export const documentExists = (numeroDoc: string) => {
   return users.some((u: any) => u.numeroDoc === numeroDoc);
 };
 
+// Recovery code management (stored in memory with expiration)
+const RECOVERY_CODES_KEY = 'damabella_recovery_codes';
+
+const getStoredRecoveryCodes = () => {
+  const stored = localStorage.getItem(RECOVERY_CODES_KEY);
+  return stored ? JSON.parse(stored) : {};
+};
+
+const saveRecoveryCodes = (codes: any) => {
+  localStorage.setItem(RECOVERY_CODES_KEY, JSON.stringify(codes));
+};
+
+export const generateRecoveryCode = (email: string): string => {
+  const code = Math.random().toString().slice(2, 8);
+  const codes = getStoredRecoveryCodes();
+  codes[email] = {
+    code,
+    timestamp: Date.now(),
+  };
+  saveRecoveryCodes(codes);
+  return code;
+};
+
+export const verifyRecoveryCode = (email: string, code: string): boolean => {
+  const codes = getStoredRecoveryCodes();
+  const stored = codes[email];
+  
+  if (!stored) return false;
+  
+  // Code expires after 10 minutes
+  if (Date.now() - stored.timestamp > 10 * 60 * 1000) {
+    delete codes[email];
+    saveRecoveryCodes(codes);
+    return false;
+  }
+  
+  return stored.code === code;
+};
+
+export const clearRecoveryCode = (email: string) => {
+  const codes = getStoredRecoveryCodes();
+  delete codes[email];
+  saveRecoveryCodes(codes);
+};
+
+
 
 
 

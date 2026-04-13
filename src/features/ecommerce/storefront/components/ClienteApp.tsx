@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { EcommerceProvider } from '../../../../shared/contexts';
 import { ToastProvider } from '../../../../shared/components/native';
 import { PremiumHomePage } from '../pages/PremiumHomePage';
@@ -11,17 +12,16 @@ import { PurchaseSuccessPage } from '../pages/PurchaseSuccessPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { OrdersPage } from '../../orders/pages/OrdersPage';
 import { ContactPage } from '../pages/ContactPage';
-import { LoginModal } from '../components/LoginModal';
 import { Modal } from '../../../../shared/components/native';
 
 interface ClienteAppProps {
   currentUser: any;
   isAuthenticated: boolean;
-  onLogin: () => void ;
   onLogout: () => void;
 }
 
-export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLogout }: ClienteAppProps) {
+export default function ClienteApp({ currentUser, isAuthenticated, onLogout }: ClienteAppProps) {
+  const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<string>('home');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchCategory, setSearchCategory] = useState<string | undefined>(undefined);
@@ -31,10 +31,21 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
     // Vistas que requieren autenticación
     const protectedViews = ['checkout', 'profile', 'orders'];
     
-    // Permitir acceso a la vista 'detail' en modo lectura incluso si no está autenticado.
-    // Solo bloquear otras vistas protegidas.
-    if (protectedViews.includes(view) && view !== 'detail' && !isAuthenticated) {
-      setCurrentView('login');
+    // Si requiere autenticación y no está autenticado, ir a login
+    if (protectedViews.includes(view) && !isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+
+    // Navegar a registro
+    if (view === 'register') {
+      navigate('/registro');
+      return;
+    }
+
+    // Navegar a login
+    if (view === 'login') {
+      navigate('/login');
       return;
     }
 
@@ -45,7 +56,6 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
       setSearchCategory(param);
       setCurrentView('search');
     } else if (view === 'orders') {
-      // abrir orders como modal en la app del cliente
       setCurrentView('orders');
       setIsOrdersOpen(true);
     } else {
@@ -58,7 +68,6 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
       const urlHash = `#${view}${param ? `/${param}` : ''}`;
       window.history.pushState({ view, param }, '', urlHash);
     } catch (e) {
-      // No bloquear si falla el history
       console.warn('[ClienteApp] history.pushState failed', e);
     }
 
@@ -88,17 +97,10 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const handleLoginSuccess = () => {
-    setCurrentView('home');
-  };
-
   const renderView = () => {
     switch (currentView) {
-      case 'login':
-        return <LoginModal onClose={() => setCurrentView('home')} onLogin={handleLoginSuccess} />;
-      
       case 'home':
-        return <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => setCurrentView('login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
+        return <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
       
       case 'search':
         return <SearchPage onNavigate={handleNavigate} initialCategory={searchCategory} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
@@ -107,7 +109,7 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
         return selectedProductId ? (
           <ProductDetailPage productId={selectedProductId} onNavigate={handleNavigate} isAuthenticated={isAuthenticated} currentUser={currentUser} />
         ) : (
-          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => setCurrentView('login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
+          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
         );
       
       case 'cart':
@@ -120,7 +122,7 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
         return isAuthenticated ? (
           <CheckoutPage onNavigate={handleNavigate} currentUser={currentUser} />
         ) : (
-          <LoginModal onClose={() => setCurrentView('home')} onLogin={handleLoginSuccess} />
+          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
         );
       
       case 'purchase-success':
@@ -128,9 +130,9 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
       
       case 'profile':
         return isAuthenticated ? (
-          <ProfilePage onNavigate={handleNavigate} currentUser={currentUser} onLogout={onLogout} onLogin={handleLoginSuccess} />
+          <ProfilePage onNavigate={handleNavigate} currentUser={currentUser} onLogout={onLogout} onLogin={() => {}} />
         ) : (
-          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => setCurrentView('login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
+          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
         );
       
       case 'orders':
@@ -139,14 +141,14 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogin, onLo
             <OrdersPage onNavigate={handleNavigate} currentUser={currentUser} />
           </Modal>
         ) : (
-          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => setCurrentView('login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
+          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
         );
       
       case 'contact':
         return <ContactPage onNavigate={handleNavigate} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
       
       default:
-        return <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => setCurrentView('login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
+        return <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
     }
   };
 
