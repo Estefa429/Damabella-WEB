@@ -16,14 +16,19 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
-      <div className="max-w-7xl mx-auto px-6 py-4">
+      <div className="max-w-7xl mx-auto px-6 py-1">
         <div className="flex items-center justify-between">
           {/* Logo */}
           <button
             onClick={() => onNavigate('home')}
-            className="text-3xl font-bold bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent hover:from-pink-500 hover:to-purple-500 transition-all"
+            className="flex items-center hover:opacity-80 transition-opacity"
+            title="Ir a inicio"
           >
-            DAMABELLA
+            <img 
+              src={new URL('../../../../assets/logos/logo-ba.png.webp', import.meta.url).href}
+              alt="DAMABELLA Logo" 
+              className="h-14 w-auto"
+            />
           </button>
 
           {/* Navigation */}

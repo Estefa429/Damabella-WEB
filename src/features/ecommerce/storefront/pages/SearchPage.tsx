@@ -401,11 +401,19 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                   )}
                   <button
                     onClick={() => handleToggleFavorite(product.id)}
-                    className="absolute top-3 right-3 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center hover:bg-white transition-colors shadow-md"
+                    className={`absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-md ${
+                      favorites.includes(product.id)
+                        ? 'scale-110 bg-red-100 hover:bg-red-200'
+                        : 'bg-white/90 hover:bg-white scale-100'
+                    }`}
                   >
                     <Heart
                       size={20}
-                      className={favorites.includes(product.id) ? 'fill-pink-400 text-pink-400' : 'text-gray-600'}
+                      className={`transition-all duration-300 ${
+                        favorites.includes(product.id) 
+                          ? 'fill-red-600 text-red-600' 
+                          : 'text-gray-700 hover:text-gray-800'
+                      }`}
                     />
                   </button>
                 </div>

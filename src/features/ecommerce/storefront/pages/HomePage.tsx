@@ -229,11 +229,19 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                   />
                   <button
                     onClick={() => toggleFavorite(product.id)}
-                    className="absolute top-3 right-3 p-2 bg-white/90 rounded-full hover:bg-white transition-colors shadow-md"
+                    className={`absolute top-3 right-3 p-2 rounded-full transition-all duration-300 transform shadow-md ${
+                      favorites.includes(product.id)
+                        ? 'scale-110 bg-red-100 hover:bg-red-200'
+                        : 'bg-white/90 hover:bg-white scale-100'
+                    }`}
                   >
                     <Heart
                       size={20}
-                      className={favorites.includes(product.id) ? 'fill-[#FFB6C1] text-[#FFB6C1]' : 'text-gray-600'}
+                      className={`transition-all duration-300 ${
+                        favorites.includes(product.id) 
+                          ? 'fill-red-600 text-red-600' 
+                          : 'text-gray-700 hover:text-gray-800'
+                      }`}
                     />
                   </button>
                 </div>
@@ -283,11 +291,19 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                   </span>
                   <button
                     onClick={() => toggleFavorite(product.id)}
-                    className="absolute top-3 right-3 p-2 bg-white/90 rounded-full hover:bg-white transition-colors shadow-md"
+                    className={`absolute top-3 right-3 p-2 rounded-full transition-all duration-300 transform shadow-md ${
+                      favorites.includes(product.id)
+                        ? 'scale-110 bg-red-100 hover:bg-red-200'
+                        : 'bg-white/90 hover:bg-white scale-100'
+                    }`}
                   >
                     <Heart
                       size={20}
-                      className={favorites.includes(product.id) ? 'fill-[#FFB6C1] text-[#FFB6C1]' : 'text-gray-600'}
+                      className={`transition-all duration-300 ${
+                        favorites.includes(product.id) 
+                          ? 'fill-red-600 text-red-600' 
+                          : 'text-gray-300 hover:text-gray-600'
+                      }`}
                     />
                   </button>
                 </div>

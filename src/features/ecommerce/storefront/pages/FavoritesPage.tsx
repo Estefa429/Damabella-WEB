@@ -65,8 +65,7 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
     }
 
     try {
-      // ✅ Llamar a addToCart y esperar resultado boolean
-      const success = addToCart({
+      addToCart({
         productId: product.id,
         productName: product.name || 'Producto sin nombre',
         price: product.price || 0,
@@ -77,9 +76,6 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
         quantity: 1,
       });
       try { showToast('Producto agregado al carrito', 'success'); } catch(e){ console.warn('[FavoritesPage] showToast failed', e); }
-      if (!success) {
-        console.warn('[FavoritesPage] addToCart retornó false para:', product.name);
-      }
     } catch (error) {
       console.error('[FavoritesPage] Error al agregar al carrito:', error);
       alert('Error al agregar al carrito. Intenta de nuevo.');
@@ -122,9 +118,9 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
                   />
                   <button
                     onClick={() => toggleFavorite(product.id)}
-                    className="absolute top-3 right-3 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center hover:bg-white transition-colors shadow-md"
+                    className="absolute top-3 right-3 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-red-100 hover:scale-110 shadow-md"
                   >
-                    <Heart size={20} className="fill-pink-400 text-pink-400" />
+                    <Heart size={20} className={`fill-red-600 text-red-600 transition-all duration-300`} />
                   </button>
                 </div>
                 <div className="p-4">

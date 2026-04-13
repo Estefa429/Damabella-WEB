@@ -279,11 +279,19 @@ export function ProductDetailPage({ productId, onNavigate, isAuthenticated = fal
                 </p>
                 <button
                   onClick={handleToggleFavorite}
-                  className="p-3 hover:bg-gray-100 rounded-full transition-colors"
+                  className={`p-3 rounded-full transition-all duration-300 transform ${
+                    isFavorite 
+                      ? 'bg-red-100 hover:bg-red-200 scale-110' 
+                      : 'hover:bg-gray-100 scale-100'
+                  }`}
                 >
                   <Heart
                     size={28}
-                    className={isFavorite ? 'fill-pink-400 text-pink-400' : 'text-gray-600'}
+                    className={`transition-all duration-300 ${
+                      isFavorite 
+                        ? 'fill-red-600 text-red-600' 
+                        : 'text-gray-700 hover:text-gray-800'
+                    }`}
                   />
                 </button>
               </div>
