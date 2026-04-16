@@ -18,11 +18,11 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
     <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-6 py-1">
         <div className="flex items-center justify-between">
+
           {/* Logo */}
           <button
             onClick={() => onNavigate('home')}
-            className="flex items-center hover:opacity-80 transition-opacity"
-            title="Ir a inicio"
+            className="flex items-center hover:opacity-80 transition-opacity cursor-pointer"
           >
             <img 
               src={new URL('../../../../assets/logos/logo-ba.png.webp', import.meta.url).href}
@@ -35,15 +35,16 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
           <nav className="hidden md:flex items-center gap-8">
             <button
               onClick={() => onNavigate('search')}
-              className="text-gray-700 hover:text-pink-400 transition-colors"
+              className="text-gray-700 hover:text-pink-500 transition-colors cursor-pointer"
             >
               Productos
             </button>
+
             {categories.map((category) => (
               <button
                 key={category.id}
                 onClick={() => onNavigate('search', category.name)}
-                className="text-gray-700 hover:text-pink-400 transition-colors"
+                className="text-gray-700 hover:text-pink-500 transition-colors cursor-pointer"
               >
                 {category.name}
               </button>
@@ -52,20 +53,23 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
 
           {/* Actions */}
           <div className="flex items-center gap-4">
+
+            {/* Buscar */}
             <button
               onClick={() => onNavigate('search')}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 hover:bg-pink-100 rounded-full transition-colors cursor-pointer"
               title="Buscar"
             >
-              <Search size={22} className="text-gray-700" />
+              <Search size={22} className="text-gray-700 hover:text-pink-500 transition-colors" />
             </button>
 
+            {/* Favoritos */}
             <button
               onClick={() => onNavigate('favorites')}
-              className="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="relative p-2 hover:bg-pink-100 rounded-full transition-colors cursor-pointer"
               title="Favoritos"
             >
-              <Heart size={22} className="text-gray-700" />
+              <Heart size={22} className="text-gray-700 hover:text-pink-500 transition-colors" />
               {favoritesCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-pink-400 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                   {favoritesCount}
@@ -73,12 +77,13 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
               )}
             </button>
 
+            {/* Carrito */}
             <button
               onClick={() => onNavigate('cart')}
-              className="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="relative p-2 hover:bg-pink-100 rounded-full transition-colors cursor-pointer"
               title="Carrito"
             >
-              <ShoppingCart size={22} className="text-gray-700" />
+              <ShoppingCart size={22} className="text-gray-700 hover:text-pink-500 transition-colors" />
               {cartItemsCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-pink-400 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                   {cartItemsCount}
@@ -86,9 +91,10 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
               )}
             </button>
 
+            {/* Perfil */}
             <button
               onClick={() => onNavigate('profile')}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 hover:bg-pink-100 rounded-full transition-colors cursor-pointer"
               title="Perfil"
             >
               {isAuthenticated && currentUser ? (
@@ -96,9 +102,10 @@ export function PremiumNavbar({ onNavigate, isAuthenticated, currentUser }: Prem
                   {currentUser?.name?.charAt(0)?.toUpperCase() || 'U'}
                 </div>
               ) : (
-                <User size={22} className="text-gray-700" />
+                <User size={22} className="text-gray-700 hover:text-pink-500 transition-colors" />
               )}
             </button>
+
           </div>
         </div>
       </div>

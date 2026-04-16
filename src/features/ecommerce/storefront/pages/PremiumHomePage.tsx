@@ -148,7 +148,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
           <button
             onClick={() => onNavigate('search')}
             style={{
-              backgroundColor: '#000',
+              backgroundColor: '#ec4899',
               color: '#fff',
               padding: '14px 40px',
               fontSize: '16px',
@@ -158,8 +158,8 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
               borderRadius: '4px',
               transition: 'background-color 0.3s'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#000'}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#db2777'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ec4899'}
           >
             VER PRODUCTOS
           </button>
@@ -246,10 +246,10 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
       {/* MÁS VENDIDOS */}
       <section className="py-16 bg-gray-50 border-t border-gray-200">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">Más Vendidos</h2>
-            <div className="w-12 h-1 bg-amber-600" />
-            <p className="text-gray-600 text-sm mt-3">Los favoritos de nuestras clientas</p>
+          <div className="mb-12 text-center">
+            <h2 className="text-4xl font-bold text-gray-900 mb-2">MÁS VENDIDOS</h2>
+            <div className="w-20 h-1 bg-amber-600 mx-auto" />
+            <p className="text-gray-600 text-base mt-3">Los favoritos de nuestras clientas</p>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -277,7 +277,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                       e.stopPropagation();
                       toggleFavorite(product.id);
                     }}
-                    className={`absolute top-3 right-3 bg-white/90 p-2 rounded-full transition-all duration-300 transform ${
+                    className={`absolute top-3 right-3 bg-white/90 p-2 rounded-full transition-all duration-300 transform cursor-pointer ${
                       favorites.includes(product.id) 
                         ? 'scale-110 bg-red-100 hover:bg-red-200' 
                         : 'hover:bg-white scale-100'
@@ -307,7 +307,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                   {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="w-full bg-amber-700 text-white py-2.5 font-semibold text-sm hover:bg-amber-800 transition-colors rounded"
+                    className="w-full bg-amber-700 text-white py-2.5 font-semibold text-sm hover:bg-amber-800 transition-colors rounded cursor-pointer"
                   >
                     COMPRAR
                   </button>
@@ -318,35 +318,22 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
         </div>
       </section>
 
-      {/* CATEGORÍAS - Banners visuales tipo Navissi */}
+      {/* CATEGORÍAS - Menu Horizontal - Full Width */}
       {categoriesForHome.length > 0 && (
-        <section className="py-12 bg-white border-b border-gray-100">
+        <section className="py-16 bg-white border-y border-gray-200 w-screen relative left-1/2 -translate-x-1/2">
           <div className="max-w-7xl mx-auto px-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-8">Categorías</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {categoriesForHome.map((category, i) => (
-                <div
+            <div className="text-center mb-10">
+              <h2 className="text-4xl font-bold text-gray-900 mb-2">CATEGORÍAS</h2>
+              <div className="w-20 h-1 bg-amber-600" />
+            </div>
+            <div className="flex flex-wrap gap-6">
+              {categoriesForHome.map((category) => (
+                <button
                   key={category.id}
                   onClick={() => onNavigate('search', category.name)}
-                  className="cursor-pointer group relative overflow-hidden rounded-lg shadow-md hover:shadow-xl transition-all duration-300 h-72"
-                >
-                  {/* Category Image */}
-                  <img
-                    src={`https://source.unsplash.com/600x800/?fashion,women,${category.name},${i}`}
-                    alt={category.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                  
-                  {/* Dark Overlay */}
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 transition-colors duration-300" />
-                  
-                  {/* Text */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <p className="text-xl font-bold text-white tracking-wide text-center">
-                      {category.name}
-                    </p>
-                  </div>
-                </div>
+                  className="px-6 py-3 border border-pink-400 text-gray-700 hover:text-pink hover:bg-pink-400 font-semibold rounded-full transition-all duration-300 text-base whitespace-nowrap cursor-pointer"                >
+                  {category.name}
+                </button>
               ))}
             </div>
           </div>
@@ -365,11 +352,11 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
       </section>
 
       {/* TESTIMONIOS */}
-      <section className="py-16 bg-white border-t border-gray-200">
+      <section className="py-16 bg-gray-50">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">Reseñas de Clientes</h2>
-            <div className="w-12 h-1 bg-amber-600" />
+          <div className="mb-12 text-center">
+            <h2 className="text-4xl font-bold text-gray-900 mb-2">RESEÑAS DE CLIENTES</h2>
+            <div className="w-20 h-1 bg-amber-600 mx-auto" />
           </div>
           
           <div className="grid md:grid-cols-3 gap-8">
@@ -420,11 +407,11 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Tu correo electrónico"
               required
-              className="flex-1 px-4 py-4 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-gray-500 border-2 border-black"
+              className="flex-1 px-4 py-4 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-pink-400 placeholder:text-gray-500 border-2 border-black"
             />
             <button
               type="submit"
-              className="bg-black text-white px-8 py-4 font-semibold rounded-md hover:bg-gray-900 transition-all duration-300"
+              className="bg-pink-400 text-white px-8 py-4 font-semibold rounded-md hover:bg-pink-500 transition-all duration-300 cursor-pointer"
             >
               Suscribirse
             </button>

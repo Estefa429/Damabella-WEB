@@ -58,6 +58,11 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [clienteDetalleActual, setClienteDetalleActual] = useState<any>(null);
 
+  // Asegurar que el sidebar esté siempre visible al cargar
+  useEffect(() => {
+    setSidebarOpen(true);
+  }, []);
+
   // Obtener permisos del rol del usuario
   const getUserPermissions = () => {
     const roles = JSON.parse(localStorage.getItem('damabella_roles') || '[]');
@@ -302,17 +307,28 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   // Filtrar menús según permisos
   const filteredMenuItems = user.role === 'Administrador' 
     ? menuItems // Los admins ven TODO sin filtrar
-    : menuItems.map(menu => {
+    : menuItems.filter(menu => {
+      // El Dashboard siempre es visible para todos
+      if (menu.id === 'dashboard') {
+        return true;
+      }
       // Si el menú tiene enlace directo (page), verificar permiso
       if (menu.page) {
-        return hasPermission(menu.modulo || menu.id) ? menu : null;
+        return hasPermission(menu.modulo || menu.id);
       }
       // Si tiene submenu, filtrar items del submenu
-      return {
-        ...menu,
-        submenu: menu.submenu?.filter((item: any) => hasPermission(item.modulo || item.id))
-      };
-    }).filter(menu => menu && (menu.page || (menu.submenu && menu.submenu.length > 0)));
+      const filteredSubmenu = menu.submenu?.filter((item: any) => hasPermission(item.modulo || item.id));
+      return filteredSubmenu && filteredSubmenu.length > 0;
+    }).map(menu => {
+      // Si tiene submenu, filtrar items del submenu
+      if (menu.submenu) {
+        return {
+          ...menu,
+          submenu: menu.submenu?.filter((item: any) => hasPermission(item.modulo || item.id))
+        };
+      }
+      return menu;
+    });
 
   const renderContent = () => {
     switch (currentPage) {

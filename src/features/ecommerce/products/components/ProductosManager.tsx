@@ -10,6 +10,7 @@ import {
   updateProduct,
   patchProductState,
   deleteProduct,
+  createProduct,
   Product,
   Inventory,
 } from '@/features/ecommerce/products/services/productsService';
@@ -39,13 +40,12 @@ export default function ProductosManager() {
   // ─── Modals ──────────────────────────────────────────────────────────────────
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal,   setShowEditModal]   = useState(false);
+  const [showAddModal,    setShowAddModal]    = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showToggleModal, setShowToggleModal] = useState(false);
 
   const [viewingProduct,  setViewingProduct]  = useState<Product | null>(null);
   const [editingProduct,  setEditingProduct]  = useState<Product | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
-  const [togglingProduct, setTogglingProduct] = useState<Product | null>(null);
   const [isSubmitting,    setIsSubmitting]    = useState(false);
 
   // ─── Edit form ───────────────────────────────────────────────────────────────
@@ -54,6 +54,19 @@ export default function ProductosManager() {
   const [editCategory, setEditCategory] = useState<number | null>(null);
   const [editErrors,   setEditErrors]   = useState<Record<string, string>>({});
   const [editPurchasePrice, setEditPurchasePrice] = useState('');
+
+  // ─── Add form ─────────────────────────────────────────────────────────────────
+  const [addName,     setAddName]     = useState('');
+  const [addPrice,    setAddPrice]    = useState('');
+  const [addCategory, setAddCategory] = useState<number | null>(null);
+  const [addErrors,   setAddErrors]   = useState<Record<string, string>>({});
+  const [addPurchasePrice, setAddPurchasePrice] = useState('');
+  const [addImage, setAddImage] = useState<File | null>(null);
+  const [addImagePreview, setAddImagePreview] = useState<string>('');
+  const [addStock, setAddStock] = useState('');
+  const [addColor, setAddColor] = useState('');
+  const [addSize, setAddSize] = useState('');
+  const [imageBase64, setImageBase64] = useState<string>('');
 
   // ─── Load data ───────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -88,6 +101,23 @@ export default function ProductosManager() {
 
   const getTotalStock = (productId: number) =>
     getProductVariants(productId).reduce((sum, v) => sum + getVariantStock(v.id_variant), 0);
+
+  const getProductImage = (productId: number): string | null => {
+    const image = localStorage.getItem(`product_image_${productId}`);
+    return image || null;
+  };
+
+  const getProductMeta = (productId: number) => {
+    const meta = localStorage.getItem(`product_meta_${productId}`);
+    if (meta) {
+      try {
+        return JSON.parse(meta);
+      } catch {
+        return { stock: '', color: '', size: '' };
+      }
+    }
+    return { stock: '', color: '', size: '' };
+  };
 
   // ─── Filter & paginate ───────────────────────────────────────────────────────
   const filtered = products.filter(p => {
@@ -141,24 +171,106 @@ export default function ProductosManager() {
     setIsSubmitting(false);
   };
 
-  // ─── Toggle ──────────────────────────────────────────────────────────────────
-  const handleToggle = (product: Product) => {
-    setTogglingProduct(product);
-    setShowToggleModal(true);
+  // ─── Add ──────────────────────────────────────────────────────────────────────
+  const handleOpenAdd = () => {
+    setAddName('');
+    setAddPrice('');
+    setAddCategory(null);
+    setAddPurchasePrice('');
+    setAddImage(null);
+    setAddImagePreview('');
+    setAddStock('');
+    setAddColor('');
+    setAddSize('');
+    setImageBase64('');
+    setAddErrors({});
+    setShowAddModal(true);
   };
 
-  const confirmToggle = async () => {
-    if (!togglingProduct) return;
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAddImage(file);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        setAddImagePreview(result);
+        setImageBase64(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveAdd = async () => {
+    const errors: Record<string, string> = {};
+    if (!addName.trim())                     errors.name     = 'El nombre es obligatorio';
+    if (!addPrice || Number(addPrice) <= 0) errors.price    = 'El precio debe ser mayor a 0';
+    if (!addPurchasePrice || Number(addPurchasePrice) <= 0) errors.purchasePrice = 'El precio de compra debe ser mayor a 0';
+    if (!addCategory)                        errors.category = 'Selecciona una categoría';
+    setAddErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
     setIsSubmitting(true);
-    const ok = await patchProductState(togglingProduct.id_product, !togglingProduct.is_active);
-    if (ok) {
-      showToast(`Producto ${!togglingProduct.is_active ? 'activado' : 'desactivado'}`, 'success');
+    const result = await createProduct({
+      name: addName.trim(),
+      category: addCategory!,
+      price: Number(addPrice),
+      purchase_price: Number(addPurchasePrice)
+    });
+
+    if (result) {
+      // Guardar imagen en localStorage si existe
+      if (imageBase64) {
+        localStorage.setItem(`product_image_${result.id_product}`, imageBase64);
+      }
+      
+      // Guardar datos adicionales en localStorage
+      const productMeta = {
+        stock: addStock,
+        color: addColor,
+        size: addSize
+      };
+      localStorage.setItem(`product_meta_${result.id_product}`, JSON.stringify(productMeta));
+      
+      showToast('Producto creado exitosamente', 'success');
       await loadData();
+      handleCloseAddModal();
     } else {
-      showToast('Error al cambiar estado', 'error');
+      showToast('Error al crear el producto', 'error');
     }
     setIsSubmitting(false);
-    setShowToggleModal(false);
+  };
+
+  const handleCloseAddModal = () => {
+    setShowAddModal(false);
+    handleOpenAdd(); // Limpia todos los campos
+  };
+
+  // ─── Toggle ──────────────────────────────────────────────────────────────────
+  const handleToggle = async (e: React.MouseEvent, product: Product) => {
+    e.stopPropagation();
+    
+    const newState = !product.is_active;
+    // Actualizar localmente primero para feedback inmediato
+    setProducts(products.map(p => 
+      p.id_product === product.id_product 
+        ? { ...p, is_active: newState }
+        : p
+    ));
+    
+    // Luego actualizar en servidor
+    const ok = await patchProductState(product.id_product, newState);
+    if (ok) {
+      showToast(`Producto ${newState ? 'activado' : 'desactivado'}`, 'success');
+    } else {
+      // Si falla, revertir cambio local
+      setProducts(products.map(p => 
+        p.id_product === product.id_product 
+          ? { ...p, is_active: !newState }
+          : p
+      ));
+      showToast('Error al cambiar estado', 'error');
+    }
   };
 
   // ─── Delete ──────────────────────────────────────────────────────────────────
@@ -224,20 +336,20 @@ export default function ProductosManager() {
             {products.length} productos · {variants.length} variantes
           </p>
         </div>
-        <Button onClick={exportToExcel} variant="secondary">
-          <Download size={16} />
-          Exportar Excel
-        </Button>
-      </div>
-
-      {/* Aviso */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-center gap-2">
-        <AlertCircle size={14} className="shrink-0" />
-        Los productos y variantes se crean desde el módulo <strong className="mx-1">Compras</strong>. Aquí solo puedes editar metadatos, cambiar estado o eliminar.
+        <div className="flex items-center gap-2">
+          <Button onClick={handleOpenAdd} variant="primary" className="flex items-center gap-2">
+            <Package size={16} />
+            Nuevo Producto
+          </Button>
+          <Button onClick={exportToExcel} variant="secondary">
+            <Download size={16} />
+            Exportar Excel
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <Input
@@ -261,81 +373,96 @@ export default function ProductosManager() {
           paginated.map(product => {
             const stock       = getTotalStock(product.id_product);
             const productVars = getProductVariants(product.id_product);
+            const productImage = getProductImage(product.id_product);
 
             return (
               <div
                 key={product.id_product}
-                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+                className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow"
               >
-                {/* Placeholder imagen */}
-                <div className="h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative">
-                  <Package className="text-gray-300" size={40} />
+                {/* Imagen del Producto */}
+                <div className="h-48 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative overflow-hidden group">
+                  {productImage ? (
+                    <img src={productImage} alt={product.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Package className="text-gray-300" size={48} />
+                  )}
 
-                  {/* Toggle activo */}
+                  {/* Toggle activo - Esquina superior derecha */}
                   <button
-                    onClick={() => handleToggle(product)}
+                    onClick={(e) => handleToggle(e, product)}
                     title={product.is_active ? 'Desactivar' : 'Activar'}
-                    className={`absolute top-2 right-2 w-11 h-6 rounded-full transition-colors ${
+                    className={`absolute top-2 right-2 w-10 h-6 rounded-full transition-colors z-10 ${
                       product.is_active ? 'bg-green-500' : 'bg-gray-400'
                     }`}
                   >
                     <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                      product.is_active ? 'translate-x-5' : 'translate-x-0'
+                      product.is_active ? 'translate-x-4' : 'translate-x-0'
                     }`} />
                   </button>
+                </div>
 
-                  {/* Badge stock */}
-                  <div className={`absolute bottom-2 left-2 text-xs px-2 py-0.5 rounded-full font-medium ${
+                {/* Contenido del Producto */}
+                <div className="p-3">
+                  {/* Nombre */}
+                  <h3 className="font-semibold text-gray-900 text-sm mb-1 truncate">{product.name}</h3>
+                  
+                  {/* Categoría */}
+                  <p className="text-xs text-gray-500 mb-2">{product.category_name}</p>
+
+                  {/* Talla, Color, Cantidad */}
+                  {(() => {
+                    const meta = getProductMeta(product.id_product);
+                    return (
+                      <>
+                        {(meta.size || meta.color || meta.stock) && (
+                          <div className="space-y-1 mb-2 text-xs">
+                            {meta.size && <p className="text-gray-600"><span className="font-medium">Talla:</span> {meta.size}</p>}
+                            {meta.color && <p className="text-gray-600"><span className="font-medium">Color:</span> {meta.color}</p>}
+                            {meta.stock && <p className="text-gray-600"><span className="font-medium">Cantidad:</span> {meta.stock}</p>}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {/* Stock */}
+                  <div className={`text-xs font-medium px-2 py-1 rounded-full inline-block mb-2 ${
                     stock > 20 ? 'bg-green-100 text-green-700' :
                     stock > 5  ? 'bg-yellow-100 text-yellow-700' :
                     stock > 0  ? 'bg-red-100 text-red-700' :
                                  'bg-gray-100 text-gray-500'
                   }`}>
-                    {stock > 0 ? `${stock} uds` : 'Sin stock'}
+                    Stock: {stock} unidades
                   </div>
-                </div>
 
-                <div className="p-4">
-                  <h3 className="font-semibold text-gray-900 text-sm mb-0.5 truncate">{product.name}</h3>
-                  <p className="text-xs text-gray-500 mb-3">{product.category_name}</p>
-
-                  <div className="text-xl font-bold text-gray-900 mb-2">
+                  {/* Precio */}
+                  <div className="text-xl font-bold text-gray-900 mb-1">
                     {formatCOP(product.price)}
                   </div>
-                  <div className="text-xs text-gray-500 mb-2">
+                  <div className="text-xs text-gray-500 mb-3">
                     Compra: {formatCOP(product.purchase_price)}
                   </div>
 
-                  {/* Variantes resumen */}
-                  {productVars.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {productVars.slice(0, 3).map(v => (
-                        <span key={v.id_variant} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                          {v.size_name}/{v.color_name}
-                        </span>
-                      ))}
-                      {productVars.length > 3 && (
-                        <span className="text-xs text-gray-400">+{productVars.length - 3} más</span>
-                      )}
-                    </div>
-                  )}
-
+                  {/* Botones de Acciones */}
                   <div className="flex gap-2">
                     <button
                       onClick={() => { setViewingProduct(product); setShowDetailModal(true); }}
-                      className="flex-1 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 flex items-center justify-center gap-1 text-xs transition-colors"
+                      className="flex-1 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 flex items-center justify-center gap-1 text-xs transition-colors font-medium"
                     >
-                      <Eye size={13} /> Ver
+                      <Eye size={13} /> Ver Detalles
                     </button>
                     <button
                       onClick={() => handleEdit(product)}
                       className="px-2 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
+                      title="Editar"
                     >
                       <Edit2 size={13} />
                     </button>
                     <button
                       onClick={() => handleDelete(product)}
                       className="px-2 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
+                      title="Eliminar"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -406,6 +533,36 @@ export default function ProductosManager() {
                 </div>
               </div>
 
+              {/* Información de Meta (Cantidad, Talla, Color) */}
+              {(() => {
+                const meta = getProductMeta(viewingProduct.id_product);
+                return (meta.size || meta.color || meta.stock) ? (
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-semibold text-gray-900 mb-3">Información Adicional</h4>
+                    <div className="grid grid-cols-3 gap-3">
+                      {meta.stock && (
+                        <div>
+                          <p className="text-xs text-gray-600 mb-1">Cantidad</p>
+                          <p className="font-semibold text-gray-900">{meta.stock}</p>
+                        </div>
+                      )}
+                      {meta.size && (
+                        <div>
+                          <p className="text-xs text-gray-600 mb-1">Talla</p>
+                          <p className="font-semibold text-gray-900">{meta.size}</p>
+                        </div>
+                      )}
+                      {meta.color && (
+                        <div>
+                          <p className="text-xs text-gray-600 mb-1">Color</p>
+                          <p className="font-semibold text-gray-900">{meta.color}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
               <div className="border-t pt-4">
                 <h4 className="font-semibold text-gray-900 mb-3">
                   Variantes ({productVars.length}) — Stock total:{' '}
@@ -456,6 +613,7 @@ export default function ProductosManager() {
       </Modal>
 
       {/* ─── Modal Editar ───────────────────────────────────────────────────── */}
+      {/* ─── Modal Editar Producto ─────────────────────────────────────────── */}
       <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Editar Producto" size="md">
         <div className="space-y-4 text-sm">
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
@@ -523,6 +681,149 @@ export default function ProductosManager() {
         </div>
       </Modal>
 
+      {/* ─── Modal Agregar Producto ────────────────────────────────────────── */}
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Nuevo Producto" size="lg">
+        <div className="space-y-4 text-sm max-h-96 overflow-y-auto">
+          {/* Imagen */}
+          <div>
+            <label className="block text-gray-700 font-medium mb-2 text-xs">Imagen del Producto</label>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center bg-gray-50">
+              {addImagePreview ? (
+                <div className="relative">
+                  <img src={addImagePreview} alt="Preview" className="w-full h-48 object-cover rounded-lg mb-2" />
+                  <div className="flex gap-2 justify-center">
+                    <label className="text-blue-500 text-xs hover:underline cursor-pointer">
+                      Cambiar imagen
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="hidden"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddImage(null);
+                        setAddImagePreview('');
+                        setImageBase64('');
+                      }}
+                      className="text-red-500 text-xs hover:underline"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label className="cursor-pointer">
+                  <div className="text-gray-400 text-xs py-4">
+                    <Package size={28} className="mx-auto mb-2" />
+                    <div>Haz clic o arrastra una imagen aquí</div>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Nombre del Producto *</label>
+            <Input
+              value={addName}
+              onChange={(e) => setAddName(e.target.value)}
+              placeholder="Nombre del producto"
+              className={addErrors.name ? 'border-red-400' : ''}
+            />
+            {addErrors.name && <p className="text-red-500 text-xs mt-1">{addErrors.name}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Precio de venta *</label>
+              <Input
+                type="number"
+                value={addPrice}
+                onChange={(e) => setAddPrice(e.target.value)}
+                placeholder="0"
+                className={addErrors.price ? 'border-red-400' : ''}
+              />
+              {addErrors.price && <p className="text-red-500 text-xs mt-1">{addErrors.price}</p>}
+            </div>
+
+            <div>
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Precio de compra *</label>
+              <Input
+                type="number"
+                value={addPurchasePrice}
+                onChange={(e) => setAddPurchasePrice(e.target.value)}
+                placeholder="0"
+                className={addErrors.purchasePrice ? 'border-red-400' : ''}
+              />
+              {addErrors.purchasePrice && <p className="text-red-500 text-xs mt-1">{addErrors.purchasePrice}</p>}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Categoría *</label>
+            <select
+              value={addCategory ?? ''}
+              onChange={(e) => setAddCategory(Number(e.target.value) || null)}
+              className={`w-full h-10 px-3 border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 ${
+                addErrors.category ? 'border-red-400' : 'border-gray-300'
+              }`}
+            >
+              <option value="">Seleccionar categoría...</option>
+              {categories.map(c => (
+                <option key={c.id_category} value={c.id_category}>{c.name}</option>
+              ))}
+            </select>
+            {addErrors.category && <p className="text-red-500 text-xs mt-1">{addErrors.category}</p>}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Stock</label>
+              <Input
+                type="number"
+                value={addStock}
+                onChange={(e) => setAddStock(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Color</label>
+              <Input
+                value={addColor}
+                onChange={(e) => setAddColor(e.target.value)}
+                placeholder="Ej: Negro"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 font-medium mb-1 text-xs">Talla</label>
+              <Input
+                value={addSize}
+                onChange={(e) => setAddSize(e.target.value)}
+                placeholder="Ej: M, L"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2 border-t">
+            <Button onClick={handleCloseAddModal} variant="secondary">Cancelar</Button>
+            <Button onClick={handleSaveAdd} variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Creando...' : 'Crear Producto'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ─── Modal Eliminar ─────────────────────────────────────────────────── */}
       <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Eliminar Producto" size="sm">
         <div className="space-y-4 text-sm">
@@ -541,22 +842,6 @@ export default function ProductosManager() {
               className="bg-red-600 hover:bg-red-700"
             >
               {isSubmitting ? 'Eliminando...' : 'Eliminar'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ─── Modal Toggle Estado ────────────────────────────────────────────── */}
-      <Modal isOpen={showToggleModal} onClose={() => setShowToggleModal(false)} title="Cambiar Estado" size="sm">
-        <div className="space-y-4 text-sm">
-          <p className="text-gray-700">
-            ¿Deseas <strong>{togglingProduct?.is_active ? 'desactivar' : 'activar'}</strong> el producto{' '}
-            <strong>{togglingProduct?.name}</strong>?
-          </p>
-          <div className="flex gap-3 justify-end">
-            <Button onClick={() => setShowToggleModal(false)} variant="secondary">Cancelar</Button>
-            <Button onClick={confirmToggle} variant="primary" disabled={isSubmitting}>
-              {isSubmitting ? 'Procesando...' : 'Confirmar'}
             </Button>
           </div>
         </div>
