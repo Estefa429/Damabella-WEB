@@ -1,5 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Eye, X, CheckCircle, UserPlus, Download, AlertCircle, Pencil, Ban, ShoppingCart, Repeat } from 'lucide-react';
+// src/features/orders/PedidosManager.tsx
+//
+// Migración completa: localStorage → API
+// - Pedidos: gestionados por useOrders() → ordersService.ts
+// - Clientes: cargados desde API de clientsServices
+// - Productos: siguen en localStorage hasta que tengan su propia API
+// - Bug de cleanup en useEffect corregido
+// - exportOrders() de la API reemplaza la exportación manual
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Plus, Search, Eye, X, CheckCircle, UserPlus,
+  Download, AlertCircle, Pencil, Ban, ShoppingCart, Repeat,
+} from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { validateField } from '../../../../shared/utils/validation';
 import { finalizarVenta, generarNumeroVenta } from '../../../../services/saleService';
@@ -9,812 +21,470 @@ import {
   puedeTransicionar,
   obtenerClaseEstado,
   obtenerDescripcionEstado,
-  obtenerEstadosValidos,
   type EstadoPedido,
-  type TipoTransicion,
 } from '../../../../services/pedidosCentralizado';
+import { getAllClients, createClients, CreateClientsDTO, Clients } from '../../customers/services/clientsServices';
+import { getAllProducts, Product, getAllColors, getAllSizes, Color, Size } from '../../products/services/productsService';
 
-const STORAGE_KEY = 'damabella_pedidos';
-const CLIENTES_KEY = 'damabella_clientes';
-const PRODUCTOS_KEY = 'damabella_productos';
+import { useOrders } from './UseOrder';
+import {
+  formDataToCreateOrderDTO,
+  apiOrderToLocal,
+  apiStateToLocalState,
+  metodoPagoNameToId,
+  type ItemPedidoLocal,
+  type FormDataLocal,
+} from './OrderMappers';
 
-// ✅ NUEVO: keys para Ventas (persistencia)
-const VENTAS_KEY = 'damabella_ventas';
-const VENTA_COUNTER_KEY = 'damabella_venta_counter';
+// ─── Keys localStorage ───────
+// NOTA: Productos ahora se cargan de API
 
-// ✅ IVA Rate
-const IVA_RATE = 0.19; // Cambiar aquí si se requiere otra tasa de IVA
+// ─── IVA ─────────────────────────────────────────────────────────────────────
+const IVA_RATE = 0.19;
 
-interface ItemPedido {
-  id: string;
-  productoId: string;
-  productoNombre: string;
-  talla: string;
-  color: string;
-  cantidad: number;
-  precioUnitario: number;
-  subtotal: number;
-}
+// ─── Tipo local enriquecido (API Order + campos de display) ──────────────────
+type PedidoLocal = ReturnType<typeof apiOrderToLocal>;
+type EstadoLocal = PedidoLocal['estado'];
 
-interface Pedido {
-  id: number;
-  numeroPedido: string;
-  tipo: 'Pedido';
-  clienteId: string;
-  clienteNombre: string;
-  fechaPedido: string;
-  estado: 'Pendiente' | 'Anulado' | 'Completada' | 'Convertido a venta';
-  items: ItemPedido[];
-  subtotal: number;
-  iva: number;
-  total: number;
-  metodoPago: string;
-  observaciones: string;
-  direccionEnvio?: string;
-  personaRecibe?: string;
-  createdAt: string;
-  venta_id?: string | null;
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
 export default function PedidosManager() {
-  const [pedidos, setPedidos] = useState<Pedido[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
 
-  const [clientes, setClientes] = useState(() => {
-    const stored = localStorage.getItem(CLIENTES_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
+  // ── API ──────────────────────────────────────────────────────────────────
+  const {
+    pedidos: pedidosAPI,
+    loading: apiLoading,
+    error: apiError,
+    fetchPedidos,
+    crearPedido,
+    editarPedido,
+    cambiarEstado: apiCambiarEstado,
+    descargarExcel,
+  } = useOrders();
 
-  const [productos, setProductos] = useState(() => {
-    const stored = localStorage.getItem(PRODUCTOS_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    // Productos de ejemplo - Ropa femenina
-    const productosEjemplo = [
-      {
-        id: '1',
-        nombre: 'Vestido Corto Casual',
-        referencia: 'VES-CORTA-001',
-        codigoInterno: 'VCC-001',
-        precioVenta: 65000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Rojo', 'Negro', 'Blanco', 'Azul', 'Rosa'],
-      },
-      {
-        id: '2',
-        nombre: 'Vestido Largo Elegante',
-        referencia: 'VES-LARGO-002',
-        codigoInterno: 'VLE-002',
-        precioVenta: 95000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Rojo', 'Champagne', 'Azul Marino'],
-      },
-      {
-        id: '3',
-        nombre: 'Enterizo Ejecutivo',
-        referencia: 'ENT-EJE-003',
-        codigoInterno: 'ENE-003',
-        precioVenta: 85000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Beige', 'Azul Marino', 'Gris'],
-      },
-      {
-        id: '4',
-        nombre: 'Enterizo Casual Denim',
-        referencia: 'ENT-CAS-004',
-        codigoInterno: 'ECD-004',
-        precioVenta: 75000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Azul Claro', 'Azul Oscuro', 'Negro'],
-      },
-      {
-        id: '5',
-        nombre: 'Vestido Corto de Fiesta',
-        referencia: 'VES-FIESTA-005',
-        codigoInterno: 'VCF-005',
-        precioVenta: 78000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Dorado', 'Plata', 'Negro', 'Rojo'],
-      },
-      {
-        id: '6',
-        nombre: 'Vestido Largo de Gala',
-        referencia: 'VES-GALA-006',
-        codigoInterno: 'VLG-006',
-        precioVenta: 120000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Blanco', 'Negro', 'Azul Marino', 'Vino'],
-      },
-      {
-        id: '7',
-        nombre: 'Enterizo Premium',
-        referencia: 'ENT-PREM-007',
-        codigoInterno: 'EPR-007',
-        precioVenta: 105000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Blanco', 'Rosa Palo', 'Azul Cielo'],
-      },
-    ];
-    localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosEjemplo));
-    return productosEjemplo;
-  });
+  // Normalizar pedidos de API al formato local
+  const pedidos: PedidoLocal[] = useMemo(
+    () => pedidosAPI.map(apiOrderToLocal),
+    [pedidosAPI],
+  );
 
-  const [showModal, setShowModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showClienteModal, setShowClienteModal] = useState(false);
-  const [showComprobanteModal, setShowComprobanteModal] = useState(false);
-  const [showEstadoModal, setShowEstadoModal] = useState(false);
-  const [editingPedido, setEditingPedido] = useState<Pedido | null>(null);
-  const [viewingPedido, setViewingPedido] = useState<Pedido | null>(null);
-  const [pedidoParaCambiarEstado, setPedidoParaCambiarEstado] = useState<Pedido | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [clienteSearch, setClienteSearch] = useState('');
-  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  // ── localStorage: clientes y productos ───────────────────────────────────
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [clientesLoading, setClientesLoading] = useState(false);
+
+  const [productos, setProductos] = useState<any[]>([]);
+  const [tallas, setTallas] = useState<Size[]>([]);
+  const [colores, setColores] = useState<Color[]>([]);
+
+  // ── Modales ───────────────────────────────────────────────────────────────
+  const [showModal,            setShowModal]            = useState(false);
+  const [showDetailModal,      setShowDetailModal]      = useState(false);
+  const [showClienteModal,     setShowClienteModal]     = useState(false);
+  const [showEstadoModal,      setShowEstadoModal]      = useState(false);
+  const [showNotificationModal,setShowNotificationModal]= useState(false);
+  const [showConfirmModal,     setShowConfirmModal]     = useState(false);
+
+  const [editingPedido,            setEditingPedido]            = useState<PedidoLocal | null>(null);
+  const [viewingPedido,            setViewingPedido]            = useState<PedidoLocal | null>(null);
+  const [pedidoParaCambiarEstado,  setPedidoParaCambiarEstado]  = useState<PedidoLocal | null>(null);
+  const [nuevoEstadoModal,         setNuevoEstadoModal]         = useState<EstadoLocal>('Pendiente');
+
   const [notificationMessage, setNotificationMessage] = useState('');
-  const [notificationType, setNotificationType] = useState<'success' | 'error' | 'info'>('info');
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
-  const [confirmMessage, setConfirmMessage] = useState('');
-  const [nuevoEstado, setNuevoEstado] = useState<Pedido['estado']>('Pendiente');
+  const [notificationType,    setNotificationType]    = useState<'success' | 'error' | 'info'>('info');
+  const [confirmMessage,      setConfirmMessage]      = useState('');
+  const [confirmAction,       setConfirmAction]       = useState<(() => void) | null>(null);
 
-  // ====== BUSCADORES (Cliente / Producto) ======
-  const [clienteQuery, setClienteQuery] = useState('');
-  const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+  // ── Búsqueda ──────────────────────────────────────────────────────────────
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // ── Dropdowns buscables ───────────────────────────────────────────────────
+  const [clienteQuery,          setClienteQuery]          = useState('');
   const [selectedClienteNombre, setSelectedClienteNombre] = useState('');
+  const [showClienteDropdown,   setShowClienteDropdown]   = useState(false);
+  const [productoQuery,         setProductoQuery]         = useState('');
+  const [showProductoDropdown,  setShowProductoDropdown]  = useState(false);
 
-  const [productoQuery, setProductoQuery] = useState('');
-  const [showProductoDropdown, setShowProductoDropdown] = useState(false);
-
-  const [formData, setFormData] = useState({
-    tipo: 'Pedido' as 'Pedido',
-    clienteId: '',
-    fechaPedido: new Date().toISOString().split('T')[0],
-    metodoPago: 'Efectivo',
+  // ── Formulario pedido ─────────────────────────────────────────────────────
+  const emptyForm = (): FormDataLocal => ({
+    clienteId:     '',
+    fechaPedido:   new Date().toISOString().split('T')[0],
+    metodoPago:    'Efectivo',
     observaciones: '',
-    items: [] as ItemPedido[],
-    direccionEnvio: '',
-    personaRecibe: ''
+    items:         [],
+    direccionEnvio:'',
+    personaRecibe: '',
+    estadoId:      1,
   });
 
-  const [nuevoCliente, setNuevoCliente] = useState({
-    nombre: '',
-    tipoDoc: 'CC',
-    numeroDoc: '',
-    telefono: '',
-    email: '',
-    direccion: ''
-  });
+  const [formData,   setFormData]   = useState<FormDataLocal>(emptyForm());
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [nuevoItem, setNuevoItem] = useState({
     productoId: '',
     talla: '',
     color: '',
     cantidad: '1',
-    precioUnitario: ''
   });
 
   const [stockDisponible, setStockDisponible] = useState<number | null>(null);
 
-  const [formErrors, setFormErrors] = useState<any>({});
+  // ── Formulario nuevo cliente ──────────────────────────────────────────────
+  const [nuevoCliente, setNuevoCliente] = useState({
+    nombre: '', tipoDoc: 'CC', numeroDoc: '', telefono: '', email: '', direccion: '',
+  });
 
-  const handleFieldChange = (field: string, value: any) => {
-    setFormData({ ...formData, [field]: value });
+  // ── Paginación ────────────────────────────────────────────────────────────
+  const ITEMS_PER_PAGE = 5;
+  const [currentPage, setCurrentPage] = useState(1);
 
-    // per-field validation for pedido form
-    const errors: any = {};
-    if (field === 'clienteId') {
-      if (!value) errors.clienteId = 'Debes seleccionar un cliente';
-    }
-    if (field === 'fechaPedido') {
-      if (!value) errors.fechaPedido = 'La fecha del pedido es obligatoria';
-    }
+  // ─────────────────────────────────────────────────────────────────────────
+  // EFFECTS
+  // ─────────────────────────────────────────────────────────────────────────
 
-    setFormErrors((prev: any) => ({ ...prev, ...errors, [field]: errors[field] }));
-  };
-
-  const handleNuevoItemChange = (field: string, value: any) => {
-    setNuevoItem((prev: any) => {
-      let newItem = prev;
-      if (field === 'productoId') {
-        // Limpiar talla, color y otros campos cuando se cambia el producto
-        newItem = { ...prev, productoId: value, talla: '', color: '', cantidad: '1', precioUnitario: '' };
-        setStockDisponible(null);
-      } else if (field === 'talla') {
-        // Limpiar color cuando se cambia la talla
-        newItem = { ...prev, talla: value, color: '' };
-        setStockDisponible(null);
-      } else if (field === 'color') {
-        newItem = { ...prev, color: value };
-        // Calcular stock disponible cuando se selecciona color
-        const producto = productos.find((p: any) => p.id.toString() === prev.productoId);
-        if (producto && producto.variantes) {
-          const varianteTalla = producto.variantes.find((v: any) => v.talla === prev.talla);
-          if (varianteTalla) {
-            const colorItem = varianteTalla.colores?.find((c: any) => c.color === value);
-            if (colorItem) {
-              setStockDisponible(colorItem.cantidad);
-            } else {
-              setStockDisponible(0);
-            }
-          } else {
-            setStockDisponible(0);
-          }
-        } else {
-          setStockDisponible(null);
+  // Cargar clientes desde API y sincronizar productos desde localStorage
+  useEffect(() => {
+    const loadClients = async () => {
+      setClientesLoading(true);
+      try {
+        const clientesAPI = await getAllClients();
+        if (clientesAPI) {
+          const clientesMapeados = clientesAPI.map((client: Clients) => ({
+            id: client.id_client,
+            nombre: client.name,
+            tipoDoc: client.type_doc,
+            numeroDoc: client.doc,
+            telefono: client.phone,
+            email: client.email,
+            direccion: client.address,
+            ciudad: client.city,
+            activo: client.state,
+            saldoAFavor: 0
+          }));
+          setClientes(clientesMapeados);
         }
-      } else {
-        newItem = { ...prev, [field]: value };
+      } catch (error) {
+        console.error('Error loading clients:', error);
+      } finally {
+        setClientesLoading(false);
       }
-      return newItem;
-    });
-
-    // validate nuevo item minimal
-    const key = `nuevoItem_${field}`;
-    let err = '';
-    if ((field === 'productoId' || field === 'talla' || field === 'color') && !value) {
-      err = 'Campo obligatorio';
-    }
-    if (field === 'cantidad') {
-      const n = parseInt(value as any);
-      if (isNaN(n) || n < 1) err = 'Cantidad inválida';
-    }
-    setFormErrors((prev: any) => ({ ...prev, [key]: err }));
-  };
-
-  const handleNuevoClienteChange = (field: string, value: any) => {
-    setNuevoCliente({ ...nuevoCliente, [field]: value });
-
-    // validate nuevo cliente using shared validator where possible
-    let err = '';
-    if (field === 'nombre') {
-      err = validateField('nombre', value) || '';
-    }
-    if (field === 'numeroDoc') {
-      err = validateField('documento', value) || '';
-    }
-    if (field === 'email') {
-      if (!value) return '';
-
-      const emailRegex =
-        /^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
-      if (!emailRegex.test(value)) {
-        err = 'Correo electrónico inválido';
-      }
-    }
-    if (field === 'telefono') {
-      if (!value) {
-        err = 'Teléfono obligatorio';
-      } else if (!/^\d+$/.test(value)) {
-        err = 'El teléfono solo debe contener números';
-      }
-    }
-
-    setFormErrors((prev: any) => ({ ...prev, [`nuevoCliente_${field}`]: err }));
-  };
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(pedidos));
-  }, [pedidos]);
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const storedProductos = localStorage.getItem(PRODUCTOS_KEY);
-      const storedClientes = localStorage.getItem(CLIENTES_KEY);
-      if (storedProductos) setProductos(JSON.parse(storedProductos));
-      if (storedClientes) setClientes(JSON.parse(storedClientes));
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('salesUpdated', handleStorageChange);
+    const loadProductos = async () => {
+      try {
+        const productosAPI = await getAllProducts();
+        if (productosAPI) {
+          const productosMapeados = productosAPI.map((product: Product) => ({
+            id: product.id_product.toString(),
+            nombre: product.name,
+            categoria: product.category,
+            categoriaNombre: product.category_name,
+            precioVenta: product.price,
+            precioCompra: product.purchase_price,
+            activo: product.is_active
+          }));
+          setProductos(productosMapeados);
+        }
+      } catch (error) {
+        console.error('Error loading products:', error);
+      }
+    };
 
-    return () => 
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('salesUpdated', handleStorageChange);
+    const loadTallasYColores = async () => {
+      try {
+        const tallasAPI = await getAllSizes();
+        const coloresAPI = await getAllColors();
+        if (tallasAPI) setTallas(tallasAPI);
+        if (coloresAPI) setColores(coloresAPI);
+      } catch (error) {
+        console.error('Error loading sizes and colors:', error);
+      }
+    };
+
+    loadClients();
+    loadProductos();
+    loadTallasYColores();
   }, []);
 
-  // Cerrar dropdowns al hacer click fuera
+  // Cerrar dropdowns al click fuera
   useEffect(() => {
-    const onClick = () => {
+    const close = () => {
       setShowClienteDropdown(false);
       setShowProductoDropdown(false);
     };
-    window.addEventListener('click', onClick);
-    return () => window.removeEventListener('click', onClick);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
   }, []);
 
-  const generarNumeroPedido = () => {
-    const ultimoPedido = pedidos.length > 0
-      ? Math.max(...pedidos.map(p => parseInt(p.numeroPedido.split('-')[1])))
-      : 0;
-    const nuevoNumero = (ultimoPedido + 1).toString().padStart(3, '0');
-    return `PED-${nuevoNumero}`;
+  // ─────────────────────────────────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const notify = useCallback((msg: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotificationMessage(msg);
+    setNotificationType(type);
+    setShowNotificationModal(true);
+  }, []);
+
+  const calcularTotales = (items: ItemPedidoLocal[]) => {
+    const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
+    const iva      = subtotal * IVA_RATE;
+    return { subtotal, iva, total: subtotal + iva };
   };
 
-  const calcularTotales = (items: ItemPedido[]) => {
-    const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
-    const iva = subtotal * 0.19;
-    const total = subtotal + iva;
-    return { subtotal, iva, total };
+  const getProductoSeleccionado = () =>
+    productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
+
+  const getTallasDisponibles = (): string[] => {
+    return tallas.map(t => t.name).filter(Boolean);
   };
+
+  const getColoresDisponibles = (): string[] => {
+    return colores.map(c => c.name).filter(Boolean);
+  };
+
+  const getEstadoColor = (estado: EstadoLocal) => {
+    switch (estado) {
+      case 'Pendiente':          return 'bg-yellow-100 text-yellow-700';
+      case 'Completada':         return 'bg-green-100 text-green-700';
+      case 'Anulado':            return 'bg-red-100 text-red-700';
+      case 'Convertido a venta': return 'bg-blue-100 text-blue-700';
+      default:                   return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FORMULARIO: CAMPO A CAMPO
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleFieldChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (field === 'clienteId' && !value)
+      setFormErrors(prev => ({ ...prev, clienteId: 'Debes seleccionar un cliente' }));
+    if (field === 'fechaPedido' && !value)
+      setFormErrors(prev => ({ ...prev, fechaPedido: 'La fecha del pedido es obligatoria' }));
+  };
+
+  const handleNuevoItemChange = (field: string, value: any) => {
+    setNuevoItem(prev => {
+      if (field === 'productoId') {
+        setStockDisponible(null);
+        return { ...prev, productoId: value, talla: '', color: '', cantidad: '1' };
+      }
+      if (field === 'talla') {
+        setStockDisponible(null);
+        return { ...prev, talla: value, color: '' };
+      }
+      if (field === 'color') {
+        const p = productos.find((p: any) => p.id.toString() === prev.productoId);
+        if (p?.variantes) {
+          const vt = p.variantes.find((v: any) => v.talla === prev.talla);
+          const ci = vt?.colores?.find((c: any) => c.color === value);
+          setStockDisponible(ci ? ci.cantidad : 0);
+        } else {
+          setStockDisponible(null);
+        }
+        return { ...prev, color: value };
+      }
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const handleNuevoClienteChange = (field: string, value: any) => {
+    setNuevoCliente(prev => ({ ...prev, [field]: value }));
+    let err = '';
+    if (field === 'nombre')    err = validateField('nombre', value) || '';
+    if (field === 'numeroDoc') err = validateField('documento', value) || '';
+    if (field === 'email' && value) {
+      if (!/^[a-zA-Z][a-zA-Z0-9._-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value))
+        err = 'Correo electrónico inválido';
+    }
+    if (field === 'telefono') {
+      if (!value)               err = 'Teléfono obligatorio';
+      else if (!/^\d+$/.test(value)) err = 'Solo números';
+    }
+    setFormErrors(prev => ({ ...prev, [`nuevoCliente_${field}`]: err }));
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ABRIR MODAL CREAR / EDITAR
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleCreate = () => {
     setEditingPedido(null);
-    setFormData({
-      tipo: 'Pedido',
-      clienteId: '',
-      fechaPedido: new Date().toISOString().split('T')[0],
-      metodoPago: 'Efectivo',
-      observaciones: '',
-      items: [],
-      direccionEnvio: '',
-      personaRecibe: ''
-    });
-    setNuevoItem({
-      productoId: '',
-      talla: '',
-      color: '',
-      cantidad: '1',
-      precioUnitario: ''
-    });
-
+    setFormData(emptyForm());
+    setNuevoItem({ productoId: '', talla: '', color: '', cantidad: '1' });
     setClienteQuery('');
     setProductoQuery('');
     setShowClienteDropdown(false);
     setShowProductoDropdown(false);
-
+    setFormErrors({});
     setShowModal(true);
   };
 
-  const handleEdit = (pedido: Pedido) => {
-    // ✅ USAR VALIDADOR CENTRALIZADO
+  const handleEdit = (pedido: PedidoLocal) => {
     if (!puedeEditarse(pedido.estado)) {
-      setNotificationMessage(`No puedes editar un pedido en estado "${pedido.estado}".`);
-      setNotificationType('error');
-      setShowNotificationModal(true);
+      notify(`No puedes editar un pedido en estado "${pedido.estado}".`, 'error');
       return;
     }
-
     setEditingPedido(pedido);
     setFormData({
-      tipo: pedido.tipo,
-      clienteId: pedido.clienteId,
-      fechaPedido: pedido.fechaPedido,
-      metodoPago: pedido.metodoPago,
-      observaciones: pedido.observaciones,
-      direccionEnvio: (pedido as any).direccionEnvio || '',
-      personaRecibe: (pedido as any).personaRecibe || '',
-      items: pedido.items
+      clienteId:      pedido.clienteId,
+      fechaPedido:    pedido.fechaPedido,
+      metodoPago:     pedido.metodoPago,
+      metodoPagoId:   pedido.metodoPagoId,
+      observaciones:  pedido.observaciones,
+      items:          pedido.items,
+      direccionEnvio: pedido.direccionEnvio,
+      personaRecibe:  pedido.personaRecibe,
+      estadoId:       pedido.estadoId,
     });
-
-    const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
-    setClienteQuery(cliente ? `${cliente.nombre} - ${cliente.numeroDoc}` : (pedido.clienteNombre || ''));
-    const label = cliente ? `${cliente.nombre} - ${cliente.numeroDoc}` : (pedido.clienteNombre || '');
+    const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId);
+    const label   = cliente
+      ? `${cliente.nombre} - ${cliente.numeroDoc}`
+      : pedido.clienteNombre;
     setClienteQuery(label);
     setSelectedClienteNombre(label);
-
     setProductoQuery('');
     setShowClienteDropdown(false);
     setShowProductoDropdown(false);
-
+    setFormErrors({});
     setShowModal(true);
   };
 
-  const getProductoSeleccionado = () => {
-    return productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
-  };
-
-  const getTallasDisponibles = () => {
-    const producto = getProductoSeleccionado();
-    if (!producto) return [];
-    // Si tiene estructura de variantes (antiguo formato)
-    if (producto.variantes) {
-      return producto.variantes.map((v: any) => v.talla);
-    }
-    // Si tiene tallas directas (nuevo formato)
-    if (producto.tallas) {
-      return producto.tallas;
-    }
-    return [];
-  };
-
-  const getColoresDisponibles = () => {
-    const producto = getProductoSeleccionado();
-    if (!producto) return [];
-
-    // Si tiene estructura de variantes (antiguo formato)
-    if (producto.variantes && nuevoItem.talla) {
-      const variante = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
-      if (!variante) return [];
-      return variante.colores.map((c: any) => c.color);
-    }
-
-    // Si tiene colores directos (nuevo formato)
-    if (producto.colores) {
-      return producto.colores;
-    }
-
-    return [];
-  };
+  // ─────────────────────────────────────────────────────────────────────────
+  // AGREGAR ÍTEM AL FORMULARIO
+  // ─────────────────────────────────────────────────────────────────────────
 
   const agregarItem = () => {
-    const newErrors: any = {};
-    if (!nuevoItem.productoId) newErrors['nuevoItem_productoId'] = 'Selecciona un producto';
-    if (!nuevoItem.talla) newErrors['nuevoItem_talla'] = 'Selecciona una talla';
-    if (!nuevoItem.color) newErrors['nuevoItem_color'] = 'Selecciona un color';
-    const cantidadNum = parseInt(nuevoItem.cantidad as any);
-    if (isNaN(cantidadNum) || cantidadNum < 1) newErrors['nuevoItem_cantidad'] = 'Cantidad inválida';
+    const errs: Record<string, string> = {};
+    if (!nuevoItem.productoId) errs['nuevoItem_productoId'] = 'Selecciona un producto';
+    if (!nuevoItem.talla)      errs['nuevoItem_talla']      = 'Selecciona una talla';
+    if (!nuevoItem.color)      errs['nuevoItem_color']      = 'Selecciona un color';
+    const cantNum = parseInt(nuevoItem.cantidad, 10);
+    if (isNaN(cantNum) || cantNum < 1) errs['nuevoItem_cantidad'] = 'Cantidad inválida';
 
-    if (Object.keys(newErrors).length > 0) {
-      setFormErrors((prev: any) => ({ ...prev, ...newErrors }));
-      setNotificationMessage('Completa todos los campos del producto');
-      setNotificationType('error');
-      setShowNotificationModal(true);
+    if (Object.keys(errs).length) {
+      setFormErrors(prev => ({ ...prev, ...errs }));
+      notify('Completa todos los campos del producto', 'error');
       return;
     }
 
     const producto = productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
     if (!producto) return;
 
-    const cantidad = parseInt(nuevoItem.cantidad);
-
-    // 🔒 VALIDACIÓN: Verificar stock disponible (si el producto tiene variantes)
-    if (producto.variantes && producto.variantes.length > 0) {
-      // Buscar la variante de talla
-      const varianteTalla = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
-      
-      if (!varianteTalla) {
-        setNotificationMessage(`❌ Talla ${nuevoItem.talla} no tiene stock definido. Debe crearse desde Compras.`);
-        setNotificationType('error');
-        setShowNotificationModal(true);
-        return;
-      }
-
-      // Buscar el color en la talla
-      const colorItem = varianteTalla.colores?.find((c: any) => c.color === nuevoItem.color);
-      
-      if (!colorItem) {
-        setNotificationMessage(`❌ Color ${nuevoItem.color} no tiene stock definido. Debe crearse desde Compras.`);
-        setNotificationType('error');
-        setShowNotificationModal(true);
-        return;
-      }
-
-      // 🔒 VALIDACIÓN: Stock insuficiente
-      if (colorItem.cantidad < cantidad) {
-        setNotificationMessage(
-          `❌ Stock insuficiente para ${producto.nombre} (${nuevoItem.talla}, ${nuevoItem.color}).\n` +
-          `Disponible: ${colorItem.cantidad} unidades\n` +
-          `Solicitado: ${cantidad} unidades`
-        );
-        setNotificationType('error');
-        setShowNotificationModal(true);
-        return;
-      }
-
-      console.log(`✅ [PedidosManager] Stock validado: ${producto.nombre} - ${nuevoItem.talla} - ${nuevoItem.color}: ${colorItem.cantidad} disponible`);
-    } else {
-      // Si el producto NO tiene variantes definidas, es un error
-      console.warn(`⚠️ [PedidosManager] Producto sin variantes: ${producto.nombre}. Stock no puede validarse.`);
-      setNotificationMessage(`❌ El producto ${producto.nombre} no tiene variantes definidas. Debe crearse desde Compras.`);
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-    const precioUnitario = producto.precioVenta;
-    const subtotal = cantidad * precioUnitario;
-
-    const item: ItemPedido = {
-      id: Date.now().toString(),
-      productoId: nuevoItem.productoId,
+    const item: ItemPedidoLocal = {
+      id:             Date.now().toString(),
+      productoId:     nuevoItem.productoId,
       productoNombre: producto.nombre,
-      talla: nuevoItem.talla,
-      color: nuevoItem.color,
-      cantidad,
-      precioUnitario,
-      subtotal
+      talla:          nuevoItem.talla,
+      color:          nuevoItem.color,
+      cantidad:       cantNum,
+      precioUnitario: producto.precioVenta,
+      subtotal:       cantNum * producto.precioVenta,
     };
 
-    setFormData({
-      ...formData,
-      items: [...formData.items, item]
-    });
-
-    setNuevoItem({
-      productoId: '',
-      talla: '',
-      color: '',
-      cantidad: '1',
-      precioUnitario: ''
-    });
-
+    setFormData(prev => ({ ...prev, items: [...prev.items, item] }));
+    setNuevoItem({ productoId: '', talla: '', color: '', cantidad: '1' });
     setProductoQuery('');
     setShowProductoDropdown(false);
-
-    setFormErrors((prev: any) => ({
+    setFormErrors(prev => ({
       ...prev,
       'nuevoItem_productoId': '',
       'nuevoItem_talla': '',
       'nuevoItem_color': '',
-      'nuevoItem_cantidad': ''
-    }));
-    setFormErrors((prev: any) => ({
-      ...prev,
-      'nuevoItem_productoId': '',
-      'nuevoItem_talla': '',
-      'nuevoItem_color': '',
-      'nuevoItem_cantidad': ''
+      'nuevoItem_cantidad': '',
     }));
   };
 
-  const eliminarItem = (itemId: string) => {
-    setFormData({
-      ...formData,
-      items: formData.items.filter(item => item.id !== itemId)
-    });
-  };
+  const eliminarItem = (itemId: string) =>
+    setFormData(prev => ({ ...prev, items: prev.items.filter(i => i.id !== itemId) }));
 
   const actualizarCantidadItem = (itemId: string, value: string) => {
-    const parsed = parseInt(value, 10);
-    const cantidad = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
-
-    setFormData((prev) => ({
+    const cantidad = Math.max(1, parseInt(value, 10) || 1);
+    setFormData(prev => ({
       ...prev,
-      items: prev.items.map((item) => {
-        if (item.id !== itemId) return item;
-        const precio = Number.isFinite(Number(item.precioUnitario)) ? Number(item.precioUnitario) : 0;
-        return {
-          ...item,
-          cantidad,
-          subtotal: cantidad * Math.max(precio, 0)
-        };
-      })
+      items: prev.items.map(i =>
+        i.id !== itemId ? i : { ...i, cantidad, subtotal: cantidad * i.precioUnitario }),
     }));
   };
 
   const actualizarPrecioItem = (itemId: string, value: string) => {
-    const parsed = Number(value);
-    const precioUnitario = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-
-    setFormData((prev) => ({
+    const precio = Math.max(0, parseFloat(value) || 0);
+    setFormData(prev => ({
       ...prev,
-      items: prev.items.map((item) => {
-        if (item.id !== itemId) return item;
-        const cantidad = Number.isFinite(Number(item.cantidad)) && Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1;
-        return {
-          ...item,
-          precioUnitario,
-          subtotal: cantidad * precioUnitario
-        };
-      })
+      items: prev.items.map(i =>
+        i.id !== itemId ? i : { ...i, precioUnitario: precio, subtotal: i.cantidad * precio }),
     }));
   };
 
-  const handleSave = () => {
-    // ✅ Bloqueo extra si intentan guardar un pedido ya finalizado
-    if (editingPedido && (editingPedido.estado === 'Completada' || editingPedido.estado === 'Anulado')) {
-      setNotificationMessage(`No puedes editar un pedido en estado "${editingPedido.estado}".`);
-      setNotificationType('error');
-      setShowNotificationModal(true);
+  // ─────────────────────────────────────────────────────────────────────────
+  // GUARDAR (CREAR / EDITAR) → API
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleSave = async () => {
+    if (editingPedido && !puedeEditarse(editingPedido.estado)) {
+      notify(`No puedes editar un pedido en estado "${editingPedido.estado}".`, 'error');
       return;
     }
 
-    // Validar campos obligatorios
-    const errors: any = {};
-
-    if (!formData.clienteId) {
-      errors.clienteId = 'Debes seleccionar un cliente';
+    const errs: Record<string, string> = {};
+    if (!formData.clienteId)  errs.clienteId  = 'Debes seleccionar un cliente';
+    if (!formData.fechaPedido) errs.fechaPedido = 'La fecha del pedido es obligatoria';
+    if (Object.keys(errs).length) {
+      setFormErrors(errs);
+      notify('Por favor completa todos los campos obligatorios', 'error');
+      return;
     }
-
-    if (!formData.fechaPedido) {
-      errors.fechaPedido = 'La fecha del pedido es obligatoria';
-    }
-
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      setNotificationMessage('Por favor completa todos los campos obligatorios');
-      setNotificationType('error');
-      setShowNotificationModal(true);
+    if (!formData.items.length) {
+      notify('Agrega al menos un producto', 'error');
       return;
     }
 
-    if (formData.items.length === 0) {
-      setNotificationMessage('Agrega al menos un producto');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-    const cliente = clientes.find((c: any) => c.id.toString() === formData.clienteId);
-    if (!cliente) return;
-
-    const totales = calcularTotales(formData.items);
-
-    const pedidoData: Pedido = {
-      id: editingPedido?.id || Date.now(),
-      numeroPedido: editingPedido?.numeroPedido || generarNumeroPedido(),
-      tipo: formData.tipo,
-      clienteId: formData.clienteId,
-      clienteNombre: cliente.nombre,
-      fechaPedido: formData.fechaPedido,
-      // ✅ Mantener el estado si se edita (no forzar Pendiente)
-      estado: editingPedido?.estado || 'Pendiente',
-      items: formData.items,
-      subtotal: totales.subtotal,
-      iva: totales.iva,
-      total: totales.total,
-      metodoPago: formData.metodoPago,
-      observaciones: formData.observaciones,
-      direccionEnvio: (formData as any).direccionEnvio || '',
-      personaRecibe: (formData as any).personaRecibe || '',
-      createdAt: editingPedido?.createdAt || new Date().toISOString()
-    };
+    const dto = formDataToCreateOrderDTO(formData);
 
     if (editingPedido) {
-      setPedidos(pedidos.map(p => p.id === editingPedido.id ? pedidoData : p));
-      setNotificationMessage(`Pedido ${pedidoData.numeroPedido} actualizado correctamente`);
-    } else {
-      setPedidos([...pedidos, pedidoData]);
-      setNotificationMessage(`Pedido ${pedidoData.numeroPedido} creado correctamente`);
-    }
-    setNotificationType('success');
-    setShowNotificationModal(true);
-    setShowModal(false);
-  };
-
-  const handleAnular = (pedido: Pedido) => {
-    setConfirmMessage(`¿Seguro que deseas ANULAR este pedido ${pedido.numeroPedido}? Esta acción no se puede deshacer.`);
-    setConfirmAction(() => () => {
-      anularPedido(pedido);
-    });
-    setShowConfirmModal(true);
-  };
-
-  const anularPedido = (pedido: Pedido) => {
-    // 🔒 USAR FUNCIÓN MAESTRA CENTRALIZADA
-    // Automáticamente ejecuta cambiarEstadoPedidoCentralizado con tipo 'anular'
-    const resultado = cambiarEstadoPedidoCentralizado(pedido, 'Anulado', {
-      onNotificar: (titulo, mensaje, tipo) => {
-        setNotificationMessage(mensaje);
-        setNotificationType(tipo);
-        setShowNotificationModal(true);
-      },
-      onExitoso: (res) => {
-        console.log('✅ Anulación completada:', res);
-        if (res.stockDevuelto && res.stockDevuelto.length > 0) {
-          console.log(`📦 Stock devuelto: ${res.stockDevuelto.length} productos`);
-        }
-      },
-      onLog: (msg, nivel) => {
-        if (nivel === 'error') {
-          console.error(msg);
-        } else if (nivel === 'warn') {
-          console.warn(msg);
-        } else {
-          console.log(msg);
-        }
-      },
-    });
-
-    if (resultado.exitoso && resultado.pedidoActualizado) {
-      setPedidos(pedidos.map(p =>
-        p.id === pedido.id ? resultado.pedidoActualizado! : p
-      ));
-    }
-    setShowConfirmModal(false);
-  };
-
-  // ✅ DEPRECATED: Esta función fue reemplazada por cambiarEstadoCentralizado
-  // La mantengo aquí para referencia pero ya no se usa
-  const crearVentaDesdePedido = (pedido: Pedido) => {
-    // 1️⃣ Crear objeto Venta con datos del Pedido
-    const numeroVenta = generarNumeroVenta();
-    
-    const nuevaVenta = {
-      id: Date.now(),
-      numeroVenta,
-      clienteId: pedido.clienteId,
-      clienteNombre: pedido.clienteNombre,
-      fechaVenta: pedido.fechaPedido,
-      estado: 'Completada' as const,
-      items: pedido.items,
-      subtotal: pedido.subtotal,
-      iva: pedido.iva,
-      total: pedido.total,
-      metodoPago: pedido.metodoPago || 'Efectivo',
-      observaciones: pedido.observaciones || '',
-      anulada: false,
-      createdAt: new Date().toISOString(),
-      pedido_id: pedido.numeroPedido,
-      // 🔒 NUEVO: Flags de movimientos de stock
-      movimientosStock: {
-        salidaEjecutada: false,   // Se marca true en finalizarVenta()
-        devolucionEjecutada: false
+      const result = await editarPedido(editingPedido.id, dto);
+      if (result) {
+        notify(`Pedido ${result.number_order} actualizado correctamente`, 'success');
+        setShowModal(false);
+      } else {
+        notify('Error al actualizar el pedido. Verifica la conexión.', 'error');
       }
+    } else {
+      const result = await crearPedido(dto);
+      if (result) {
+        notify(`Pedido ${result.number_order} creado correctamente`, 'success');
+        setShowModal(false);
+      } else {
+        notify('Error al crear el pedido. Verifica la conexión.', 'error');
+      }
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CAMBIAR ESTADO → API
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleCambiarEstado = async (pedido: PedidoLocal, estadoDestino: EstadoLocal) => {
+    // Mapa de estado local → id de estado en backend
+    // Ajusta estos ids según tu base de datos
+    const estadoIdMap: Record<EstadoLocal, number> = {
+      'Pendiente':          1,
+      'Completada':         2,
+      'Anulado':            3,
+      'Convertido a venta': 4,
     };
 
-    // 2️⃣ 🔒 LLAMAR A FUNCIÓN CENTRAL: finalizarVenta()
-    // Esta función es responsable de:
-    // - Validar variantes y stock
-    // - Descontar stock automáticamente
-    // - Guardar venta en localStorage
-    // - Disparar eventos para sincronización
-    const resultado = finalizarVenta(nuevaVenta, pedido.items);
-
-    // 3️⃣ GUARD CLAUSE: Si el descuento falla, mostrar error
-    if (!resultado.exitoso) {
-      console.error(`❌ [PedidosManager] Error al convertir pedido a venta: ${resultado.error}`);
-      setNotificationMessage(`❌ Error: ${resultado.error}`);
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return; // ABORTA - No cambiar estado a Completada
-    }
-
-    // ✅ Éxito: Stock descuento correctamente, marcar como éxito
-    console.log(`✅ [PedidosManager] Pedido ${pedido.numeroPedido} convertido a venta ${numeroVenta} - Stock descargado`);
-  };
-
-  const cambiarEstado = (pedido: Pedido, nuevoEstado: EstadoPedido) => {
-    // 🔒 USAR FUNCIÓN MAESTRA CENTRALIZADA
-    // Orquesta automáticamente el tipo correcto de transición
-    const resultado = cambiarEstadoPedidoCentralizado(pedido, nuevoEstado, {
-      onNotificar: (titulo, mensaje, tipo) => {
-        setNotificationMessage(mensaje);
-        setNotificationType(tipo);
-        setShowNotificationModal(true);
-      },
-      onExitoso: (res) => {
-        console.log(`✅ Transición completada (${res.tipo}):`, res);
-      },
-      onLog: (msg, nivel) => {
-        if (nivel === 'error') {
-          console.error(msg);
-        } else if (nivel === 'warn') {
-          console.warn(msg);
-        } else {
-          console.log(msg);
-        }
-      },
-    });
-
-    if (resultado.exitoso) {
-      setPedidos((prev) =>
-        prev.map((p) => {
-          if (p.id !== pedido.id) return p;
-
-          const base = resultado.pedidoActualizado ?? p;
-          const ventaRelacionada = (resultado as any).ventaCreada?.numeroVenta || base.venta_id || null;
-
-          return {
-            ...base,
-            // asegurar relación explícita pedido → venta cuando se convierte
-            venta_id: nuevoEstado === 'Completada' ? ventaRelacionada : base.venta_id,
-          };
-        })
-      );
-
-      // reforzar sincronización entre módulos
-      window.dispatchEvent(new Event('salesUpdated'));
-      window.dispatchEvent(new Event('ordersUpdated'));
-    }
-  };
-
-  const confirmarCambioEstado = (pedido: Pedido, estadoDestino: EstadoPedido) => {
     if (estadoDestino === 'Completada') {
       setConfirmMessage(`¿Confirmas convertir el pedido ${pedido.numeroPedido} a venta?`);
-      setConfirmAction(() => () => {
-        cambiarEstado(pedido, 'Completada');
+      setConfirmAction(() => async () => {
+        const result = await apiCambiarEstado(pedido.id, estadoIdMap[estadoDestino]);
+        if (result) {
+          notify(`Estado actualizado correctamente`, 'success');
+          window.dispatchEvent(new Event('salesUpdated'));
+          window.dispatchEvent(new Event('ordersUpdated'));
+        } else {
+          notify('Error al cambiar el estado. Verifica la conexión.', 'error');
+        }
         setShowEstadoModal(false);
         setShowConfirmModal(false);
       });
@@ -822,81 +492,107 @@ export default function PedidosManager() {
       return;
     }
 
-    cambiarEstado(pedido, estadoDestino);
+    const result = await apiCambiarEstado(pedido.id, estadoIdMap[estadoDestino]);
+    if (result) {
+      notify(`Estado actualizado a "${estadoDestino}"`, 'success');
+    } else {
+      notify('Error al cambiar el estado.', 'error');
+    }
     setShowEstadoModal(false);
   };
 
-  const handleCrearCliente = () => {
-    const newErrors: any = {};
-    const nombreErr = validateField('nombre', nuevoCliente.nombre);
-    if (nombreErr) newErrors['nuevoCliente_nombre'] = nombreErr;
-    const docErr = validateField('documento', nuevoCliente.numeroDoc);
-    if (docErr) newErrors['nuevoCliente_numeroDoc'] = docErr;
-    const telErr = !nuevoCliente.telefono ? 'Teléfono obligatorio' : '';
-    if (telErr) newErrors['nuevoCliente_telefono'] = telErr;
-    const emailErr = nuevoCliente.email ? validateField('email', nuevoCliente.email) : '';
-    if (emailErr) newErrors['nuevoCliente_email'] = emailErr;
+  // ─────────────────────────────────────────────────────────────────────────
+  // CREAR CLIENTE (sigue en localStorage hasta tener API)
+  // ─────────────────────────────────────────────────────────────────────────
 
-    if (Object.keys(newErrors).length > 0) {
-      setFormErrors((prev: any) => ({ ...prev, ...newErrors }));
-      setNotificationMessage('Completa los campos obligatorios correctamente');
-      setNotificationType('error');
-      setShowNotificationModal(true);
+  const handleCrearCliente = async () => {
+    const errs: Record<string, string> = {};
+    const nombreErr = validateField('nombre', nuevoCliente.nombre);
+    const docErr    = validateField('documento', nuevoCliente.numeroDoc);
+    if (nombreErr)              errs['nuevoCliente_nombre']    = nombreErr;
+    if (docErr)                 errs['nuevoCliente_numeroDoc'] = docErr;
+    if (!nuevoCliente.telefono) errs['nuevoCliente_telefono']  = 'Teléfono obligatorio';
+    if (nuevoCliente.email) {
+      const emailErr = validateField('email', nuevoCliente.email);
+      if (emailErr)             errs['nuevoCliente_email']     = emailErr;
+    }
+    if (Object.keys(errs).length) {
+      setFormErrors(prev => ({ ...prev, ...errs }));
+      notify('Completa los campos obligatorios correctamente', 'error');
       return;
     }
 
-    const clienteData = {
-      id: Date.now(),
-      ...nuevoCliente,
-      activo: true,
-      createdAt: new Date().toISOString()
-    };
+    try {
+      setClientesLoading(true);
 
-    const clientesActuales = JSON.parse(localStorage.getItem(CLIENTES_KEY) || '[]');
-    localStorage.setItem(CLIENTES_KEY, JSON.stringify([...clientesActuales, clienteData]));
+      const clienteDTO: CreateClientsDTO = {
+        name: nuevoCliente.nombre,
+        type_doc: nuevoCliente.tipoDoc === 'CC' ? 1 : nuevoCliente.tipoDoc === 'CE' ? 2 : 3,
+        doc: nuevoCliente.numeroDoc,
+        phone: nuevoCliente.telefono,
+        email: nuevoCliente.email,
+        address: nuevoCliente.direccion,
+        city: ''
+      };
 
-    setClientes([...clientes, clienteData]);
-    setFormData({ ...formData, clienteId: clienteData.id.toString() });
-    setSelectedClienteNombre(`${clienteData.nombre} - ${clienteData.numeroDoc}`);
+      const clienteCreado = await createClients(clienteDTO);
 
-    setClienteQuery(`${clienteData.nombre} - ${clienteData.numeroDoc}`);
-    setShowClienteDropdown(false);
+      if (clienteCreado) {
+        const clienteMapeado = {
+          id: clienteCreado.id_client,
+          nombre: clienteCreado.name,
+          tipoDoc: clienteCreado.type_doc,
+          numeroDoc: clienteCreado.doc,
+          telefono: clienteCreado.phone,
+          email: clienteCreado.email,
+          direccion: clienteCreado.address,
+          ciudad: clienteCreado.city,
+          activo: clienteCreado.state,
+          saldoAFavor: 0
+        };
 
-    setShowClienteModal(false);
-    setNuevoCliente({
-      nombre: '',
-      tipoDoc: 'CC',
-      numeroDoc: '',
-      telefono: '',
-      email: '',
-      direccion: ''
-    });
-    setNotificationMessage(`Cliente ${clienteData.nombre} creado correctamente`);
-    setNotificationType('success');
-    setShowNotificationModal(true);
+        setClientes([...clientes, clienteMapeado]);
+        handleFieldChange('clienteId', clienteMapeado.id.toString());
+        const label = `${clienteMapeado.nombre} - ${clienteMapeado.numeroDoc}`;
+        setClienteQuery(label);
+        setSelectedClienteNombre(label);
+        setShowClienteModal(false);
+        setNuevoCliente({ nombre: '', tipoDoc: 'CC', numeroDoc: '', telefono: '', email: '', direccion: '' });
+        notify(`Cliente ${clienteMapeado.nombre} creado correctamente`, 'success');
+      } else {
+        notify('Error al crear el cliente', 'error');
+      }
+    } catch (error) {
+      console.error('Error al crear cliente:', error);
+      notify('Error al crear el cliente', 'error');
+    } finally {
+      setClientesLoading(false);
+    }
   };
 
-  const descargarComprobante = (pedido: Pedido) => {
+  // ─────────────────────────────────────────────────────────────────────────
+  // DESCARGAR COMPROBANTE (local, sin cambios)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const descargarComprobante = (pedido: PedidoLocal) => {
     const contenido = `
 =================================
-${pedido.tipo.toUpperCase()}
-${pedido.numeroPedido}
+PEDIDO ${pedido.numeroPedido}
 =================================
-
 Fecha: ${new Date(pedido.fechaPedido).toLocaleDateString()}
 Cliente: ${pedido.clienteNombre}
 Estado: ${pedido.estado}
-  Dirección de Envío: ${pedido.direccionEnvio || '-'}
-  Persona que recibe: ${pedido.personaRecibe || '-'}
+Dirección de Envío: ${pedido.direccionEnvio || '-'}
+Persona que recibe: ${pedido.personaRecibe || '-'}
 
 ---------------------------------
 PRODUCTOS
 ---------------------------------
-${pedido.items.map(item => `
-${item.productoNombre}
-Talla: ${item.talla} | Color: ${item.color}
-Cantidad: ${item.cantidad} x $${item.precioUnitario.toLocaleString()}
-Subtotal: $${item.subtotal.toLocaleString()}
+${pedido.items.map(i => `
+${i.productoNombre}
+Talla: ${i.talla} | Color: ${i.color}
+Cantidad: ${i.cantidad} x $${i.precioUnitario.toLocaleString()}
+Subtotal: $${i.subtotal.toLocaleString()}
 `).join('\n')}
 
 ---------------------------------
@@ -907,160 +603,104 @@ IVA (19%): $${pedido.iva.toLocaleString()}
 TOTAL: $${pedido.total.toLocaleString()}
 
 Método de Pago: ${pedido.metodoPago}
-
-${pedido.observaciones ? `Observaciones:\n${pedido.observaciones}` : ''}
+${pedido.observaciones ? `\nObservaciones:\n${pedido.observaciones}` : ''}
 
 =================================
 DAMABELLA - Moda Femenina
-=================================
-    `.trim();
+=================================`.trim();
 
     const blob = new Blob([contenido], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
     a.download = `${pedido.numeroPedido}.txt`;
     a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const filteredPedidos = pedidos.filter(p => {
-    // Mostrar SOLO pedidos pendientes en el módulo de Pedidos
-    if (p.estado !== 'Pendiente') return false;
-    const searchLower = searchTerm.toLowerCase();
-    const matchPedido = (p.numeroPedido?.toLowerCase() ?? '').includes(searchLower);
-    const matchCliente = (p.clienteNombre?.toLowerCase() ?? '').includes(searchLower);
-    const matchEstado = (p.estado?.toLowerCase() ?? '').includes(searchLower);
-    const matchFecha = new Date(p.fechaPedido).toLocaleDateString().includes(searchTerm);
-    const matchTotal = p.total.toString().includes(searchTerm);
-    const matchProducto = p.items.some(item => {
-      const producto = productos.find((prod: any) => prod.id.toString() === item.productoId);
+  // ─────────────────────────────────────────────────────────────────────────
+  // FILTRADO Y PAGINACIÓN
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const filteredPedidos = useMemo(() => {
+    return pedidos.filter(p => {
+      if (p.estado !== 'Pendiente') return false;
+      const q = searchTerm.toLowerCase();
+      if (!q) return true;
       return (
-        (item.productoNombre?.toLowerCase().includes(searchLower)) ||
-        (item.talla?.toLowerCase().includes(searchLower)) ||
-        (item.color?.toLowerCase().includes(searchLower)) ||
-        (producto?.referencia?.toLowerCase().includes(searchLower)) ||
-        (producto?.codigoInterno?.toLowerCase().includes(searchLower))
+        p.numeroPedido.toLowerCase().includes(q) ||
+        p.clienteNombre.toLowerCase().includes(q) ||
+        p.estado.toLowerCase().includes(q) ||
+        new Date(p.fechaPedido).toLocaleDateString().includes(searchTerm) ||
+        p.total.toString().includes(searchTerm) ||
+        p.items.some(i =>
+          i.productoNombre.toLowerCase().includes(q) ||
+          i.talla.toLowerCase().includes(q) ||
+          i.color.toLowerCase().includes(q)
+        )
       );
     });
-    return matchPedido || matchCliente || matchEstado || matchFecha || matchTotal || matchProducto;
-  });
-
-  // PAGINACIÓN: mostrar 5 pedidos por página (useMemo + useState)
-  const ITEMS_PER_PAGE = 5;
-  const [currentPage, setCurrentPage] = useState(1);
+  }, [pedidos, searchTerm]);
 
   const totalPages = Math.ceil(filteredPedidos.length / ITEMS_PER_PAGE);
 
   const paginatedPedidos = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    return filteredPedidos.slice(start, end);
+    return filteredPedidos.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredPedidos, currentPage]);
 
-  const filteredClientes = clientes.filter((c: any) =>
-    (c.nombre?.toLowerCase() ?? '').includes(clienteSearch.toLowerCase()) ||
-    (c.numeroDoc ?? '').includes(clienteSearch) ||
-    (c.telefono && c.telefono.includes(clienteSearch))
-  );
+  // Listas para dropdowns
+  const clientesFiltradosSelect = useMemo(() =>
+    clientes
+      .filter((c: any) => c.activo !== false)
+      .filter((c: any) => {
+        const q = clienteQuery.toLowerCase();
+        return (
+          (c.nombre?.toLowerCase() ?? '').includes(q) ||
+          (c.numeroDoc ?? '').includes(clienteQuery) ||
+          (c.telefono ?? '').includes(clienteQuery)
+        );
+      }),
+    [clientes, clienteQuery]);
 
-  // ====== LISTAS FILTRADAS PARA SELECT BUSCABLE ======
-  const clientesFiltradosSelect = clientes
-    .filter((c: any) => c.activo !== false)
-    .filter((c: any) => {
-      const q = clienteQuery.toLowerCase();
-      return (
-        (c.nombre?.toLowerCase() ?? '').includes(q) ||
-        (c.numeroDoc ?? '').includes(clienteQuery) ||
-        (c.telefono ?? '').includes(clienteQuery)
-      );
-    });
+  const productosFiltradosSelect = useMemo(() =>
+    productos
+      .filter((p: any) => p.activo)
+      .filter((p: any) => {
+        const q = productoQuery.toLowerCase();
+        return (
+          (p.nombre?.toLowerCase() ?? '').includes(q) ||
+          (p.referencia?.toLowerCase() ?? '').includes(q) ||
+          (p.codigoInterno?.toLowerCase() ?? '').includes(q)
+        );
+      }),
+    [productos, productoQuery]);
 
-  const productosFiltradosSelect = productos
-    .filter((p: any) => p.activo)
-    .filter((p: any) => {
-      const q = productoQuery.toLowerCase();
-      const nombre = (p.nombre?.toLowerCase() ?? '');
-      const ref = (p.referencia?.toLowerCase() ?? '');
-      const cod = (p.codigoInterno?.toLowerCase() ?? '');
-      return nombre.includes(q) || ref.includes(q) || cod.includes(q);
-    });
-
-  const getEstadoColor = (estado: Pedido['estado']) => {
-    switch (estado) {
-      case 'Pendiente': return 'bg-yellow-100 text-yellow-700';
-      case 'Completada': return 'bg-green-100 text-green-700';
-      case 'Anulado': return 'bg-red-100 text-red-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
-  };
-
-  const descargarTodosEnExcel = () => {
-    try {
-      // Crear estructura de datos para Excel
-      const datosExcel = filteredPedidos.map(p => ({
-        'Número Pedido': p.numeroPedido,
-        'Fecha': new Date(p.fechaPedido).toLocaleDateString(),
-        'Cliente': p.clienteNombre,
-        'Productos': p.items.map(i => `${i.productoNombre} (Talla: ${i.talla}, Color: ${i.color}, Cant: ${i.cantidad})`).join('; '),
-        'Cantidades': p.items.map(i => i.cantidad).join('; '),
-        'Valores Unitarios': p.items.map(i => `$${i.precioUnitario.toLocaleString()}`).join('; '),
-        'Subtotales': p.items.map(i => `$${i.subtotal.toLocaleString()}`).join('; '),
-        'Subtotal': `$${p.subtotal.toLocaleString()}`,
-        'IVA (19%)': `$${p.iva.toLocaleString()}`,
-        'Total': `$${p.total.toLocaleString()}`,
-        'Estado': p.estado,
-        'Método Pago': p.metodoPago,
-        'Dirección Envío': p.direccionEnvio || '',
-        'Persona recibe': p.personaRecibe || ''
-      }));
-      // Crear contenido TSV para exportar a Excel (archivo .xlsx con tab-separado)
-      const headers = Object.keys(datosExcel[0] || {});
-      const tsvContent = [
-        headers.join('\t'),
-        ...datosExcel.map(row =>
-          headers.map(header => {
-            const valor = row[header as keyof typeof row];
-            const valorStr = String(valor || '');
-            // Escapar tabs y nuevas líneas reemplazándolas por espacios simples
-            return valorStr.replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
-          }).join('\t')
-        )
-      ].join('\n');
-
-      // Crear blob y descargar con extensión .xlsx (contenido tab-separado)
-      const blob = new Blob([tsvContent], { type: 'text/plain;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `pedidos_${new Date().toLocaleDateString().replace(/\//g, '-')}.xlsx`);
-      link.click();
-      URL.revokeObjectURL(url);
-      setNotificationMessage('Pedidos exportados correctamente');
-      setNotificationType('success');
-      setShowNotificationModal(true);
-    } catch (error) {
-      setNotificationMessage('Error al exportar pedidos');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-    }
-  };
-  const totales = calcularTotales(formData.items);
+  const totales           = calcularTotales(formData.items);
   const clienteSeleccionado = clientes.find(
     (c: any) => c.id?.toString() === formData.clienteId?.toString()
   );
+  const saldoDisponible   = Number(clienteSeleccionado?.saldoAFavor || 0);
 
-  const saldoDisponible = Number(clienteSeleccionado?.saldoAFavor || 0);
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-gray-900 mb-2">Gestión de Pedidos</h2>
-          <p className="text-gray-600">Administra pedidos y cotizaciones con IVA incluido</p>
+          <p className="text-gray-600">Administra pedidos con IVA incluido</p>
         </div>
         <div className="flex gap-3">
-          <Button onClick={descargarTodosEnExcel} variant="secondary" className="flex items-center gap-2">
+          <Button
+            onClick={descargarExcel}
+            variant="secondary"
+            className="flex items-center gap-2"
+          >
             <Download size={20} />
             Descargar Pedidos
           </Button>
@@ -1071,6 +711,15 @@ DAMABELLA - Moda Femenina
         </div>
       </div>
 
+      {/* Error de API */}
+      {apiError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 flex items-center gap-2">
+          <AlertCircle size={18} />
+          <span>{apiError}</span>
+          <button onClick={fetchPedidos} className="ml-auto underline text-sm">Reintentar</button>
+        </div>
+      )}
+
       {/* Search */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
         <div className="relative">
@@ -1078,13 +727,13 @@ DAMABELLA - Moda Femenina
           <Input
             placeholder="Buscar por número, cliente o estado..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={e => setSearchTerm(e.target.value)}
             className="pl-10"
           />
         </div>
       </div>
 
-      {/* Pedidos Table */}
+      {/* Tabla */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -1099,7 +748,13 @@ DAMABELLA - Moda Femenina
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredPedidos.length === 0 ? (
+              {apiLoading ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-gray-400">
+                    Cargando pedidos...
+                  </td>
+                </tr>
+              ) : filteredPedidos.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-gray-500">
                     <ShoppingCart className="mx-auto mb-4 text-gray-300" size={48} />
@@ -1107,11 +762,9 @@ DAMABELLA - Moda Femenina
                   </td>
                 </tr>
               ) : (
-                paginatedPedidos.map((pedido) => (
+                paginatedPedidos.map(pedido => (
                   <tr key={pedido.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6">
-                      <div className="text-gray-900">{pedido.numeroPedido}</div>
-                    </td>
+                    <td className="py-4 px-6 text-gray-900">{pedido.numeroPedido}</td>
                     <td className="py-4 px-6 text-gray-600">{pedido.clienteNombre}</td>
                     <td className="py-4 px-6 text-gray-600">
                       {new Date(pedido.fechaPedido).toLocaleDateString()}
@@ -1130,52 +783,41 @@ DAMABELLA - Moda Femenina
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => { setViewingPedido(pedido); setShowDetailModal(true); }}
-                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                          className="p-2 hover:bg-blue-50 rounded-lg text-blue-600"
                           title="Ver detalle"
                         >
                           <Eye size={18} />
                         </button>
-
                         <button
                           onClick={() => descargarComprobante(pedido)}
-                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
-                          title="Descargar"
+                          className="p-2 hover:bg-blue-50 rounded-lg text-blue-600"
+                          title="Descargar comprobante"
                         >
                           <Download size={18} />
                         </button>
-
                         <button
                           onClick={() => {
                             setPedidoParaCambiarEstado(pedido);
-                            setNuevoEstado(pedido.estado);
+                            setNuevoEstadoModal(pedido.estado);
                             setShowEstadoModal(true);
                           }}
-                          className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600"
+                          className="p-2 hover:bg-purple-50 rounded-lg text-purple-600"
                           title="Cambiar estado"
                         >
                           <Repeat size={18} />
                         </button>
-
-                        {/* ✅ Editar (solo si NO está en Venta ni Anulado ni tiene ventaId) */}
                         <button
                           onClick={() => handleEdit(pedido)}
-                          disabled={!puedeEditarse(pedido.estado) || !!pedido.venta_id}
+                          disabled={!puedeEditarse(pedido.estado)}
                           className={`p-2 rounded-lg transition-colors ${
-                            !puedeEditarse(pedido.estado) || !!pedido.venta_id
+                            !puedeEditarse(pedido.estado)
                               ? 'text-gray-300 cursor-not-allowed'
                               : 'hover:bg-gray-100 text-gray-600'
                           }`}
-                          title={
-                            !!pedido.venta_id
-                              ? 'Este pedido tiene una venta asociada'
-                              : !puedeEditarse(pedido.estado)
-                              ? `No se puede editar en estado ${pedido.estado}`
-                              : 'Editar'
-                          }
+                          title={!puedeEditarse(pedido.estado) ? `No editable en estado ${pedido.estado}` : 'Editar'}
                         >
                           <Pencil size={18} />
                         </button>
-
                       </div>
                     </td>
                   </tr>
@@ -1188,151 +830,131 @@ DAMABELLA - Moda Femenina
         {/* Paginador */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
-            {/* Texto informativo */}
-            <span className="text-sm text-gray-500">
-              {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredPedidos.length || 0)} a ${Math.min(currentPage * ITEMS_PER_PAGE, filteredPedidos.length)} de ${filteredPedidos.length} pedidos`}
+            <span>
+              Mostrando{' '}
+              {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredPedidos.length)} a{' '}
+              {Math.min(currentPage * ITEMS_PER_PAGE, filteredPedidos.length)} de{' '}
+              {filteredPedidos.length} pedidos
             </span>
-
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                className="px-3 py-1.5 rounded-md border text-sm disabled:opacity-50 hover:bg-gray-100"
               >
                 Anterior
               </button>
-
-              {Array.from({ length: totalPages }).map((_, index) => {
-                const page = index + 1;
-                const isActive = currentPage === page;
-                return (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={isActive ? 'px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-semibold' : 'px-3 py-1.5 rounded-md border text-sm text-gray-700 hover:bg-gray-100 transition'}
-                  >
-                    {page}
-                  </button>
-                );
-              })}
-
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={
+                    currentPage === page
+                      ? 'px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-semibold'
+                      : 'px-3 py-1.5 rounded-md border text-sm text-gray-700 hover:bg-gray-100'
+                  }
+                >
+                  {page}
+                </button>
+              ))}
               <button
                 onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+                className="px-3 py-1.5 rounded-md border text-sm disabled:opacity-50 hover:bg-gray-100"
               >
                 Siguiente
               </button>
             </div>
           </div>
         )}
-
       </div>
 
-      {/* Modal Crear/Editar */}
+      {/* ── Modal Crear/Editar ───────────────────────────────────────────── */}
       <Modal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
-        title={editingPedido ? `Editar Pedido` : 'Nuevo Pedido'}
+        title={editingPedido ? 'Editar Pedido' : 'Nuevo Pedido'}
         size="xxl"
         noScroll
       >
         <div className="w-[95vw] max-w-[1400px] max-h-[90vh] pr-0.5 text-[10px] leading-tight overflow-hidden mx-auto flex flex-col">
-          {/* SECCIÓN 1: HEADER (FIJO) */}
+
+          {/* Header fijo */}
           <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0">
             <div className="max-w-5xl mx-auto">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 mb-2">
-                <div className="lg:col-span-1">
+                <div>
                   <label className="block text-[10px] text-gray-500 mb-1">Número de pedido</label>
                   <Input
-                    value={editingPedido ? editingPedido.numeroPedido : generarNumeroPedido()}
-                    readOnly
-                    disabled
+                    value={editingPedido?.numeroPedido ?? 'Auto-generado'}
+                    readOnly disabled
                     className="h-6 px-2 text-[10px] bg-gray-50 w-full"
                   />
                 </div>
-                <div className="lg:col-span-1">
+                <div>
                   <label className="block text-[10px] text-gray-500 mb-1">Fecha de creación</label>
                   <Input
                     type="date"
                     value={formData.fechaPedido}
-                    onChange={(e) => handleFieldChange('fechaPedido', e.target.value)}
-                    required
+                    onChange={e => handleFieldChange('fechaPedido', e.target.value)}
                     disabled={!!editingPedido}
                     className="h-6 px-2 text-[10px] bg-gray-50 w-full"
                   />
                   {formErrors.fechaPedido && <p className="text-red-500 text-[10px] mt-1">{formErrors.fechaPedido}</p>}
                 </div>
                 <div className="lg:col-span-2 flex items-end">
-                  <Button
-                    onClick={() => setShowClienteModal(true)}
-                    variant="secondary"
-                    className="w-full h-6 px-2 text-[10px]"
-                  >
-                    <UserPlus size={14} />
-                    Crear cliente
+                  <Button onClick={() => setShowClienteModal(true)} variant="secondary" className="w-full h-6 px-2 text-[10px]">
+                    <UserPlus size={14} /> Crear cliente
                   </Button>
                 </div>
               </div>
 
-              {/* Cliente Search */}
+              {/* Buscador cliente */}
               <div>
                 <label className="block text-gray-700 mb-1 text-[10px]">Cliente *</label>
-                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <div className="relative" onClick={e => e.stopPropagation()}>
                   <Input
                     value={clienteQuery}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setClienteQuery(value);
+                    onChange={e => {
+                      const v = e.target.value;
+                      setClienteQuery(v);
                       setShowClienteDropdown(true);
-                      const sigueIgual = value.trim() === selectedClienteNombre.trim();
-                      if (!sigueIgual) {
-                        handleFieldChange('clienteId', '');
-                        setSelectedClienteNombre('');
-                      }
-                      if (value.trim() === '') {
+                      if (v.trim() !== selectedClienteNombre.trim()) {
                         handleFieldChange('clienteId', '');
                         setSelectedClienteNombre('');
                       }
                     }}
                     onFocus={() => setShowClienteDropdown(true)}
                     placeholder="Buscar cliente..."
-                    className="h-6 px-2 text-[10px] leading-tight w-full"
+                    className="h-6 px-2 text-[10px] w-full"
                   />
                   {showClienteDropdown && (
                     <div className="absolute z-[9999] mt-1 w-full max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
-                      {clientesFiltradosSelect.length === 0 ? (
-                        <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
-                      ) : (
-                        clientesFiltradosSelect.map((cliente: any) => (
-                          <button
-                            type="button"
-                            key={cliente.id}
-                            className="w-full text-left px-2 py-1 hover:bg-gray-50"
+                      {clientesFiltradosSelect.length === 0
+                        ? <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
+                        : clientesFiltradosSelect.map((c: any) => (
+                          <button type="button" key={c.id} className="w-full text-left px-2 py-1 hover:bg-gray-50"
                             onClick={() => {
-                              handleFieldChange('clienteId', cliente.id.toString());
-                              const label = `${cliente.nombre} - ${cliente.numeroDoc}`;
+                              handleFieldChange('clienteId', c.id.toString());
+                              const label = `${c.nombre} - ${c.numeroDoc}`;
                               setClienteQuery(label);
                               setSelectedClienteNombre(label);
                               setShowClienteDropdown(false);
-                            }}
-                          >
-                            <div className="text-[10px] text-gray-900">{cliente.nombre}</div>
-                            <div className="text-[10px] text-gray-500">
-                              {cliente.numeroDoc} {cliente.telefono ? `• ${cliente.telefono}` : ''}
-                            </div>
+                            }}>
+                            <div className="text-[10px] text-gray-900">{c.nombre}</div>
+                            <div className="text-[10px] text-gray-500">{c.numeroDoc}{c.telefono ? ` • ${c.telefono}` : ''}</div>
                           </button>
                         ))
-                      )}
+                      }
                     </div>
                   )}
                 </div>
                 {formErrors.clienteId && <p className="text-red-500 text-[10px] mt-1">{formErrors.clienteId}</p>}
               </div>
 
-              {/* Resumen Cliente */}
+              {/* Resumen cliente */}
               {clienteSeleccionado && (
-                <div className="mt-2 border border-gray-200 rounded-md p-2 bg-gray-50 grid grid-cols-2 lg:grid-cols-4 gap-2 text-[10px] leading-tight">
+                <div className="mt-2 border border-gray-200 rounded-md p-2 bg-gray-50 grid grid-cols-2 lg:grid-cols-4 gap-2 text-[10px]">
                   <div><span className="text-gray-500">Nombre:</span><div className="text-gray-900 font-medium truncate">{clienteSeleccionado.nombre || '-'}</div></div>
                   <div><span className="text-gray-500">Documento:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.numeroDoc || '-'}</div></div>
                   <div><span className="text-gray-500">Teléfono:</span><div className="text-gray-900 font-medium">{clienteSeleccionado.telefono || '-'}</div></div>
@@ -1341,239 +963,165 @@ DAMABELLA - Moda Femenina
               )}
             </div>
           </div>
-          {/* Cierre Header */}
 
-          {/* SECCIÓN 2: BODY (SCROLLEABLE) */}
+          {/* Body scrolleable */}
           <div className="flex-1 overflow-y-auto space-y-2 pb-2 min-h-0">
             <div className="border border-gray-200 rounded-md bg-white p-2">
               <div className="max-w-5xl mx-auto">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2">
-                <div className="lg:col-span-1">
-                  <label className="block text-gray-700 mb-1 text-[10px]">Método de Pago *</label>
-                  {saldoDisponible > 0 && formData.clienteId && (
-                    <div className="mb-1 rounded-md border border-green-300 bg-green-50 p-1 text-[10px]">
-                      <div className="text-green-800 font-semibold">
-                        ✅ Saldo: ${saldoDisponible.toLocaleString()}
-                      </div>
-                    </div>
-                  )}
-                  <select
-                    value={formData.metodoPago}
-                    onChange={(e) => setFormData({ ...formData, metodoPago: e.target.value })}
-                    className="w-full h-6 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
-                    required
-                  >
-                    <option value="Efectivo">Efectivo</option>
-                    <option value="Transferencia">Transferencia</option>
-                    <option value="Tarjeta">Tarjeta</option>
-                    <option value="Nequi">Nequi</option>
-                    <option value="Daviplata">Daviplata</option>
-                  </select>
-                </div>
-
-                <div className="lg:col-span-1">
-                  <label className="block text-gray-700 mb-1 text-[10px]">Dirección de Envío</label>
-                  <Input
-                    value={(formData as any).direccionEnvio}
-                    onChange={(e) => handleFieldChange('direccionEnvio', e.target.value)}
-                    placeholder="Dirección (opcional)"
-                    className="h-6 px-2 text-[10px]"
-                  />
-                </div>
-
-                <div className="lg:col-span-1">
-                  <label className="block text-gray-700 mb-1 text-[10px]">Persona que recibe</label>
-                  <Input
-                    value={(formData as any).personaRecibe}
-                    onChange={(e) => handleFieldChange('personaRecibe', e.target.value)}
-                    placeholder="Nombre (opcional)"
-                    className="h-6 px-2 text-[10px]"
-                  />
-                </div>
-              </div>
-
-              {/* Agregar Productos - EN UNA FILA */}
-              <h4 className="text-gray-900 text-[10px] font-semibold mb-2 mt-2">Agregar productos</h4>
-              <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
-                <div className="flex gap-2 items-center">
-                  <div className="flex-1">
-                    <Input
-                      value={productoQuery}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setProductoQuery(value);
-                        setShowProductoDropdown(true);
-                        if (value === '') {
-                          handleNuevoItemChange('productoId', '');
-                        }
-                      }}
-                      onFocus={() => setShowProductoDropdown(true)}
-                      placeholder="Producto"
-                      className="w-full h-7 px-2 text-[10px]"
-                    />
-                    {showProductoDropdown && (
-                      <div className="absolute z-[9999] mt-1 w-80 max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
-                        {productosFiltradosSelect.length === 0 ? (
-                          <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
-                        ) : (
-                          productosFiltradosSelect.map((producto: any) => (
-                            <button
-                              type="button"
-                              key={producto.id}
-                              className="w-full text-left px-2 py-1 hover:bg-gray-50"
-                              onClick={() => {
-                                handleNuevoItemChange('productoId', producto.id.toString());
-                                const label = `${producto.nombre}${producto.referencia ? ` (${producto.referencia})` : ''}`;
-                                setProductoQuery(label);
-                                setShowProductoDropdown(false);
-                              }}
-                            >
-                              <div className="text-[10px] text-gray-900">{producto.nombre}</div>
-                              <div className="text-[10px] text-gray-500">
-                                ${(producto.precioVenta || 0).toLocaleString()}
-                              </div>
-                            </button>
-                          ))
-                        )}
+                  <div>
+                    <label className="block text-gray-700 mb-1 text-[10px]">Método de Pago *</label>
+                    {saldoDisponible > 0 && formData.clienteId && (
+                      <div className="mb-1 rounded-md border border-green-300 bg-green-50 p-1 text-[10px]">
+                        <span className="text-green-800 font-semibold">✅ Saldo: ${saldoDisponible.toLocaleString()}</span>
                       </div>
                     )}
-                  </div>
-                  <div className="w-24">
                     <select
-                      value={nuevoItem.talla}
-                      onChange={(e) => handleNuevoItemChange('talla', e.target.value)}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      value={formData.metodoPago}
+                      onChange={e => setFormData(prev => ({ ...prev, metodoPago: e.target.value, metodoPagoId: metodoPagoNameToId(e.target.value) }))}
+                      className="w-full h-6 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
                     >
-                      <option value="">Talla</option>
-                      {getTallasDisponibles().map((talla: string) => (
-                        <option key={talla} value={talla}>{talla}</option>
+                      {['Efectivo','Transferencia','Tarjeta','Nequi','Daviplata'].map(m => (
+                        <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
                   </div>
-                  <div className="w-24">
-                    <select
-                      value={nuevoItem.color}
-                      onChange={(e) => handleNuevoItemChange('color', e.target.value)}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
-                      disabled={!nuevoItem.talla}
-                    >
-                      <option value="">Color</option>
-                      {getColoresDisponibles().map((color: string) => (
-                        <option key={color} value={color}>{color}</option>
-                      ))}
-                    </select>
+                  <div>
+                    <label className="block text-gray-700 mb-1 text-[10px]">Dirección de Envío</label>
+                    <Input value={formData.direccionEnvio} onChange={e => handleFieldChange('direccionEnvio', e.target.value)} placeholder="Dirección (opcional)" className="h-6 px-2 text-[10px]" />
                   </div>
-                  <div className="w-20">
-                    <Input
-                      type="number"
-                      min="1"
-                      max={stockDisponible || undefined}
-                      placeholder="Cant."
-                      value={nuevoItem.cantidad}
-                      onChange={(e) => handleNuevoItemChange('cantidad', e.target.value)}
-                      disabled={!nuevoItem.color || stockDisponible === 0}
-                      className="w-full h-7 px-2 text-[10px]"
-                    />
+                  <div>
+                    <label className="block text-gray-700 mb-1 text-[10px]">Persona que recibe</label>
+                    <Input value={formData.personaRecibe} onChange={e => handleFieldChange('personaRecibe', e.target.value)} placeholder="Nombre (opcional)" className="h-6 px-2 text-[10px]" />
                   </div>
-                  <Button onClick={agregarItem} variant="secondary" className="h-7 px-3 text-[10px] whitespace-nowrap">
-                    <Plus size={14} />
-                    Agregar
-                  </Button>
+                </div>
+
+                {/* Agregar producto */}
+                <h4 className="text-gray-900 text-[10px] font-semibold mb-2 mt-2">Agregar productos</h4>
+                <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <Input
+                        value={productoQuery}
+                        onChange={e => { setProductoQuery(e.target.value); setShowProductoDropdown(true); if (!e.target.value) handleNuevoItemChange('productoId', ''); }}
+                        onFocus={() => setShowProductoDropdown(true)}
+                        placeholder="Producto"
+                        className="w-full h-7 px-2 text-[10px]"
+                      />
+                      {showProductoDropdown && (
+                        <div className="absolute z-[9999] mt-1 w-80 max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
+                          {productosFiltradosSelect.length === 0
+                            ? <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
+                            : productosFiltradosSelect.map((p: any) => (
+                              <button type="button" key={p.id} className="w-full text-left px-2 py-1 hover:bg-gray-50"
+                                onClick={() => {
+                                  handleNuevoItemChange('productoId', p.id.toString());
+                                  setProductoQuery(`${p.nombre}${p.referencia ? ` (${p.referencia})` : ''}`);
+                                  setShowProductoDropdown(false);
+                                }}>
+                                <div className="text-[10px] text-gray-900">{p.nombre}</div>
+                                <div className="text-[10px] text-gray-500">${(p.precioVenta || 0).toLocaleString()}</div>
+                              </button>
+                            ))
+                          }
+                        </div>
+                      )}
+                    </div>
+                    <div className="w-24">
+                      <select value={nuevoItem.talla} onChange={e => handleNuevoItemChange('talla', e.target.value)}
+                        className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px]">
+                        <option value="">Talla</option>
+                        {getTallasDisponibles().map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div className="w-24">
+                      <select value={nuevoItem.color} onChange={e => handleNuevoItemChange('color', e.target.value)}
+                        disabled={!nuevoItem.talla}
+                        className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px]">
+                        <option value="">Color</option>
+                        {getColoresDisponibles().map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="w-20">
+                      <Input
+                        type="number" min="1"
+                        max={stockDisponible ?? undefined}
+                        placeholder="Cant."
+                        value={nuevoItem.cantidad}
+                        onChange={e => handleNuevoItemChange('cantidad', e.target.value)}
+                        disabled={!nuevoItem.color || stockDisponible === 0}
+                        className="w-full h-7 px-2 text-[10px]"
+                      />
+                    </div>
+                    <Button onClick={agregarItem} variant="secondary" className="h-7 px-3 text-[10px] whitespace-nowrap">
+                      <Plus size={14} /> Agregar
+                    </Button>
+                  </div>
                 </div>
               </div>
 
-              {/* Tabla de productos */}
-              </div>
-              {/* Cierre contenedor max-width */}
-
+              {/* Tabla items */}
               <div className="border border-gray-200 rounded-md overflow-x-auto mt-2">
-                <table className="w-full text-[10px] leading-tight">
+                <table className="w-full text-[10px]">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Num</th>
-                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Producto</th>
-                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Talla</th>
-                      <th className="text-left px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Color</th>
-                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Cant.</th>
-                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Unitario</th>
-                      <th className="text-right px-2 py-1.5 font-semibold text-gray-700 tabular-nums whitespace-nowrap">Total</th>
-                      <th className="text-center px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap">Acción</th>
+                      {['Num','Producto','Talla','Color','Cant.','Unitario','Total','Acción'].map(h => (
+                        <th key={h} className={`px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap ${h === 'Acción' ? 'text-center' : h === 'Cant.' || h === 'Unitario' || h === 'Total' ? 'text-right' : 'text-left'}`}>{h}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {formData.items.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="px-2 py-2 text-center text-gray-500">No hay productos agregados</td>
-                      </tr>
-                    ) : (
-                      formData.items.map((item, index) => (
+                    {formData.items.length === 0
+                      ? <tr><td colSpan={8} className="px-2 py-2 text-center text-gray-500">No hay productos agregados</td></tr>
+                      : formData.items.map((item, idx) => (
                         <tr key={item.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                          <td className="px-2 py-1.5 text-gray-700">{index + 1}</td>
-                          <td className="px-2 py-1.5 text-gray-900 font-medium truncate max-w-xs">{item.productoNombre}</td>
-                          <td className="px-2 py-1.5 text-gray-700">{item.talla}</td>
-                          <td className="px-2 py-1.5 text-gray-700">{item.color}</td>
+                          <td className="px-2 py-1.5">{idx + 1}</td>
+                          <td className="px-2 py-1.5 font-medium truncate max-w-xs">{item.productoNombre}</td>
+                          <td className="px-2 py-1.5">{item.talla}</td>
+                          <td className="px-2 py-1.5">{item.color}</td>
                           <td className="px-2 py-1.5 text-right">
-                            <Input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={Number.isFinite(Number(item.cantidad)) ? item.cantidad : 1}
-                              onChange={(e) => actualizarCantidadItem(item.id, e.target.value)}
-                              className="h-6 px-1.5 text-[10px] text-right tabular-nums w-12"
-                            />
+                            <Input type="number" min="1" value={item.cantidad} onChange={e => actualizarCantidadItem(item.id, e.target.value)} className="h-6 px-1.5 text-[10px] text-right w-12" />
                           </td>
                           <td className="px-2 py-1.5">
-                            <Input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={Number.isFinite(Number(item.precioUnitario)) ? item.precioUnitario : 0}
-                              onChange={(e) => actualizarPrecioItem(item.id, e.target.value)}
-                              className="h-6 px-1.5 text-[10px] text-right tabular-nums w-16"
-                            />
+                            <Input type="number" min="0" value={item.precioUnitario} onChange={e => actualizarPrecioItem(item.id, e.target.value)} className="h-6 px-1.5 text-[10px] text-right w-16" />
                           </td>
-                          <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap">
-                            ${((Number(item.precioUnitario) >= 0 ? Number(item.precioUnitario) : 0) * (Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1)).toLocaleString()}
+                          <td className="px-2 py-1.5 text-right font-semibold whitespace-nowrap">
+                            ${(item.precioUnitario * item.cantidad).toLocaleString()}
                           </td>
                           <td className="px-2 py-1.5 text-center">
-                            <button
-                              onClick={() => eliminarItem(item.id)}
-                              className="text-red-600 hover:bg-red-50 p-1.5 rounded inline-flex items-center justify-center"
-                              title="Eliminar fila"
-                            >
+                            <button onClick={() => eliminarItem(item.id)} className="text-red-600 hover:bg-red-50 p-1.5 rounded">
                               <X size={14} />
                             </button>
                           </td>
                         </tr>
                       ))
-                    )}
+                    }
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
 
-          {/* SECCIÓN 3: TOTALES Y BOTONES (STICKY) */}
-          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-2 mt-0 shrink-0">
+          {/* Footer sticky */}
+          <div className="sticky bottom-0 bg-white/95 border-t border-gray-200 pt-2 shrink-0">
             <div className="max-w-5xl mx-auto">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 items-end">
                 <div className="lg:col-span-2 rounded-md bg-gray-50 border border-gray-200 p-2">
                   <div className="flex justify-between text-gray-600 text-[10px]">
-                    <span>Subtotal</span>
-                    <span className="tabular-nums font-medium">${totales.subtotal.toLocaleString()}</span>
+                    <span>Subtotal</span><span>${totales.subtotal.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-gray-600 text-[10px] mt-1">
-                    <span>IVA ({Math.round(IVA_RATE * 100)}%)</span>
-                    <span className="tabular-nums font-medium">${totales.iva.toLocaleString()}</span>
+                    <span>IVA ({Math.round(IVA_RATE * 100)}%)</span><span>${totales.iva.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-2 pt-2 border-t border-gray-200">
-                    <span>Total a pagar</span>
-                    <span className="tabular-nums">${totales.total.toLocaleString()}</span>
+                    <span>Total a pagar</span><span>${totales.total.toLocaleString()}</span>
                   </div>
                 </div>
                 <div className="lg:col-span-2 flex gap-2 justify-end">
                   <Button onClick={() => setShowModal(false)} variant="secondary" className="h-6 px-3 text-[10px]">Cancelar</Button>
-                  <Button onClick={handleSave} variant="primary" className="h-6 px-3 text-[10px]">{editingPedido ? 'Guardar Cambios' : `Crear ${formData.tipo}`}</Button>
+                  <Button onClick={handleSave} variant="primary" className="h-6 px-3 text-[10px]" disabled={apiLoading}>
+                    {apiLoading ? 'Guardando...' : editingPedido ? 'Guardar Cambios' : 'Crear Pedido'}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -1581,211 +1129,172 @@ DAMABELLA - Moda Femenina
         </div>
       </Modal>
 
-      {/* Modal Detalle */}
+      {/* ── Modal Detalle ────────────────────────────────────────────────── */}
       {viewingPedido && (
-        <Modal
-          isOpen={showDetailModal}
-          onClose={() => setShowDetailModal(false)}
-          title={`Detalle ${viewingPedido.tipo} ${viewingPedido.numeroPedido}`}
-        >
+        <Modal isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} title={`Detalle Pedido ${viewingPedido.numeroPedido}`}>
           <div className="space-y-0 p-0 -mt-4">
             <div className="grid grid-cols-2 gap-1 p-1 bg-gray-50 rounded-lg">
-              <div>
-                <div className="text-sm text-gray-600 mb-1">Cliente</div>
-                <div className="text-gray-900">{viewingPedido.clienteNombre}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600 mb-1">Fecha</div>
-                <div className="text-gray-900">
-                  {new Date(viewingPedido.fechaPedido).toLocaleDateString()}
+              {[
+                ['Cliente',          viewingPedido.clienteNombre],
+                ['Fecha',            new Date(viewingPedido.fechaPedido).toLocaleDateString()],
+                ['Método de Pago',   viewingPedido.metodoPago],
+                ['Dirección Envío',  viewingPedido.direccionEnvio || '-'],
+                ['Persona recibe',   viewingPedido.personaRecibe || '-'],
+              ].map(([label, val]) => (
+                <div key={label}>
+                  <div className="text-sm text-gray-600 mb-1">{label}</div>
+                  <div className="text-gray-900">{val}</div>
                 </div>
-              </div>
+              ))}
               <div>
                 <div className="text-sm text-gray-600 mb-1">Estado</div>
                 <span className={`inline-flex px-3 py-1 rounded-full text-sm ${getEstadoColor(viewingPedido.estado)}`}>
                   {viewingPedido.estado}
                 </span>
               </div>
-              <div>
-                <div className="text-sm text-gray-600 mb-1">Método de Pago</div>
-                <div className="text-gray-900">{viewingPedido.metodoPago}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600 mb-1">Dirección de Envío</div>
-                <div className="text-gray-900">{viewingPedido.direccionEnvio || '-'}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600 mb-1">Persona que recibe</div>
-                <div className="text-gray-900">{viewingPedido.personaRecibe || '-'}</div>
-              </div>
             </div>
-
             <div>
               <h4 className="text-gray-900 mb-1">Productos</h4>
               <div className="grid grid-cols-2 gap-1">
-                {viewingPedido.items.map((item, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-1 text-sm">
+                {viewingPedido.items.map((item, i) => (
+                  <div key={i} className="border border-gray-200 rounded-lg p-1 text-sm">
                     <div className="flex justify-between mb-1">
-                      <div className="text-gray-900">{item.productoNombre}</div>
-                      <div className="text-gray-900">${item.subtotal.toLocaleString()}</div>
+                      <span className="text-gray-900">{item.productoNombre}</span>
+                      <span>${item.subtotal.toLocaleString()}</span>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      Talla: {item.talla} | Color: {item.color} | Cantidad: {item.cantidad} x ${item.precioUnitario.toLocaleString()}
+                    <div className="text-gray-600">
+                      {item.talla && `Talla: ${item.talla} | `}
+                      {item.color && `Color: ${item.color} | `}
+                      Cant: {item.cantidad} × ${item.precioUnitario.toLocaleString()}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-
-            <div className="border-t pt-2 bg-gray-50 rounded-lg p-2">
-              <div className="space-y-1">
-                <div className="flex justify-between text-gray-600">
-                  <span>Subtotal:</span>
-                  <span>${viewingPedido.subtotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>IVA (19%):</span>
-                  <span>${viewingPedido.iva.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-gray-900 pt-1 border-t">
-                  <span>Total:</span>
-                  <span>${viewingPedido.total.toLocaleString()}</span>
-                </div>
-              </div>
+            <div className="border-t pt-2 bg-gray-50 rounded-lg p-2 space-y-1">
+              <div className="flex justify-between text-gray-600"><span>Subtotal:</span><span>${viewingPedido.subtotal.toLocaleString()}</span></div>
+              <div className="flex justify-between text-gray-600"><span>IVA (19%):</span><span>${viewingPedido.iva.toLocaleString()}</span></div>
+              <div className="flex justify-between text-gray-900 pt-1 border-t font-semibold"><span>Total:</span><span>${viewingPedido.total.toLocaleString()}</span></div>
             </div>
-
             {viewingPedido.observaciones && (
               <div>
                 <div className="text-sm text-gray-600 mb-1">Observaciones</div>
-                <div className="text-gray-900 bg-gray-50 p-2 rounded-lg">
-                  {viewingPedido.observaciones}
-                </div>
+                <div className="text-gray-900 bg-gray-50 p-2 rounded-lg">{viewingPedido.observaciones}</div>
               </div>
             )}
-
-            <div className="border-t pt-2">
-              <div className="text-sm text-gray-600 mb-1">Estado Actual</div>
-              <div className="flex items-center gap-2">
-                <span className={`px-4 py-2 rounded-lg text-sm font-medium ${obtenerClaseEstado(viewingPedido.estado)}`}>
-                  {obtenerDescripcionEstado(viewingPedido.estado)}
-                </span>
-              </div>
-            </div>
           </div>
         </Modal>
       )}
 
-      {/* Modal Crear Cliente */}
-      <Modal
-        isOpen={showClienteModal}
-        onClose={() => setShowClienteModal(false)}
-        title="Nuevo Cliente"
-      >
+      {/* ── Modal Nuevo Cliente ──────────────────────────────────────────── */}
+      <Modal isOpen={showClienteModal} onClose={() => setShowClienteModal(false)} title="Nuevo Cliente">
         <div className="space-y-4">
-
-          {/* ✅ DOCUMENTO PRIMERO */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-1">Tipo de Documento *</label>
-              <select
-                value={nuevoCliente.tipoDoc}
-                onChange={(e) => setNuevoCliente({ ...nuevoCliente, tipoDoc: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-              >
-                <option value="CC">Cédula de Ciudadanía</option>
-                <option value="CE">Cédula de Extranjería</option>
-                <option value="TI">Tarjeta de Identidad</option>
-                <option value="PAS">Pasaporte</option>
+              <select value={nuevoCliente.tipoDoc} onChange={e => setNuevoCliente(p => ({ ...p, tipoDoc: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500">
+                {[['CC','Cédula de Ciudadanía'],['CE','Cédula de Extranjería'],['TI','Tarjeta de Identidad'],['PAS','Pasaporte']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Número de Documento *</label>
-              <Input
-                value={nuevoCliente.numeroDoc}
-                onChange={(e) => handleNuevoClienteChange('numeroDoc', e.target.value)}
-                placeholder="1234567890"
-                required
-              />
-              {formErrors['nuevoCliente_numeroDoc'] && (
-                <p className="text-red-500 text-sm mt-1">
-                  {formErrors['nuevoCliente_numeroDoc']}
-                </p>
-              )}
+              <Input value={nuevoCliente.numeroDoc} onChange={e => handleNuevoClienteChange('numeroDoc', e.target.value)} placeholder="1234567890" />
+              {formErrors['nuevoCliente_numeroDoc'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_numeroDoc']}</p>}
             </div>
           </div>
-
-          {/* ✅ NOMBRE DESPUÉS */}
           <div>
             <label className="block text-gray-700 mb-1">Nombre Completo *</label>
-            <Input
-              value={nuevoCliente.nombre}
-              onChange={(e) => handleNuevoClienteChange('nombre', e.target.value)}
-              placeholder="Nombre del cliente"
-              required
-            />
-            {formErrors['nuevoCliente_nombre'] && (
-              <p className="text-red-500 text-sm mt-1">
-                {formErrors['nuevoCliente_nombre']}
-              </p>
-            )}
+            <Input value={nuevoCliente.nombre} onChange={e => handleNuevoClienteChange('nombre', e.target.value)} placeholder="Nombre del cliente" />
+            {formErrors['nuevoCliente_nombre'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_nombre']}</p>}
           </div>
-
-          {/* RESTO IGUAL */}
           <div>
             <label className="block text-gray-700 mb-1">Teléfono *</label>
-            <Input
-              value={nuevoCliente.telefono}
-              onChange={(e) =>
-                handleNuevoClienteChange('telefono', e.target.value)
-              }
-              placeholder="3001234567"
-              required
-            />
-            {formErrors['nuevoCliente_telefono'] && (
-              <p className="text-red-500 text-sm mt-1">
-                {formErrors['nuevoCliente_telefono']}
-              </p>
-            )}
+            <Input value={nuevoCliente.telefono} onChange={e => handleNuevoClienteChange('telefono', e.target.value)} placeholder="3001234567" />
+            {formErrors['nuevoCliente_telefono'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_telefono']}</p>}
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Correo Electrónico</label>
-            <Input
-              type="email"
-              value={nuevoCliente.email}
-              onChange={(e) => handleNuevoClienteChange('email', e.target.value)}
-              placeholder="correo@ejemplo.com"
-            />
-            {formErrors['nuevoCliente_email'] && (
-              <p className="text-red-500 text-sm mt-1">
-                {formErrors['nuevoCliente_email']}
-              </p>
-            )}
+            <Input type="email" value={nuevoCliente.email} onChange={e => handleNuevoClienteChange('email', e.target.value)} placeholder="correo@ejemplo.com" />
+            {formErrors['nuevoCliente_email'] && <p className="text-red-500 text-sm mt-1">{formErrors['nuevoCliente_email']}</p>}
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Dirección</label>
-            <Input
-              value={nuevoCliente.direccion}
-              onChange={(e) => handleNuevoClienteChange('direccion', e.target.value)}
-              placeholder="Calle 123 # 45-67"
-            />
+            <Input value={nuevoCliente.direccion} onChange={e => setNuevoCliente(p => ({ ...p, direccion: e.target.value }))} placeholder="Calle 123 # 45-67" />
           </div>
-
           <div className="flex gap-2 justify-end pt-2 border-t">
-            <Button onClick={() => setShowClienteModal(false)} variant="secondary">
-              Cancelar
-            </Button>
-            <Button onClick={handleCrearCliente} variant="primary">
-              Crear Cliente
-            </Button>
+            <Button onClick={() => setShowClienteModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={handleCrearCliente} variant="primary">Crear Cliente</Button>
           </div>
-
         </div>
       </Modal>
 
-      {/* Modal de Notificación */}
+      {/* ── Modal Cambiar Estado ─────────────────────────────────────────── */}
+      <Modal isOpen={showEstadoModal} onClose={() => setShowEstadoModal(false)} title="Cambiar Estado del Pedido">
+        <div className="space-y-4">
+          {pedidoParaCambiarEstado && (() => {
+            const esConvertido = pedidoParaCambiarEstado.estado === 'Convertido a venta' || pedidoParaCambiarEstado.estado === 'Completada';
+            return (
+              <>
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm text-gray-700 space-y-1">
+                  <p><span className="font-semibold">Pedido:</span> {pedidoParaCambiarEstado.numeroPedido}</p>
+                  <p><span className="font-semibold">Cliente:</span> {pedidoParaCambiarEstado.clienteNombre}</p>
+                  <p><span className="font-semibold">Estado actual:</span>{' '}
+                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getEstadoColor(pedidoParaCambiarEstado.estado)}`}>
+                      {pedidoParaCambiarEstado.estado}
+                    </span>
+                  </p>
+                </div>
+
+                {esConvertido ? (
+                  <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-300 text-sm text-yellow-900">
+                    Este pedido ya fue convertido en venta. Modifícalo desde el módulo de Ventas.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-gray-700 mb-3 font-semibold">Nuevo Estado</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['Pendiente','Completada','Anulado'] as const).map(estado => {
+                        const valido = puedeTransicionar(pedidoParaCambiarEstado.estado, estado);
+                        return (
+                          <button key={estado}
+                            onClick={() => valido && setNuevoEstadoModal(estado)}
+                            disabled={!valido}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              valido
+                                ? nuevoEstadoModal === estado ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            }`}
+                          >
+                            {estado === 'Completada' ? 'Convertir a venta' : estado}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 justify-end pt-4 border-t">
+                  <Button onClick={() => setShowEstadoModal(false)} variant="secondary">
+                    {esConvertido ? 'Cerrar' : 'Cancelar'}
+                  </Button>
+                  {!esConvertido && (
+                    <Button
+                      onClick={() => handleCambiarEstado(pedidoParaCambiarEstado, nuevoEstadoModal)}
+                      variant="primary"
+                      disabled={apiLoading}
+                    >
+                      {apiLoading ? 'Guardando...' : 'Guardar Cambio'}
+                    </Button>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </Modal>
+
+      {/* ── Modal Notificación ───────────────────────────────────────────── */}
       <Modal
         isOpen={showNotificationModal}
         onClose={() => setShowNotificationModal(false)}
@@ -1793,168 +1302,32 @@ DAMABELLA - Moda Femenina
       >
         <div className="space-y-4">
           <div className="flex items-start gap-3">
-            {notificationType === 'success' && (
-              <CheckCircle className="text-green-600 flex-shrink-0 mt-1" size={24} />
-            )}
-            {notificationType === 'error' && (
-              <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={24} />
-            )}
-            {notificationType === 'info' && (
-              <AlertCircle className="text-blue-600 flex-shrink-0 mt-1" size={24} />
-            )}
-            <p className="text-gray-700 text-base">{notificationMessage}</p>
+            {notificationType === 'success' && <CheckCircle className="text-green-600 flex-shrink-0 mt-1" size={24} />}
+            {notificationType === 'error'   && <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={24} />}
+            {notificationType === 'info'    && <AlertCircle className="text-blue-600 flex-shrink-0 mt-1" size={24} />}
+            <p className="text-gray-700">{notificationMessage}</p>
           </div>
           <div className="flex justify-end pt-2 border-t">
-            <Button onClick={() => setShowNotificationModal(false)} variant="primary">
-              Aceptar
-            </Button>
+            <Button onClick={() => setShowNotificationModal(false)} variant="primary">Aceptar</Button>
           </div>
         </div>
       </Modal>
 
-      {/* Modal de Confirmación */}
-      <Modal
-        isOpen={showConfirmModal}
-        onClose={() => setShowConfirmModal(false)}
-        title="Confirmar Acción"
-      >
+      {/* ── Modal Confirmación ───────────────────────────────────────────── */}
+      <Modal isOpen={showConfirmModal} onClose={() => setShowConfirmModal(false)} title="Confirmar Acción">
         <div className="space-y-4">
           <div className="flex items-start gap-3">
             <AlertCircle className="text-yellow-600 flex-shrink-0 mt-1" size={24} />
-            <p className="text-gray-700 text-base">{confirmMessage}</p>
+            <p className="text-gray-700">{confirmMessage}</p>
           </div>
           <div className="flex gap-2 justify-end pt-2 border-t">
-            <Button onClick={() => setShowConfirmModal(false)} variant="secondary">
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => {
-                if (confirmAction) confirmAction();
-              }}
-              variant="primary"
-              className="bg-red-600 hover:bg-red-700"
-            >
+            <Button onClick={() => setShowConfirmModal(false)} variant="secondary">Cancelar</Button>
+            <Button onClick={() => { if (confirmAction) confirmAction(); }} variant="primary" className="bg-red-600 hover:bg-red-700">
               Confirmar
             </Button>
           </div>
         </div>
       </Modal>
-
-      {/* Modal Cambiar Estado */}
-      <Modal
-        isOpen={showEstadoModal}
-        onClose={() => setShowEstadoModal(false)}
-        title="Cambiar Estado del Pedido"
-      >
-        <div className="space-y-4">
-          {pedidoParaCambiarEstado && (
-            <>
-              {/* 📋 Información del Pedido */}
-              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-sm text-gray-700">
-                  <span className="font-semibold">Pedido:</span> {pedidoParaCambiarEstado.numeroPedido}
-                </p>
-                <p className="text-sm text-gray-700">
-                  <span className="font-semibold">Cliente:</span> {pedidoParaCambiarEstado.clienteNombre}
-                </p>
-                <p className="text-sm text-gray-700 mt-2">
-                  <span className="font-semibold">Estado Actual:</span>{' '}
-                  <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${obtenerClaseEstado(pedidoParaCambiarEstado.estado)}`}>
-                    {obtenerDescripcionEstado(pedidoParaCambiarEstado.estado)}
-                  </span>
-                </p>
-              </div>
-
-              {/* 🔒 HELPER: Detectar si pedido fue convertido a venta (con múltiples criterios) */}
-              {(() => {
-                const esConvertidoAVenta = 
-                  pedidoParaCambiarEstado.estado?.toLowerCase?.()?.includes('convertido') ||
-                  pedidoParaCambiarEstado.estado === 'Convertido a venta' ||
-                  pedidoParaCambiarEstado.venta_id !== null;
-
-                return (
-                  <>
-                    {/* Mensaje informativo - Solo si está convertido a venta */}
-                    {esConvertidoAVenta && (
-                      <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-300 space-y-3">
-                        <div className="flex gap-3">
-                          <AlertCircle className="text-yellow-600 flex-shrink-0 mt-1" size={20} />
-                          <div className="text-sm">
-                            <p className="text-yellow-900 font-semibold mb-2">
-                              Este pedido ya fue convertido en una venta
-                            </p>
-                            <p className="text-yellow-800">
-                              Cualquier modificación debe realizarse desde el módulo de Ventas.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Selector de estado - Solo si NO está convertido a venta */}
-                    {!esConvertidoAVenta && (
-                      <div>
-                        <label className="block text-gray-700 mb-3 font-semibold">Nuevo Estado</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {(['Pendiente', 'Completada', 'Anulado'] as const).map((estado) => {
-                            const esTransicionValida = puedeTransicionar(pedidoParaCambiarEstado.estado, estado);
-                            const labelEstado = estado === 'Completada' ? 'Convertir a venta' : estado;
-                            
-                            return (
-                              <button
-                                key={estado}
-                                onClick={() => {
-                                  if (esTransicionValida) {
-                                    setNuevoEstado(estado);
-                                  }
-                                }}
-                                disabled={!esTransicionValida}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                  esTransicionValida
-                                    ? nuevoEstado === estado
-                                      ? 'bg-blue-600 text-white'
-                                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                }`}
-                                title={!esTransicionValida ? `No puedes pasar de ${pedidoParaCambiarEstado.estado} a ${estado}` : undefined}
-                              >
-                                {labelEstado}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 🔘 Botones de acción */}
-                    <div className="flex gap-3 justify-end pt-4 border-t">
-                      {/* Botón Cancelar/Cerrar */}
-                      <Button onClick={() => setShowEstadoModal(false)} variant="secondary">
-                        {esConvertidoAVenta ? 'Cerrar' : 'Cancelar'}
-                      </Button>
-
-                      {/* Botón Guardar - Solo visible si NO está "Convertido a venta" */}
-                      {!esConvertidoAVenta && (
-                        <Button
-                          onClick={() => {
-                            if (pedidoParaCambiarEstado) {
-                              confirmarCambioEstado(pedidoParaCambiarEstado, nuevoEstado);
-                            }
-                          }}
-                          variant="primary"
-                        >
-                          Guardar Cambio
-                        </Button>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </>
-          )}
-        </div>
-      </Modal>
     </div>
   );
 }
-

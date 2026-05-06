@@ -198,71 +198,87 @@ export default function CategoriasManager() {
     }
   };
 
-  const toggleActive = (id_category: number) => {
-    const category = categories.find((c) => c.id_category === id_category);
+const toggleActive = (id_category: number) => {
+  const category = categories.find((c) => c.id_category === id_category);
+  
+  if (!category) {
+    console.error('❌ Categoría no encontrada:', id_category);
+    showToast('Error: Categoría no encontrada', 'error');
+    return;
+  }
+  
+  console.log('🔄 Toggle para categoría:', { id_category, name: category.name, is_active: category.is_active });
+  
+  setCategoryToToggle(category);
+  
+  if (category.is_active) {
+    setShowInactiveConfirmModal(true);
+  } else {
+    setShowActiveConfirmModal(true);
+  }
+};
+
+const confirmToggleInactive = async () => {
+  if (!categoryToToggle) {
+    console.error('❌ No hay categoría para desactivar');
+    return;
+  }
+
+  console.log('⏸️ Desactivando categoría:', categoryToToggle.id_category);
+
+  try {
+    setActionLoading(true);
+    const response = await patchState(categoryToToggle.id_category, false);
     
-    if (category) {
-      if (category.is_active) {
-        setCategoryToToggle(category);
-        setShowInactiveConfirmModal(true);
-      } else {
-        setCategoryToToggle(category);
-        setShowActiveConfirmModal(true);
-      }
-    }
-  };
-
-  const confirmToggleInactive = async () => {
-    if (!categoryToToggle) return;
-
-    try {
-      setActionLoading(true);
-      const response = await patchState(categoryToToggle.id_category, false);
-      
-      if (response) {
-        const normalized = { ...response, active: response.is_active };
-        setCategories(categories.map((c) =>
-          c.id_category === categoryToToggle.id_category ? normalized : c
-        ));
-        showToast(`⏸️ Categoría "${categoryToToggle.name}" desactivada correctamente`, 'success');
-      } else {
-        showToast('Error al desactivar la categoría', 'error');
-      }
-    } catch (error) {
-      console.error('Error desactivando categoría:', error);
+    if (response) {
+      const normalized = { ...response, active: response.is_active };
+      setCategories(categories.map((c) =>
+        c.id_category === categoryToToggle.id_category ? normalized : c
+      ));
+      showToast(`⏸️ Categoría "${categoryToToggle.name}" desactivada correctamente`, 'success');
+    } else {
       showToast('Error al desactivar la categoría', 'error');
-    } finally {
-      setActionLoading(false);
-      setShowInactiveConfirmModal(false);
-      setCategoryToToggle(null);
     }
-  };
+  } catch (error) {
+    console.error('Error desactivando categoría:', error);
+    showToast('Error al desactivar la categoría', 'error');
+  } finally {
+    setActionLoading(false);
+    setShowInactiveConfirmModal(false);
+    setCategoryToToggle(null);
+  }
+};
 
-  const confirmToggleActive = async () => {
-    if (!categoryToToggle) return;
+const confirmToggleActive = async () => {
+  if (!categoryToToggle) {
+    console.error('❌ No hay categoría para activar');
+    return;
+  }
 
-    try {
-      setActionLoading(true);
-      const response = await patchState(categoryToToggle.id_category, true);
-      
-      if (response) {
-        const normalized = { ...response, active: response.is_active };
-        setCategories(categories.map((c) =>
-          c.id_category === categoryToToggle.id_category ? normalized : c
-        ));
-        showToast(`✅ Categoría "${categoryToToggle.name}" activada correctamente`, 'success');
-      } else {
-        showToast('Error al activar la categoría', 'error');
-      }
-    } catch (error) {
-      console.error('Error activando categoría:', error);
+  console.log('✅ Activando categoría:', categoryToToggle.id_category);
+
+  try {
+    setActionLoading(true);
+    const response = await patchState(categoryToToggle.id_category, true);
+    
+    if (response) {
+      const normalized = { ...response, active: response.is_active };
+      setCategories(categories.map((c) =>
+        c.id_category === categoryToToggle.id_category ? normalized : c
+      ));
+      showToast(`✅ Categoría "${categoryToToggle.name}" activada correctamente`, 'success');
+    } else {
       showToast('Error al activar la categoría', 'error');
-    } finally {
-      setActionLoading(false);
-      setShowActiveConfirmModal(false);
-      setCategoryToToggle(null);
     }
-  };
+  } catch (error) {
+    console.error('Error activando categoría:', error);
+    showToast('Error al activar la categoría', 'error');
+  } finally {
+    setActionLoading(false);
+    setShowActiveConfirmModal(false);
+    setCategoryToToggle(null);
+  }
+};
 
   const handleDeleteCategory = (id_category: number) => {
     const categoria = categories.find((c) => c.id_category === id_category);
