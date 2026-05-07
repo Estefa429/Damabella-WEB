@@ -119,6 +119,34 @@ export default function ProductosManager() {
     return { stock: '', color: '', size: '' };
   };
 
+  // Validar consistencia de inventario
+  const isInventoryConsistent = (productId: number) => {
+    const meta = getProductMeta(productId);
+    const realStock = getTotalStock(productId);
+    const hasMetaStock = meta.stock && Number(meta.stock) > 0;
+    
+    // Si hay cantidad en meta pero stock real es 0, es inconsistente
+    if (hasMetaStock && realStock === 0) {
+      return false;
+    }
+    return true;
+  };
+
+  // Obtener el stock correcto (priorizar stock real sobre meta)
+  const getCorrectStock = (productId: number) => {
+    const realStock = getTotalStock(productId);
+    const meta = getProductMeta(productId);
+    
+    // Si hay stock real, usarlo
+    if (realStock > 0) {
+      return realStock;
+    }
+    
+    // Si no hay stock real pero hay cantidad en meta, significa que es un producto
+    // sin variantes aún (en transición), retornar 0 para ser consistente
+    return 0;
+  };
+
   // ─── Filter & paginate ───────────────────────────────────────────────────────
   const filtered = products.filter(p => {
     const q = searchTerm.toLowerCase();
@@ -224,13 +252,18 @@ export default function ProductosManager() {
         localStorage.setItem(`product_image_${result.id_product}`, imageBase64);
       }
       
-      // Guardar datos adicionales en localStorage
+      // Validación: Solo guardar quantity, color y size si NO es cero
+      // Para evitar inconsistencias entre meta y stock real
       const productMeta = {
-        stock: addStock,
-        color: addColor,
-        size: addSize
+        stock: addStock && Number(addStock) > 0 ? addStock : '',
+        color: addColor || '',
+        size: addSize || ''
       };
-      localStorage.setItem(`product_meta_${result.id_product}`, JSON.stringify(productMeta));
+      
+      // Solo guardar si hay al menos un campo válido
+      if (productMeta.stock || productMeta.color || productMeta.size) {
+        localStorage.setItem(`product_meta_${result.id_product}`, JSON.stringify(productMeta));
+      }
       
       showToast('Producto creado exitosamente', 'success');
       await loadData();
@@ -371,9 +404,11 @@ export default function ProductosManager() {
           </div>
         ) : (
           paginated.map(product => {
-            const stock       = getTotalStock(product.id_product);
+            const stock       = getCorrectStock(product.id_product);
             const productVars = getProductVariants(product.id_product);
             const productImage = getProductImage(product.id_product);
+            const meta = getProductMeta(product.id_product);
+            const isConsistent = isInventoryConsistent(product.id_product);
 
             return (
               <div
@@ -410,30 +445,34 @@ export default function ProductosManager() {
                   {/* Categoría */}
                   <p className="text-xs text-gray-500 mb-2">{product.category_name}</p>
 
-                  {/* Talla, Color, Cantidad */}
+                  {/* Talla, Color, Cantidad - Solo mostrar si es consistente */}
                   {(() => {
-                    const meta = getProductMeta(product.id_product);
+                    // Solo mostrar metadata si hay stock real O si es consistente
+                    if (!isConsistent) {
+                      return null; // No mostrar datos inconsistentes
+                    }
                     return (
                       <>
-                        {(meta.size || meta.color || meta.stock) && (
+                        {(meta.size || meta.color || (meta.stock && stock > 0)) && (
                           <div className="space-y-1 mb-2 text-xs">
                             {meta.size && <p className="text-gray-600"><span className="font-medium">Talla:</span> {meta.size}</p>}
                             {meta.color && <p className="text-gray-600"><span className="font-medium">Color:</span> {meta.color}</p>}
-                            {meta.stock && <p className="text-gray-600"><span className="font-medium">Cantidad:</span> {meta.stock}</p>}
+                            {meta.stock && stock > 0 && <p className="text-gray-600"><span className="font-medium">Cantidad:</span> {meta.stock}</p>}
                           </div>
                         )}
                       </>
                     );
                   })()}
 
-                  {/* Stock */}
+                  {/* Stock - Con indicador si hay inconsistencia */}
                   <div className={`text-xs font-medium px-2 py-1 rounded-full inline-block mb-2 ${
+                    !isConsistent ? 'bg-red-100 text-red-700' :
                     stock > 20 ? 'bg-green-100 text-green-700' :
                     stock > 5  ? 'bg-yellow-100 text-yellow-700' :
                     stock > 0  ? 'bg-red-100 text-red-700' :
                                  'bg-gray-100 text-gray-500'
                   }`}>
-                    Stock: {stock} unidades
+                    Stock: {stock} {!isConsistent && '⚠️ (inconsistente)'}
                   </div>
 
                   {/* Precio */}
@@ -450,7 +489,7 @@ export default function ProductosManager() {
                       onClick={() => { setViewingProduct(product); setShowDetailModal(true); }}
                       className="flex-1 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 flex items-center justify-center gap-1 text-xs transition-colors font-medium"
                     >
-                      <Eye size={13} /> Ver Detalles
+                      <Eye size={18} /> 
                     </button>
                     <button
                       onClick={() => handleEdit(product)}
@@ -503,7 +542,9 @@ export default function ProductosManager() {
       <Modal isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} title="Detalle del Producto" size="lg">
         {viewingProduct && (() => {
           const productVars = getProductVariants(viewingProduct.id_product);
-          const totalStock  = getTotalStock(viewingProduct.id_product);
+          const totalStock  = getCorrectStock(viewingProduct.id_product);
+          const meta = getProductMeta(viewingProduct.id_product);
+          const isConsistent = isInventoryConsistent(viewingProduct.id_product);
           return (
             <div className="space-y-5 text-sm">
               <div className="grid grid-cols-2 gap-4">
@@ -533,16 +574,25 @@ export default function ProductosManager() {
                 </div>
               </div>
 
-              {/* Información de Meta (Cantidad, Talla, Color) */}
+              {/* Información de Meta (Cantidad, Talla, Color) - Solo si es consistente */}
               {(() => {
-                const meta = getProductMeta(viewingProduct.id_product);
-                return (meta.size || meta.color || meta.stock) ? (
+                if (!isConsistent) {
+                  return (
+                    <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+                      <h4 className="font-semibold text-red-900 mb-2">⚠️ Inventario Inconsistente</h4>
+                      <p className="text-xs text-red-700 mb-3">
+                        La cantidad guardada no coincide con el stock real. Por favor, cree variantes desde el módulo de Compras o corrija manualmente el inventario.
+                      </p>
+                    </div>
+                  );
+                }
+                return (meta.size || meta.color || (meta.stock && totalStock > 0)) ? (
                   <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                     <h4 className="font-semibold text-gray-900 mb-3">Información Adicional</h4>
                     <div className="grid grid-cols-3 gap-3">
-                      {meta.stock && (
+                      {meta.stock && totalStock > 0 && (
                         <div>
-                          <p className="text-xs text-gray-600 mb-1">Cantidad</p>
+                          <p className="text-xs text-gray-600 mb-1">Cantidad Inicial</p>
                           <p className="font-semibold text-gray-900">{meta.stock}</p>
                         </div>
                       )}
@@ -681,148 +731,181 @@ export default function ProductosManager() {
         </div>
       </Modal>
 
-      {/* ─── Modal Agregar Producto ────────────────────────────────────────── */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Nuevo Producto" size="lg">
-        <div className="space-y-4 text-sm max-h-96 overflow-y-auto">
-          {/* Imagen */}
-          <div>
-            <label className="block text-gray-700 font-medium mb-2 text-xs">Imagen del Producto</label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center bg-gray-50">
-              {addImagePreview ? (
-                <div className="relative">
-                  <img src={addImagePreview} alt="Preview" className="w-full h-48 object-cover rounded-lg mb-2" />
-                  <div className="flex gap-2 justify-center">
-                    <label className="text-blue-500 text-xs hover:underline cursor-pointer">
-                      Cambiar imagen
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageChange}
-                        className="hidden"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAddImage(null);
-                        setAddImagePreview('');
-                        setImageBase64('');
-                      }}
-                      className="text-red-500 text-xs hover:underline"
-                    >
-                      Eliminar
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <label className="cursor-pointer">
-                  <div className="text-gray-400 text-xs py-4">
-                    <Package size={28} className="mx-auto mb-2" />
-                    <div>Haz clic o arrastra una imagen aquí</div>
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    className="hidden"
-                  />
-                </label>
-              )}
-            </div>
-          </div>
+     {/* ─── Modal Agregar Producto ────────────────────────────────────────── */}
+<Modal 
+  isOpen={showAddModal} 
+  onClose={() => setShowAddModal(false)} 
+  title="Nuevo Producto" 
+  size="lg"
+>
+  <div className="space-y-4 text-sm">
 
+    {/* Imagen */}
+    <div>
+      <label className="block text-gray-700 font-medium mb-2 text-xs">
+        Imagen del Producto
+      </label>
+
+      <div className="border border-dashed border-gray-300 rounded-lg p-4 text-center bg-gray-50">
+        {addImagePreview ? (
           <div>
-            <label className="block text-gray-700 font-medium mb-1 text-xs">Nombre del Producto *</label>
-            <Input
-              value={addName}
-              onChange={(e) => setAddName(e.target.value)}
-              placeholder="Nombre del producto"
-              className={addErrors.name ? 'border-red-400' : ''}
+            <img 
+              src={addImagePreview} 
+              alt="Preview" 
+              className="w-full h-40 object-cover rounded-lg mb-2" 
             />
-            {addErrors.name && <p className="text-red-500 text-xs mt-1">{addErrors.name}</p>}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-gray-700 font-medium mb-1 text-xs">Precio de venta *</label>
-              <Input
-                type="number"
-                value={addPrice}
-                onChange={(e) => setAddPrice(e.target.value)}
-                placeholder="0"
-                className={addErrors.price ? 'border-red-400' : ''}
-              />
-              {addErrors.price && <p className="text-red-500 text-xs mt-1">{addErrors.price}</p>}
-            </div>
-
-            <div>
-              <label className="block text-gray-700 font-medium mb-1 text-xs">Precio de compra *</label>
-              <Input
-                type="number"
-                value={addPurchasePrice}
-                onChange={(e) => setAddPurchasePrice(e.target.value)}
-                placeholder="0"
-                className={addErrors.purchasePrice ? 'border-red-400' : ''}
-              />
-              {addErrors.purchasePrice && <p className="text-red-500 text-xs mt-1">{addErrors.purchasePrice}</p>}
+            <div className="flex gap-3 justify-center text-xs">
+              <label className="text-blue-500 hover:underline cursor-pointer">
+                Cambiar
+                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddImage(null);
+                  setAddImagePreview('');
+                  setImageBase64('');
+                }}
+                className="text-red-500 hover:underline"
+              >
+                Eliminar
+              </button>
             </div>
           </div>
+        ) : (
+          <label className="cursor-pointer text-gray-400 text-xs py-4 block">
+            <Package size={26} className="mx-auto mb-2" />
+            Subir imagen
+            <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+          </label>
+        )}
+      </div>
+    </div>
 
-          <div>
-            <label className="block text-gray-700 font-medium mb-1 text-xs">Categoría *</label>
-            <select
-              value={addCategory ?? ''}
-              onChange={(e) => setAddCategory(Number(e.target.value) || null)}
-              className={`w-full h-10 px-3 border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 ${
-                addErrors.category ? 'border-red-400' : 'border-gray-300'
-              }`}
-            >
-              <option value="">Seleccionar categoría...</option>
-              {categories.map(c => (
-                <option key={c.id_category} value={c.id_category}>{c.name}</option>
-              ))}
-            </select>
-            {addErrors.category && <p className="text-red-500 text-xs mt-1">{addErrors.category}</p>}
-          </div>
+    {/* Nombre */}
+    <div>
+      <label className="block text-gray-700 font-medium mb-1 text-xs">
+        Nombre del Producto *
+      </label>
+      <Input
+        value={addName}
+        onChange={(e) => setAddName(e.target.value)}
+        placeholder="Nombre del producto"
+        className={`h-10 ${addErrors.name ? 'border-red-400' : ''}`}
+      />
+    </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-gray-700 font-medium mb-1 text-xs">Stock</label>
-              <Input
-                type="number"
-                value={addStock}
-                onChange={(e) => setAddStock(e.target.value)}
-                placeholder="0"
-              />
-            </div>
+    {/* Precios */}
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="block text-gray-700 font-medium mb-1 text-xs">
+          Precio compra *
+        </label>
+        <Input
+          type="number"
+          value={addPurchasePrice}
+          onChange={(e) => setAddPurchasePrice(e.target.value)}
+          placeholder="0"
+          className={`h-10 ${addErrors.purchasePrice ? 'border-red-400' : ''}`}
+        />
+      </div>
 
-            <div>
-              <label className="block text-gray-700 font-medium mb-1 text-xs">Color</label>
-              <Input
-                value={addColor}
-                onChange={(e) => setAddColor(e.target.value)}
-                placeholder="Ej: Negro"
-              />
-            </div>
+      <div>
+        <label className="block text-gray-700 font-medium mb-1 text-xs">
+          Precio venta *
+        </label>
+        <Input
+          type="number"
+          value={addPrice}
+          onChange={(e) => setAddPrice(e.target.value)}
+          placeholder="0"
+          className={`h-10 ${addErrors.price ? 'border-red-400' : ''}`}
+        />
+      </div>
+    </div>
 
-            <div>
-              <label className="block text-gray-700 font-medium mb-1 text-xs">Talla</label>
-              <Input
-                value={addSize}
-                onChange={(e) => setAddSize(e.target.value)}
-                placeholder="Ej: M, L"
-              />
-            </div>
-          </div>
+    {/* Categoría + Talla + Color + Stock */}
+    <div className="grid grid-cols-4 gap-3">
 
-          <div className="flex gap-3 justify-end pt-2 border-t">
-            <Button onClick={handleCloseAddModal} variant="secondary">Cancelar</Button>
-            <Button onClick={handleSaveAdd} variant="primary" disabled={isSubmitting}>
-              {isSubmitting ? 'Creando...' : 'Crear Producto'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      {/* Categoría grande */}
+      <div className="col-span-2">
+        <label className="block text-gray-700 font-medium mb-1 text-xs">
+          Categoría *
+        </label>
+        <select
+          value={addCategory ?? ''}
+          onChange={(e) => setAddCategory(Number(e.target.value) || null)}
+          className={`w-full h-10 px-3 border rounded-lg ${
+            addErrors.category ? 'border-red-400' : 'border-gray-300'
+          }`}
+        >
+          <option value="">Seleccionar</option>
+          {categories.map(c => (
+            <option key={c.id_category} value={c.id_category}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Talla */}
+      <div>
+        <label className="block text-gray-700 font-medium mb-1 text-xs">
+          Talla
+        </label>
+        <Input
+          value={addSize}
+          onChange={(e) => setAddSize(e.target.value)}
+          placeholder="M"
+          className="h-10 text-sm"
+        />
+      </div>
+
+      {/* Color */}
+      <div>
+        <label className="block text-gray-700 font-medium mb-1 text-xs">
+          Color
+        </label>
+        <Input
+          value={addColor}
+          onChange={(e) => setAddColor(e.target.value)}
+          placeholder="Negro"
+          className="h-10 text-sm"
+        />
+      </div>
+
+      {/* Stock */}
+      <div>
+        <label className="block text-gray-700 font-medium mb-1 text-xs">
+          Stock
+        </label>
+        <Input
+          type="number"
+          value={addStock}
+          onChange={(e) => setAddStock(e.target.value)}
+          placeholder="0"
+          className="h-10 text-sm"
+        />
+      </div>
+
+    </div>
+
+    {/* Botones */}
+    <div className="flex gap-3 justify-end pt-2 border-t">
+      <Button onClick={handleCloseAddModal} variant="secondary">
+        Cancelar
+      </Button>
+      <Button 
+        onClick={handleSaveAdd} 
+        variant="primary" 
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? 'Creando...' : 'Crear Producto'}
+      </Button>
+    </div>
+
+  </div>
+</Modal>
 
       {/* ─── Modal Eliminar ─────────────────────────────────────────────────── */}
       <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Eliminar Producto" size="sm">
