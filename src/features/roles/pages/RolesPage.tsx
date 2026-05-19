@@ -278,7 +278,7 @@ export default function RolesPage() {
         </div>
         <Button onClick={handleOpenCreate} variant="primary">
           <Plus size={18} />
-          Nuevo Rol
+          Registrar Rol
         </Button>
       </div>
 
@@ -386,7 +386,7 @@ export default function RolesPage() {
       <Modal
         isOpen={showFormModal}
         onClose={() => setShowFormModal(false)}
-        title={editingRole ? `Editar: ${editingRole.name}` : 'Nuevo Rol'}
+        title={editingRole ? `Editar: ${editingRole.name}` : 'Agregar Rol'}
       >
         <div className="space-y-5">
 

@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const API = axios.create({
-    baseURL : 'https://simmeringly-ichthyologic-milana.ngrok-free.dev/api/',
+    baseURL : 'http://127.0.0.1:8000/api/',
     headers : {
         'Content-Type': 'application/json',
         'ngrok-skip-browser-warning': 'true'

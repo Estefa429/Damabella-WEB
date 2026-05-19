@@ -1,1 +1,427 @@
-/**\n * 📚 EJEMPLOS DE INTEGRACIÓN\n * \n * Este archivo contiene ejemplos listos para copiar-pegar en tus componentes.\n * Copiar solo la parte que necesites según tu caso de uso.\n */\n\nimport { useState } from 'react';\nimport { useCambioEstadoPedido } from '../hooks/useCambioEstadoPedido';\nimport { cambiarEstadoPedidoCentralizado } from '../services/cambioEstadoCentralizado';\nimport type { Pedido } from '../services/pedidoService';\n\n// ============================================================================\n// EJEMPLO 1: Botones de Acción Simples en una Tabla\n// ============================================================================\n\n/**\n * Uso: Renderizar en una columna de tabla de pedidos\n * Comportamiento: Botones que cambian según el estado\n */\nexport function BotonesEstadoTabla({ pedido, onActualizar }: {\n  pedido: Pedido;\n  onActualizar: () => void;\n}) {\n  const { cambiarEstado, cargando, puedeCompletarse, puedeAnularse } = useCambioEstadoPedido({\n    onNotificar: (tipo, msg) => {\n      console.log(`[${tipo}] ${msg}`);\n      // Aquí iría tu toast/notificación\n    }\n  });\n\n  return (\n    <div className=\"flex gap-2\">\n      {/* BOTÓN COMPLETAR */}\n      {puedeCompletarse(pedido.estado) && (\n        <button\n          onClick={async () => {\n            await cambiarEstado(pedido.id, 'Completada');\n            onActualizar();\n          }}\n          disabled={cargando}\n          className=\"px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50\"\n        >\n          {cargando ? '⏳' : '✓'} Completar\n        </button>\n      )}\n\n      {/* BOTÓN ANULAR */}\n      {puedeAnularse(pedido.estado) && (\n        <button\n          onClick={async () => {\n            await cambiarEstado(pedido.id, 'Anulado');\n            onActualizar();\n          }}\n          disabled={cargando}\n          className=\"px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50\"\n        >\n          ✕ Anular\n        </button>\n      )}\n    </div>\n  );\n}\n\n// ============================================================================\n// EJEMPLO 2: Card de Detalle con Estado y Acciones\n// ============================================================================\n\n/**\n * Uso: Mostrar detalles de un pedido con barra de estado y acciones\n * Características: Badge de estado, descripción, botones contextuales\n */\nexport function CardDetallePedido({ pedido, onActualizado }: {\n  pedido: Pedido;\n  onActualizado?: (pedidoActualizado: Pedido) => void;\n}) {\n  const {\n    cambiarEstado,\n    cargando,\n    error,\n    exito,\n    limpiarMensajes,\n    puedeEditarse,\n    puedeCompletarse,\n    puedeAnularse,\n    obtenerClaseEstado,\n    obtenerDescripcionEstado,\n    ultimoPedidoActualizado\n  } = useCambioEstadoPedido();\n\n  // Actualizar pedido visible cuando cambia\n  const pedidoMostrado = ultimoPedidoActualizado || pedido;\n\n  const handleCambiarEstado = async (nuevoEstado: Pedido['estado']) => {\n    await cambiarEstado(pedido.id, nuevoEstado);\n    if (ultimoPedidoActualizado) {\n      onActualizado?.(ultimoPedidoActualizado);\n      limpiarMensajes();\n    }\n  };\n\n  return (\n    <div className=\"border rounded-lg p-6 bg-white shadow-sm\">\n      {/* HEADER CON ESTADO */}\n      <div className=\"flex justify-between items-start mb-4\">\n        <div>\n          <h2 className=\"text-xl font-bold\">Pedido {pedidoMostrado.id}</h2>\n          <p className=\"text-gray-600\">Cliente: {pedidoMostrado.clienteId}</p>\n        </div>\n        <span className={`px-3 py-1 rounded text-sm font-medium ${obtenerClaseEstado(pedidoMostrado.estado)}`}>\n          {pedidoMostrado.estado}\n        </span>\n      </div>\n\n      {/* DESCRIPCIÓN DEL ESTADO */}\n      <p className=\"text-gray-700 mb-4\">\n        ℹ️ {obtenerDescripcionEstado(pedidoMostrado.estado)}\n      </p>\n\n      {/* DETALLES */}\n      <div className=\"bg-gray-50 p-4 rounded mb-4\">\n        <p><strong>Fecha:</strong> {new Date(pedidoMostrado.fecha).toLocaleDateString('es-ES')}</p>\n        <p><strong>Productos:</strong> {pedidoMostrado.productos.length} items</p>\n        <p><strong>Editable:</strong> {puedeEditarse(pedidoMostrado.estado) ? '✓ Sí' : '✗ No'}</p>\n      </div>\n\n      {/* MENSAJES */}\n      {error && (\n        <div className=\"mb-3 p-3 bg-red-100 text-red-700 rounded\">\n          ❌ {error}\n        </div>\n      )}\n      {exito && (\n        <div className=\"mb-3 p-3 bg-green-100 text-green-700 rounded\">\n          ✓ Cambio realizado exitosamente\n        </div>\n      )}\n\n      {/* BOTONES DE ACCIÓN */}\n      <div className=\"flex gap-2\">\n        {puedeCompletarse(pedidoMostrado.estado) && (\n          <button\n            onClick={() => handleCambiarEstado('Completada')}\n            disabled={cargando}\n            className=\"px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50\"\n          >\n            {cargando ? '⏳ Procesando...' : '✓ Completar Pedido'}\n          </button>\n        )}\n\n        {puedeAnularse(pedidoMostrado.estado) && (\n          <button\n            onClick={() => handleCambiarEstado('Anulado')}\n            disabled={cargando}\n            className=\"px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50\"\n          >\n            {cargando ? '⏳ Procesando...' : '✕ Anular Pedido'}\n          </button>\n        )}\n      </div>\n    </div>\n  );\n}\n\n// ============================================================================\n// EJEMPLO 3: Modal para Cambiar Estado\n// ============================================================================\n\n/**\n * Uso: Modal que permite seleccionar el nuevo estado\n * Características: Dropdown dinámico, validación integrada\n */\nexport function ModalCambiarEstado({\n  pedido,\n  isOpen,\n  onClose,\n  onExito\n}: {\n  pedido: Pedido;\n  isOpen: boolean;\n  onClose: () => void;\n  onExito?: () => void;\n}) {\n  const [nuevoEstadoSeleccionado, setNuevoEstadoSeleccionado] = useState<Pedido['estado']>(pedido.estado);\n  const {\n    cambiarEstado,\n    cargando,\n    error,\n    puedeCompletarse,\n    puedeAnularse\n  } = useCambioEstadoPedido();\n\n  const handleAplicar = async () => {\n    if (nuevoEstadoSeleccionado === pedido.estado) {\n      onClose();\n      return;\n    }\n    await cambiarEstado(pedido.id, nuevoEstadoSeleccionado);\n    if (!error) {\n      onExito?.();\n      onClose();\n    }\n  };\n\n  if (!isOpen) return null;\n\n  return (\n    <div className=\"fixed inset-0 bg-black/50 flex items-center justify-center z-50\">\n      <div className=\"bg-white rounded-lg p-6 max-w-md w-full\">\n        <h2 className=\"text-xl font-bold mb-4\">Cambiar Estado del Pedido</h2>\n\n        <p className=\"text-gray-600 mb-4\">\n          Pedido <strong>{pedido.id}</strong> - Estado actual: <strong>{pedido.estado}</strong>\n        </p>\n\n        {/* SELECTOR DE ESTADO */}\n        <select\n          value={nuevoEstadoSeleccionado}\n          onChange={(e) => setNuevoEstadoSeleccionado(e.target.value as Pedido['estado'])}\n          className=\"w-full px-3 py-2 border rounded mb-4\"\n        >\n          <option value={pedido.estado} disabled>\n            {pedido.estado} (actual)\n          </option>\n          {puedeCompletarse(pedido.estado) && (\n            <option value=\"Completada\">→ Completada</option>\n          )}\n          {puedeAnularse(pedido.estado) && (\n            <option value=\"Anulado\">→ Anulado</option>\n          )}\n        </select>\n\n        {/* ERROR */}\n        {error && (\n          <div className=\"mb-3 p-3 bg-red-100 text-red-700 rounded text-sm\">\n            {error}\n          </div>\n        )}\n\n        {/* BOTONES */}\n        <div className=\"flex gap-2 justify-end\">\n          <button\n            onClick={onClose}\n            disabled={cargando}\n            className=\"px-4 py-2 text-gray-700 border rounded hover:bg-gray-50\"\n          >\n            Cancelar\n          </button>\n          <button\n            onClick={handleAplicar}\n            disabled={cargando || nuevoEstadoSeleccionado === pedido.estado}\n            className=\"px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50\"\n          >\n            {cargando ? 'Procesando...' : 'Aplicar Cambio'}\n          </button>\n        </div>\n      </div>\n    </div>\n  );\n}\n\n// ============================================================================\n// EJEMPLO 4: Usar en Servicio (sin React)\n// ============================================================================\n\n/**\n * Uso: En funciones de servicio, eventos, o lógica de negocio\n * Características: Promesas, callbacks, manejo de errores\n */\nexport async function procesarCompletacionPedido(\n  pedidoId: string,\n  callbacks?: {\n    onInicio?: () => void;\n    onExito?: (resultado: any) => void;\n    onError?: (error: string) => void;\n  }\n) {\n  try {\n    callbacks?.onInicio?.();\n\n    // Crear venta cuando se completa\n    const crearVenta = async (pedido: Pedido) => {\n      const ventasJson = localStorage.getItem('damabella_ventas') || '[]';\n      const ventas = JSON.parse(ventasJson);\n\n      const nuevaVenta = {\n        id: `vta_${Date.now()}`,\n        pedidoId: pedido.id,\n        clienteId: pedido.clienteId,\n        productos: pedido.productos,\n        total: pedido.productos.reduce((sum, p) => sum + (p.precioVenta * p.cantidad), 0),\n        fecha: new Date().toISOString(),\n        estado: 'Completada'\n      };\n\n      ventas.push(nuevaVenta);\n      localStorage.setItem('damabella_ventas', JSON.stringify(ventas));\n      console.log('✓ Venta creada:', nuevaVenta.id);\n    };\n\n    // Usar la función centralizada\n    const resultado = await cambiarEstadoPedidoCentralizado(\n      pedidoId,\n      'Completada',\n      {\n        onSincronizarVentas: crearVenta,\n        onLog: (nivel, msg) => console.log(`[${nivel}] ${msg}`)\n      }\n    );\n\n    if (resultado.success) {\n      callbacks?.onExito?.(resultado);\n      return resultado;\n    } else {\n      callbacks?.onError?.(resultado.error?.detalle || resultado.mensaje);\n      throw new Error(resultado.mensaje);\n    }\n  } catch (error) {\n    const mensaje = error instanceof Error ? error.message : 'Error desconocido';\n    callbacks?.onError?.(mensaje);\n    throw error;\n  }\n}\n\n// ============================================================================\n// EJEMPLO 5: Hook Personalizado para tu Caso de Uso\n// ============================================================================\n\n/**\n * Uso: Crear un hook personalizado que encapsula tu lógica\n * Ventaja: Reutilizable en múltiples componentes\n */\nexport function usePedidosManager() {\n  const [pedidos, setPedidos] = useState<Pedido[]>(() => {\n    const stored = localStorage.getItem('damabella_pedidos');\n    return stored ? JSON.parse(stored) : [];\n  });\n\n  const {\n    cambiarEstado,\n    cargando,\n    error,\n    ultimoPedidoActualizado\n  } = useCambioEstadoPedido({\n    // Sincronizar con Ventas\n    onSincronizarVentas: (pedido) => {\n      const ventasJson = localStorage.getItem('damabella_ventas') || '[]';\n      const ventas = JSON.parse(ventasJson);\n      ventas.push({\n        id: `vta_${Date.now()}`,\n        pedidoId: pedido.id,\n        clienteId: pedido.clienteId,\n        productos: pedido.productos,\n        total: pedido.productos.reduce((sum, p) => sum + (p.precioVenta * p.cantidad), 0),\n        fecha: new Date().toISOString()\n      });\n      localStorage.setItem('damabella_ventas', JSON.stringify(ventas));\n    },\n\n    // Notificar cambios\n    onNotificar: (tipo, mensaje) => {\n      console.log(`[${tipo.toUpperCase()}] ${mensaje}`);\n    }\n  });\n\n  // Actualizar state local cuando hay cambios\n  const handleCambiarEstado = async (pedidoId: string, estado: Pedido['estado']) => {\n    await cambiarEstado(pedidoId, estado);\n    if (ultimoPedidoActualizado) {\n      setPedidos(prev =>\n        prev.map(p => p.id === ultimoPedidoActualizado.id ? ultimoPedidoActualizado : p)\n      );\n    }\n  };\n\n  return {\n    pedidos,\n    cargando,\n    error,\n    cambiarEstado: handleCambiarEstado\n  };\n}\n\n// ============================================================================\n// EJEMPLO 6: Acciones Masivas (Cambiar múltiples pedidos)\n// ============================================================================\n\n/**\n * Uso: Anular o completar varios pedidos de una vez\n * Características: Control de progreso, manejo de errores parciales\n */\nexport async function procesarPedidosMasivos(\n  pedidosIds: string[],\n  accion: 'completar' | 'anular',\n  onProgreso?: (actual: number, total: number) => void\n): Promise<{ exitosos: string[]; fallidos: string[] }> {\n  const exitosos: string[] = [];\n  const fallidos: string[] = [];\n\n  const nuevoEstado = accion === 'completar' ? 'Completada' : 'Anulado';\n\n  for (let i = 0; i < pedidosIds.length; i++) {\n    const pedidoId = pedidosIds[i];\n\n    try {\n      const resultado = await cambiarEstadoPedidoCentralizado(\n        pedidoId,\n        nuevoEstado,\n        {\n          continuarSiError: true\n        }\n      );\n\n      if (resultado.success) {\n        exitosos.push(pedidoId);\n      } else {\n        fallidos.push(pedidoId);\n      }\n    } catch (error) {\n      fallidos.push(pedidoId);\n    }\n\n    onProgreso?.(i + 1, pedidosIds.length);\n  }\n\n  return { exitosos, fallidos };\n}\n"
+/**
+ * 📚 EJEMPLOS DE INTEGRACIÓN
+ * 
+ * Este archivo contiene ejemplos listos para copiar-pegar en tus componentes.
+ * Copiar solo la parte que necesites según tu caso de uso.
+ */
+
+import { useState } from 'react';
+import { useCambioEstadoPedido } from '../hooks/useCambioEstadoPedido';
+import { cambiarEstadoPedidoCentralizado } from '../services/cambioEstadoCentralizado';
+import type { Pedido } from '../services/pedidoService';
+
+// ============================================================================
+// EJEMPLO 1: Botones de Acción Simples en una Tabla
+// ============================================================================
+
+/**
+ * Uso: Renderizar en una columna de tabla de pedidos
+ * Comportamiento: Botones que cambian según el estado
+ */
+export function BotonesEstadoTabla({ pedido, onActualizar }: {
+  pedido: Pedido;
+  onActualizar: () => void;
+}) {
+  const { cambiarEstado, cargando, puedeCompletarse, puedeAnularse } = useCambioEstadoPedido({
+    onNotificar: (tipo, msg) => {
+      console.log(`[${tipo}] ${msg}`);
+      // Aquí iría tu toast/notificación
+    }
+  });
+
+  return (
+    <div className="flex gap-2">
+      {/* BOTÓN COMPLETAR */}
+      {puedeCompletarse(pedido.estado) && (
+        <button
+          onClick={async () => {
+            await cambiarEstado(pedido.id, 'Completada');
+            onActualizar();
+          }}
+          disabled={cargando}
+          className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+        >
+          {cargando ? '⏳' : '✓'} Completar
+        </button>
+      )}
+
+      {/* BOTÓN ANULAR */}
+      {puedeAnularse(pedido.estado) && (
+        <button
+          onClick={async () => {
+            await cambiarEstado(pedido.id, 'Anulado');
+            onActualizar();
+          }}
+          disabled={cargando}
+          className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+        >
+          ✕ Anular
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// EJEMPLO 2: Card de Detalle con Estado y Acciones
+// ============================================================================
+
+/**
+ * Uso: Mostrar detalles de un pedido con barra de estado y acciones
+ * Características: Badge de estado, descripción, botones contextuales
+ */
+export function CardDetallePedido({ pedido, onActualizado }: {
+  pedido: Pedido;
+  onActualizado?: (pedidoActualizado: Pedido) => void;
+}) {
+  const {
+    cambiarEstado,
+    cargando,
+    error,
+    exito,
+    limpiarMensajes,
+    puedeEditarse,
+    puedeCompletarse,
+    puedeAnularse,
+    obtenerClaseEstado,
+    obtenerDescripcionEstado,
+    ultimoPedidoActualizado
+  } = useCambioEstadoPedido();
+
+  // Actualizar pedido visible cuando cambia
+  const pedidoMostrado = ultimoPedidoActualizado || pedido;
+
+  const handleCambiarEstado = async (nuevoEstado: Pedido['estado']) => {
+    await cambiarEstado(pedido.id, nuevoEstado);
+    if (ultimoPedidoActualizado) {
+      onActualizado?.(ultimoPedidoActualizado);
+      limpiarMensajes();
+    }
+  };
+
+  return (
+    <div className="border rounded-lg p-6 bg-white shadow-sm">
+      {/* HEADER CON ESTADO */}
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h2 className="text-xl font-bold">Pedido {pedidoMostrado.id}</h2>
+          <p className="text-gray-600">Cliente: {pedidoMostrado.clienteId}</p>
+        </div>
+        <span className={`px-3 py-1 rounded text-sm font-medium ${obtenerClaseEstado(pedidoMostrado.estado)}`}>
+          {pedidoMostrado.estado}
+        </span>
+      </div>
+
+      {/* DESCRIPCIÓN DEL ESTADO */}
+      <p className="text-gray-700 mb-4">
+        ℹ️ {obtenerDescripcionEstado(pedidoMostrado.estado)}
+      </p>
+
+      {/* DETALLES */}
+      <div className="bg-gray-50 p-4 rounded mb-4">
+        <p><strong>Fecha:</strong> {new Date(pedidoMostrado.fecha).toLocaleDateString('es-ES')}</p>
+        <p><strong>Productos:</strong> {pedidoMostrado.productos.length} items</p>
+        <p><strong>Editable:</strong> {puedeEditarse(pedidoMostrado.estado) ? '✓ Sí' : '✗ No'}</p>
+      </div>
+
+      {/* MENSAJES */}
+      {error && (
+        <div className="mb-3 p-3 bg-red-100 text-red-700 rounded">
+          ❌ {error}
+        </div>
+      )}
+      {exito && (
+        <div className="mb-3 p-3 bg-green-100 text-green-700 rounded">
+          ✓ Cambio realizado exitosamente
+        </div>
+      )}
+
+      {/* BOTONES DE ACCIÓN */}
+      <div className="flex gap-2">
+        {puedeCompletarse(pedidoMostrado.estado) && (
+          <button
+            onClick={() => handleCambiarEstado('Completada')}
+            disabled={cargando}
+            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+          >
+            {cargando ? '⏳ Procesando...' : '✓ Completar Pedido'}
+          </button>
+        )}
+
+        {puedeAnularse(pedidoMostrado.estado) && (
+          <button
+            onClick={() => handleCambiarEstado('Anulado')}
+            disabled={cargando}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+          >
+            {cargando ? '⏳ Procesando...' : '✕ Anular Pedido'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// EJEMPLO 3: Modal para Cambiar Estado
+// ============================================================================
+
+/**
+ * Uso: Modal que permite seleccionar el nuevo estado
+ * Características: Dropdown dinámico, validación integrada
+ */
+export function ModalCambiarEstado({
+  pedido,
+  isOpen,
+  onClose,
+  onExito
+}: {
+  pedido: Pedido;
+  isOpen: boolean;
+  onClose: () => void;
+  onExito?: () => void;
+}) {
+  const [nuevoEstadoSeleccionado, setNuevoEstadoSeleccionado] = useState<Pedido['estado']>(pedido.estado);
+  const {
+    cambiarEstado,
+    cargando,
+    error,
+    puedeCompletarse,
+    puedeAnularse
+  } = useCambioEstadoPedido();
+
+  const handleAplicar = async () => {
+    if (nuevoEstadoSeleccionado === pedido.estado) {
+      onClose();
+      return;
+    }
+    await cambiarEstado(pedido.id, nuevoEstadoSeleccionado);
+    if (!error) {
+      onExito?.();
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-md w-full">
+        <h2 className="text-xl font-bold mb-4">Cambiar Estado del Pedido</h2>
+
+        <p className="text-gray-600 mb-4">
+          Pedido <strong>{pedido.id}</strong> - Estado actual: <strong>{pedido.estado}</strong>
+        </p>
+
+        {/* SELECTOR DE ESTADO */}
+        <select
+          value={nuevoEstadoSeleccionado}
+          onChange={(e) => setNuevoEstadoSeleccionado(e.target.value as Pedido['estado'])}
+          className="w-full px-3 py-2 border rounded mb-4"
+        >
+          <option value={pedido.estado} disabled>
+            {pedido.estado} (actual)
+          </option>
+          {puedeCompletarse(pedido.estado) && (
+            <option value="Completada">→ Completada</option>
+          )}
+          {puedeAnularse(pedido.estado) && (
+            <option value="Anulado">→ Anulado</option>
+          )}
+        </select>
+
+        {/* ERROR */}
+        {error && (
+          <div className="mb-3 p-3 bg-red-100 text-red-700 rounded text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* BOTONES */}
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onClose}
+            disabled={cargando}
+            className="px-4 py-2 text-gray-700 border rounded hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleAplicar}
+            disabled={cargando || nuevoEstadoSeleccionado === pedido.estado}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {cargando ? 'Procesando...' : 'Aplicar Cambio'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// EJEMPLO 4: Usar en Servicio (sin React)
+// ============================================================================
+
+/**
+ * Uso: En funciones de servicio, eventos, o lógica de negocio
+ * Características: Promesas, callbacks, manejo de errores
+ */
+export async function procesarCompletacionPedido(
+  pedidoId: string,
+  callbacks?: {
+    onInicio?: () => void;
+    onExito?: (resultado: any) => void;
+    onError?: (error: string) => void;
+  }
+) {
+  try {
+    callbacks?.onInicio?.();
+
+    // Crear venta cuando se completa
+    const crearVenta = async (pedido: Pedido) => {
+      const ventasJson = localStorage.getItem('damabella_ventas') || '[]';
+      const ventas = JSON.parse(ventasJson);
+
+      const nuevaVenta = {
+        id: `vta_${Date.now()}`,
+        pedidoId: pedido.id,
+        clienteId: pedido.clienteId,
+        productos: pedido.productos,
+        total: pedido.productos.reduce((sum, p) => sum + (p.precioVenta * p.cantidad), 0),
+        fecha: new Date().toISOString(),
+        estado: 'Completada'
+      };
+
+      ventas.push(nuevaVenta);
+      localStorage.setItem('damabella_ventas', JSON.stringify(ventas));
+      console.log('✓ Venta creada:', nuevaVenta.id);
+    };
+
+    // Usar la función centralizada
+    const resultado = await cambiarEstadoPedidoCentralizado(
+      pedidoId,
+      'Completada',
+      {
+        onSincronizarVentas: crearVenta,
+        onLog: (nivel, msg) => console.log(`[${nivel}] ${msg}`)
+      }
+    );
+
+    if (resultado.success) {
+      callbacks?.onExito?.(resultado);
+      return resultado;
+    } else {
+      callbacks?.onError?.(resultado.error?.detalle || resultado.mensaje);
+      throw new Error(resultado.mensaje);
+    }
+  } catch (error) {
+    const mensaje = error instanceof Error ? error.message : 'Error desconocido';
+    callbacks?.onError?.(mensaje);
+    throw error;
+  }
+}
+
+// ============================================================================
+// EJEMPLO 5: Hook Personalizado para tu Caso de Uso
+// ============================================================================
+
+/**
+ * Uso: Crear un hook personalizado que encapsula tu lógica
+ * Ventaja: Reutilizable en múltiples componentes
+ */
+export function usePedidosManager() {
+  const [pedidos, setPedidos] = useState<Pedido[]>(() => {
+    const stored = localStorage.getItem('damabella_pedidos');
+    return stored ? JSON.parse(stored) : [];
+  });
+
+  const {
+    cambiarEstado,
+    cargando,
+    error,
+    ultimoPedidoActualizado
+  } = useCambioEstadoPedido({
+    // Sincronizar con Ventas
+    onSincronizarVentas: (pedido) => {
+      const ventasJson = localStorage.getItem('damabella_ventas') || '[]';
+      const ventas = JSON.parse(ventasJson);
+      ventas.push({
+        id: `vta_${Date.now()}`,
+        pedidoId: pedido.id,
+        clienteId: pedido.clienteId,
+        productos: pedido.productos,
+        total: pedido.productos.reduce((sum, p) => sum + (p.precioVenta * p.cantidad), 0),
+        fecha: new Date().toISOString()
+      });
+      localStorage.setItem('damabella_ventas', JSON.stringify(ventas));
+    },
+
+    // Notificar cambios
+    onNotificar: (tipo, mensaje) => {
+      console.log(`[${tipo.toUpperCase()}] ${mensaje}`);
+    }
+  });
+
+  // Actualizar state local cuando hay cambios
+  const handleCambiarEstado = async (pedidoId: string, estado: Pedido['estado']) => {
+    await cambiarEstado(pedidoId, estado);
+    if (ultimoPedidoActualizado) {
+      setPedidos(prev =>
+        prev.map(p => p.id === ultimoPedidoActualizado.id ? ultimoPedidoActualizado : p)
+      );
+    }
+  };
+
+  return {
+    pedidos,
+    cargando,
+    error,
+    cambiarEstado: handleCambiarEstado
+  };
+}
+
+// ============================================================================
+// EJEMPLO 6: Acciones Masivas (Cambiar múltiples pedidos)
+// ============================================================================
+
+/**
+ * Uso: Anular o completar varios pedidos de una vez
+ * Características: Control de progreso, manejo de errores parciales
+ */
+export async function procesarPedidosMasivos(
+  pedidosIds: string[],
+  accion: 'completar' | 'anular',
+  onProgreso?: (actual: number, total: number) => void
+): Promise<{ exitosos: string[]; fallidos: string[] }> {
+  const exitosos: string[] = [];
+  const fallidos: string[] = [];
+
+  const nuevoEstado = accion === 'completar' ? 'Completada' : 'Anulado';
+
+  for (let i = 0; i < pedidosIds.length; i++) {
+    const pedidoId = pedidosIds[i];
+
+    try {
+      const resultado = await cambiarEstadoPedidoCentralizado(
+        pedidoId,
+        nuevoEstado,
+        {
+          continuarSiError: true
+        }
+      );
+
+      if (resultado.success) {
+        exitosos.push(pedidoId);
+      } else {
+        fallidos.push(pedidoId);
+      }
+    } catch (error) {
+      fallidos.push(pedidoId);
+    }
+
+    onProgreso?.(i + 1, pedidosIds.length);
+  }
+
+  return { exitosos, fallidos };
+}

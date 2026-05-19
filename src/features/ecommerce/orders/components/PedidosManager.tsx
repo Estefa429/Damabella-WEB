@@ -706,7 +706,7 @@ DAMABELLA - Moda Femenina
           </Button>
           <Button onClick={handleCreate} variant="primary" className="flex items-center gap-2">
             <Plus size={20} />
-            Agregar Pedido
+            Registrar Pedido
           </Button>
         </div>
       </div>
@@ -925,6 +925,7 @@ DAMABELLA - Moda Femenina
                       }
                     }}
                     onFocus={() => setShowClienteDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowClienteDropdown(false), 200)}
                     placeholder="Buscar cliente..."
                     className="h-6 px-2 text-[10px] w-full"
                   />

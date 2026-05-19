@@ -9,7 +9,6 @@ import {
   Menu,
   X,
   Search,
-  Bell,
   LogOut,
   User,
   Shield,
@@ -23,6 +22,7 @@ import {
   DollarSign,
   RotateCcw
 } from 'lucide-react';
+import logoImg from '../../../assets/logos/logo-ba.png.webp';
 import DashboardMain from '../pages/DashboardMain';
 import { RolesPage } from '../../roles';
 
@@ -384,7 +384,10 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
             >
               {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
-            <h1 className="text-zinc-900">DAMABELLA</h1>
+            <div className="flex items-center gap-3">
+              <img src={logoImg} alt="Damabella Logo" className="h-8 w-8 object-contain" />
+              <h1 className="text-zinc-900 font-semibold">DAMABELLA</h1>
+            </div>
           </div>
 
           {/* Buscador */}
@@ -424,16 +427,8 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
             )}
           </div>
 
-          {/* Notificaciones y perfil */}
+          {/* Perfil */}
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setCurrentPage('notificaciones')}
-              className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <Bell size={20} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
-
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}

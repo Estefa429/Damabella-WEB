@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit2, Store, Search, History, AlertTriangle, Eye as ViewIcon, Trash2 } from 'lucide-react';
-import { Button, Input, Modal } from '../../../shared/components/native';
+import { Button, Input, Modal, useToast } from '../../../shared/components/native';
 import {
   getAllProviders,
   createProviders,
@@ -17,7 +17,8 @@ import {
 
 const COMPRAS_KEY = 'damabella_compras';
 
-export function ProveedoresManager({ onlyModal = false, openOnMount = false }: { onlyModal?: boolean; openOnMount?: boolean }) {
+export function ProveedoresManager({ onlyModal = false, openOnMount = false, onClose }: { onlyModal?: boolean; openOnMount?: boolean; onClose?: () => void }) {
+  const { showToast } = useToast();
   const [proveedores, setProveedores] = useState<Providers[]>([]);
   const [loading, setLoading] = useState(false);
   const [typesDocs, setTypesDocs] = useState<TypesDocs[]>([]);
@@ -244,6 +245,9 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
       if (updated) {
         setProveedores(prev => prev.map(p => p.id_provider === editingProveedor.id_provider ? updated : p));
         window.dispatchEvent(new CustomEvent('proveedor:guardado', { detail: { proveedor: updated } }));
+        showToast('Proveedor actualizado exitosamente', 'success');
+      } else {
+        showToast('Error al actualizar el proveedor', 'error');
       }
     } else {
       const payload: createProviderDTO = {
@@ -261,6 +265,9 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
       if (nuevo) {
         setProveedores(prev => [...prev, nuevo]);
         window.dispatchEvent(new CustomEvent('proveedor:creado', { detail: { proveedor: nuevo } }));
+        showToast('Proveedor creado exitosamente', 'success');
+      } else {
+        showToast('Error al crear el proveedor', 'error');
       }
     }
     setShowModal(false);
@@ -274,7 +281,12 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
     if (!proveedor.is_active) {
       (async () => {
         const result = await patchState(id, true);
-        if (result) setProveedores(prev => prev.map(p => p.id_provider === id ? { ...p, is_active: true } : p));
+        if (result) {
+          setProveedores(prev => prev.map(p => p.id_provider === id ? { ...p, is_active: true } : p));
+          showToast('Proveedor activado', 'success');
+        } else {
+          showToast('Error al activar el proveedor', 'error');
+        }
       })();
     } else {
       setProveedorToToggle(proveedor);
@@ -288,6 +300,9 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
     const result = await patchState(proveedorToToggle.id_provider, nuevoEstado);
     if (result) {
       setProveedores(prev => prev.map(p => p.id_provider === proveedorToToggle.id_provider ? { ...p, is_active: nuevoEstado } : p));
+      showToast(`Proveedor ${nuevoEstado ? 'activado' : 'desactivado'}`, 'success');
+    } else {
+      showToast('Error al cambiar el estado', 'error');
     }
     setShowStatusConfirmModal(false);
     setProveedorToToggle(null);
@@ -332,7 +347,10 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
     setProveedores(prev => prev.filter(p => p.id_provider !== idAEliminar));
 
     const success = await deleteProviders(idAEliminar);
-    if (!success) {
+    if (success) {
+      showToast('Proveedor eliminado', 'success');
+    } else {
+      showToast('Error al eliminar el proveedor', 'error');
       await fetchProveedores();
     }
   };
@@ -384,9 +402,14 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
   // RENDER onlyModal
   // ═══════════════════════════════════════════════════════════════════════════════
   if (onlyModal) {
+    const handleCloseModal = () => {
+      setShowModal(false);
+      onClose?.();
+    };
+
     return (
       <>
-        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}>
+        <Modal isOpen={showModal} onClose={handleCloseModal} title={editingProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -462,7 +485,7 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false }: {
         </div>
         <Button onClick={handleCreate} variant="primary">
           <Plus size={20} />
-          Nuevo Proveedor
+          Registrar Proveedor
         </Button>
       </div>
 

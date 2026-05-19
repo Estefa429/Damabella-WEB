@@ -10,6 +10,7 @@ export interface Clients {
     email : string;
     state : boolean;
     city : string;
+    saldoAFavor? : number;
 }
 
 export type CreateClientsDTO = Omit<Clients, 'id_client' | 'state'>

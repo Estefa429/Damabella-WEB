@@ -1,1 +1,161 @@
-/**\n * 🎣 HOOK CENTRALIZADO: Cambio de Estado de Pedidos\n * \n * Hook único que maneja toda la lógica de cambio de estado\n * para cualquier componente que lo necesite.\n * \n * Uso:\n * const { cambiarEstado, cargando, error, exito } = useCambioEstadoPedido({\n *   onSincronizarVentas: crearVentaCallback\n * });\n */\n\nimport { useState, useCallback } from 'react';\nimport {\n  cambiarEstadoPedidoCentralizado,\n  puedeEditarse,\n  puedeAnularse,\n  puedeCompletarse,\n  obtenerClaseEstado,\n  obtenerDescripcionEstado,\n  esEstadoTerminal\n} from './cambioEstadoCentralizado';\nimport type { Pedido } from './pedidoService';\n\ninterface UseCambioEstadoPedidoProps {\n  onSincronizarVentas?: (pedido: Pedido) => void | Promise<void>;\n  onNotificar?: (tipo: 'exito' | 'error' | 'info', mensaje: string) => void;\n  continuarSiError?: boolean;\n}\n\ninterface EstadoHook {\n  cargando: boolean;\n  error: string | null;\n  exito: boolean;\n  ultimoPedidoActualizado?: Pedido;\n}\n\ninterface RetornoHook extends EstadoHook {\n  cambiarEstado: (pedidoId: string, nuevoEstado: Pedido['estado']) => Promise<void>;\n  limpiarMensajes: () => void;\n  puedeEditarse: (estado: Pedido['estado']) => boolean;\n  puedeAnularse: (estado: Pedido['estado']) => boolean;\n  puedeCompletarse: (estado: Pedido['estado']) => boolean;\n  esEstadoTerminal: (estado: Pedido['estado']) => boolean;\n  obtenerClaseEstado: (estado: Pedido['estado']) => string;\n  obtenerDescripcionEstado: (estado: Pedido['estado']) => string;\n}\n\n/**\n * ✅ HOOK CENTRAL: useCambioEstadoPedido\n * \n * Proporciona toda la funcionalidad para cambiar estados de pedidos\n * desde cualquier componente.\n * \n * @param props - Configuración del hook\n * @returns Objeto con funciones y estado\n * \n * @example\n * function MiComponente() {\n *   const { cambiarEstado, cargando, error, exito } = useCambioEstadoPedido({\n *     onSincronizarVentas: (pedido) => crearVentaEnModulo(pedido)\n *   });\n * \n *   const handleClickCompletarPedido = async () => {\n *     await cambiarEstado(pedidoId, 'Completada');\n *   };\n * \n *   return (\n *     <>\n *       <button \n *         onClick={handleClickCompletarPedido}\n *         disabled={cargando || !puedeCompletarse(pedido.estado)}\n *       >\n *         {cargando ? 'Procesando...' : 'Completar Pedido'}\n *       </button>\n *       {error && <div className=\"text-red-600\">{error}</div>}\n *       {exito && <div className=\"text-green-600\">Operación exitosa</div>}\n *     </>\n *   );\n * }\n */\nexport function useCambioEstadoPedido(props?: UseCambioEstadoPedidoProps): RetornoHook {\n  const { onSincronizarVentas, onNotificar, continuarSiError } = props || {};\n  \n  const [estado, setEstado] = useState<EstadoHook>({\n    cargando: false,\n    error: null,\n    exito: false\n  });\n\n  // Función para cambiar estado\n  const cambiarEstado = useCallback(\n    async (pedidoId: string, nuevoEstado: Pedido['estado']) => {\n      try {\n        setEstado({ cargando: true, error: null, exito: false });\n\n        const resultado = await cambiarEstadoPedidoCentralizado(\n          pedidoId,\n          nuevoEstado,\n          {\n            onSincronizarVentas,\n            onNotificar,\n            continuarSiError,\n            onLog: (nivel, msg) => console.log(`[${nivel.toUpperCase()}] ${msg}`)\n          }\n        );\n\n        if (resultado.success && resultado.pedido) {\n          setEstado({\n            cargando: false,\n            error: null,\n            exito: true,\n            ultimoPedidoActualizado: resultado.pedido\n          });\n        } else {\n          setEstado({\n            cargando: false,\n            error: resultado.error?.detalle || resultado.mensaje,\n            exito: false\n          });\n        }\n      } catch (errorCapturado) {\n        const mensaje = errorCapturado instanceof Error \n          ? errorCapturado.message \n          : 'Error desconocido';\n        setEstado({\n          cargando: false,\n          error: mensaje,\n          exito: false\n        });\n      }\n    },\n    [onSincronizarVentas, onNotificar, continuarSiError]\n  );\n\n  // Limpiar mensajes\n  const limpiarMensajes = useCallback(() => {\n    setEstado({\n      cargando: false,\n      error: null,\n      exito: false\n    });\n  }, []);\n\n  return {\n    cargando: estado.cargando,\n    error: estado.error,\n    exito: estado.exito,\n    ultimoPedidoActualizado: estado.ultimoPedidoActualizado,\n    cambiarEstado,\n    limpiarMensajes,\n    puedeEditarse,\n    puedeAnularse,\n    puedeCompletarse,\n    esEstadoTerminal,\n    obtenerClaseEstado,\n    obtenerDescripcionEstado\n  };\n}\n\nexport type { UseCambioEstadoPedidoProps, RetornoHook, EstadoHook };\n
+/**
+ * 🎣 HOOK CENTRALIZADO: Cambio de Estado de Pedidos
+ * 
+ * Hook único que maneja toda la lógica de cambio de estado
+ * para cualquier componente que lo necesite.
+ * 
+ * Uso:
+ * const { cambiarEstado, cargando, error, exito } = useCambioEstadoPedido({
+ *   onSincronizarVentas: crearVentaCallback
+ * });
+ */
+
+import { useState, useCallback } from 'react';
+import {
+  cambiarEstadoPedidoCentralizado,
+  puedeEditarse,
+  puedeAnularse,
+  puedeCompletarse,
+  obtenerClaseEstado,
+  obtenerDescripcionEstado,
+  esEstadoTerminal
+} from './cambioEstadoCentralizado';
+import type { Pedido } from './pedidoService';
+
+interface UseCambioEstadoPedidoProps {
+  onSincronizarVentas?: (pedido: Pedido) => void | Promise<void>;
+  onNotificar?: (tipo: 'exito' | 'error' | 'info', mensaje: string) => void;
+  continuarSiError?: boolean;
+}
+
+interface EstadoHook {
+  cargando: boolean;
+  error: string | null;
+  exito: boolean;
+  ultimoPedidoActualizado?: Pedido;
+}
+
+interface RetornoHook extends EstadoHook {
+  cambiarEstado: (pedidoId: string, nuevoEstado: Pedido['estado']) => Promise<void>;
+  limpiarMensajes: () => void;
+  puedeEditarse: (estado: Pedido['estado']) => boolean;
+  puedeAnularse: (estado: Pedido['estado']) => boolean;
+  puedeCompletarse: (estado: Pedido['estado']) => boolean;
+  esEstadoTerminal: (estado: Pedido['estado']) => boolean;
+  obtenerClaseEstado: (estado: Pedido['estado']) => string;
+  obtenerDescripcionEstado: (estado: Pedido['estado']) => string;
+}
+
+/**
+ * ✅ HOOK CENTRAL: useCambioEstadoPedido
+ * 
+ * Proporciona toda la funcionalidad para cambiar estados de pedidos
+ * desde cualquier componente.
+ * 
+ * @param props - Configuración del hook
+ * @returns Objeto con funciones y estado
+ * 
+ * @example
+ * function MiComponente() {
+ *   const { cambiarEstado, cargando, error, exito } = useCambioEstadoPedido({
+ *     onSincronizarVentas: (pedido) => crearVentaEnModulo(pedido)
+ *   });
+ * 
+ *   const handleClickCompletarPedido = async () => {
+ *     await cambiarEstado(pedidoId, 'Completada');
+ *   };
+ * 
+ *   return (
+ *     <>
+ *       <button 
+ *         onClick={handleClickCompletarPedido}
+ *         disabled={cargando || !puedeCompletarse(pedido.estado)}
+ *       >
+ *         {cargando ? 'Procesando...' : 'Completar Pedido'}
+ *       </button>
+ *       {error && <div className="text-red-600">{error}</div>}
+ *       {exito && <div className="text-green-600">Operación exitosa</div>}
+ *     </>
+ *   );
+ * }
+ */
+export function useCambioEstadoPedido(props?: UseCambioEstadoPedidoProps): RetornoHook {
+  const { onSincronizarVentas, onNotificar, continuarSiError } = props || {};
+  
+  const [estado, setEstado] = useState<EstadoHook>({
+    cargando: false,
+    error: null,
+    exito: false
+  });
+
+  // Función para cambiar estado
+  const cambiarEstado = useCallback(
+    async (pedidoId: string, nuevoEstado: Pedido['estado']) => {
+      try {
+        setEstado({ cargando: true, error: null, exito: false });
+
+        const resultado = await cambiarEstadoPedidoCentralizado(
+          pedidoId,
+          nuevoEstado,
+          {
+            onSincronizarVentas,
+            onNotificar,
+            continuarSiError,
+            onLog: (nivel, msg) => console.log(`[${nivel.toUpperCase()}] ${msg}`)
+          }
+        );
+
+        if (resultado.success && resultado.pedido) {
+          setEstado({
+            cargando: false,
+            error: null,
+            exito: true,
+            ultimoPedidoActualizado: resultado.pedido
+          });
+        } else {
+          setEstado({
+            cargando: false,
+            error: resultado.error?.detalle || resultado.mensaje,
+            exito: false
+          });
+        }
+      } catch (errorCapturado) {
+        const mensaje = errorCapturado instanceof Error 
+          ? errorCapturado.message 
+          : 'Error desconocido';
+        setEstado({
+          cargando: false,
+          error: mensaje,
+          exito: false
+        });
+      }
+    },
+    [onSincronizarVentas, onNotificar, continuarSiError]
+  );
+
+  // Limpiar mensajes
+  const limpiarMensajes = useCallback(() => {
+    setEstado({
+      cargando: false,
+      error: null,
+      exito: false
+    });
+  }, []);
+
+  return {
+    cargando: estado.cargando,
+    error: estado.error,
+    exito: estado.exito,
+    ultimoPedidoActualizado: estado.ultimoPedidoActualizado,
+    cambiarEstado,
+    limpiarMensajes,
+    puedeEditarse,
+    puedeAnularse,
+    puedeCompletarse,
+    esEstadoTerminal,
+    obtenerClaseEstado,
+    obtenerDescripcionEstado
+  };
+}
+
+export type { UseCambioEstadoPedidoProps, RetornoHook, EstadoHook };\n

@@ -297,12 +297,12 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-gray-600 to-gray-700 px-6 py-4">
-          <div className="flex items-center gap-4">
+        <div className="bg-gradient-to-r from-gray-600 to-gray-700 px-8 py-8">
+          <div className="flex items-center gap-6">
             <div className="relative">
-              <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-gray-700 text-xl overflow-hidden">
+              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-gray-700 text-2xl font-bold overflow-hidden border-4 border-white">
                 {formData.avatar ? (
                   <img src={formData.avatar} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
@@ -312,10 +312,10 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
               <button
                 type="button"
                 onClick={handleAvatarClick}
-                className="absolute bottom-0 right-0 bg-gray-700 text-white p-1.5 rounded-full hover:bg-gray-600 transition-colors"
+                className="absolute bottom-0 right-0 bg-gray-800 text-white p-2 rounded-full hover:bg-gray-700 transition-colors shadow-md"
                 title="Cambiar foto"
               >
-                <Camera size={14} />
+                <Camera size={16} />
               </button>
               <input
                 ref={fileInputRef}
@@ -326,18 +326,18 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
               />
             </div>
             <div className="text-white">
-              <h2 className="text-white mb-1">Editar Perfil</h2>
-              <p className="text-gray-200 text-sm">Actualiza tu información personal</p>
+              <h2 className="text-3xl font-bold text-white mb-2">Editar Perfil</h2>
+              <p className="text-gray-100 text-base">Actualiza tu información personal</p>
             </div>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="p-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Nombre */}
-            <div>
-              <label className="block text-gray-700 mb-1.5 flex items-center gap-2 text-sm">
-                <User size={14} /> Nombre Completo
+            <div className="space-y-3">
+              <label className="block text-gray-800 font-semibold flex items-center gap-2 text-base">
+                <User size={16} /> Nombre Completo
               </label>
               <Input
                 type="text"
@@ -347,35 +347,35 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^[a-zA-Z0-9\s]$/.test(char)).join('');
                   setFormData({ ...formData, nombre: value });
                 }}
-                className={errors.nombre ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${errors.nombre ? "border-red-500 focus:ring-red-500" : ""}`}
               />
-              {errors.nombre && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.nombre}</p>}
+              {errors.nombre && <p className="text-red-600 text-sm flex items-center gap-1"><AlertCircle size={14} /> {errors.nombre}</p>}
             </div>
 
             {/* Email */}
-            <div>
-              <label className="block text-gray-700 mb-1.5 flex items-center gap-2 text-sm">
-                <Mail size={14} /> Correo Electrónico
+            <div className="space-y-3">
+              <label className="block text-gray-800 font-semibold flex items-center gap-2 text-base">
+                <Mail size={16} /> Correo Electrónico
               </label>
               <Input
                 type="email"
                 placeholder="correo@ejemplo.com"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className={errors.email ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${errors.email ? "border-red-500 focus:ring-red-500" : ""}`}
               />
-              {errors.email && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.email}</p>}
+              {errors.email && <p className="text-red-600 text-sm flex items-center gap-1"><AlertCircle size={14} /> {errors.email}</p>}
             </div>
 
             {/* Tipo de Documento */}
-            <div>
-              <label className="block text-gray-700 mb-1.5 flex items-center gap-2 text-sm">
-                <FileText size={14} /> Tipo de Documento
+            <div className="space-y-3">
+              <label className="block text-gray-800 font-semibold flex items-center gap-2 text-base">
+                <FileText size={16} /> Tipo de Documento
               </label>
               <select
                 value={formData.tipoDoc}
                 onChange={(e) => setFormData({ ...formData, tipoDoc: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                className="w-full px-4 py-3 text-base bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               >
                 <option value="CC">Cédula de Ciudadanía</option>
                 <option value="CE">Cédula de Extranjería</option>
@@ -385,9 +385,9 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
             </div>
 
             {/* Número de Documento */}
-            <div>
-              <label className="block text-gray-700 mb-1.5 flex items-center gap-2 text-sm">
-                <FileText size={14} /> Número de Documento
+            <div className="space-y-3">
+              <label className="block text-gray-800 font-semibold flex items-center gap-2 text-base">
+                <FileText size={16} /> Número de Documento
               </label>
               <Input
                 type="text"
@@ -397,15 +397,15 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^\d$/.test(char)).join('');
                   setFormData({ ...formData, numeroDoc: value });
                 }}
-                className={errors.numeroDoc ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${errors.numeroDoc ? "border-red-500 focus:ring-red-500" : ""}`}
               />
-              {errors.numeroDoc && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.numeroDoc}</p>}
+              {errors.numeroDoc && <p className="text-red-600 text-sm flex items-center gap-1"><AlertCircle size={14} /> {errors.numeroDoc}</p>}
             </div>
 
             {/* Celular */}
-            <div>
-              <label className="block text-gray-700 mb-1.5 flex items-center gap-2 text-sm">
-                <Phone size={14} /> Celular
+            <div className="space-y-3">
+              <label className="block text-gray-800 font-semibold flex items-center gap-2 text-base">
+                <Phone size={16} /> Celular
               </label>
               <Input
                 type="tel"
@@ -415,15 +415,15 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^\d$/.test(char)).join('');
                   setFormData({ ...formData, celular: value });
                 }}
-                className={errors.celular ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${errors.celular ? "border-red-500 focus:ring-red-500" : ""}`}
               />
-              {errors.celular && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.celular}</p>}
+              {errors.celular && <p className="text-red-600 text-sm flex items-center gap-1"><AlertCircle size={14} /> {errors.celular}</p>}
             </div>
 
             {/* Dirección */}
-            <div>
-              <label className="block text-gray-700 mb-1.5 flex items-center gap-2 text-sm">
-                <MapPin size={14} /> Dirección
+            <div className="space-y-3">
+              <label className="block text-gray-800 font-semibold flex items-center gap-2 text-base">
+                <MapPin size={16} /> Dirección
               </label>
               <Input
                 type="text"
@@ -433,16 +433,16 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                   const value = e.target.value.split('').filter(char => /^[a-zA-Z0-9\s#\-.,]$/.test(char)).join('');
                   setFormData({ ...formData, direccion: value });
                 }}
-                className={errors.direccion ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${errors.direccion ? "border-red-500 focus:ring-red-500" : ""}`}
               />
-              {errors.direccion && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {errors.direccion}</p>}
+              {errors.direccion && <p className="text-red-600 text-sm flex items-center gap-1"><AlertCircle size={14} /> {errors.direccion}</p>}
             </div>
           </div>
 
           {/* Seguridad */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <h3 className="text-gray-900 mb-2 flex items-center gap-2 text-sm font-semibold">
-              <Lock size={16} /> Seguridad
+          <div className="mt-8 pt-8 border-t-2 border-gray-300">
+            <h3 className="text-gray-900 mb-4 flex items-center gap-3 text-lg font-semibold">
+              <Lock size={18} /> Seguridad
             </h3>
             <Button
               type="button"
@@ -451,18 +451,18 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
                 console.log('🔐 [SEGURIDAD] ABRIENDO MODAL DE CAMBIO DE CONTRASEÑA');
                 setShowPasswordModal(true);
               }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 px-6 py-2.5"
               size="sm"
             >
               <Lock size={16} /> Cambiar Contraseña
             </Button>
           </div>
 
-          <div className="mt-4 flex gap-3 justify-end">
-            <Button type="button" variant="secondary" onClick={onCancel} className="flex items-center gap-2">
+          <div className="mt-8 flex gap-4 justify-end">
+            <Button type="button" variant="secondary" onClick={onCancel} className="flex items-center gap-2 px-6 py-2.5">
               <X size={16} /> Cancelar
             </Button>
-            <Button type="submit" variant="primary" className="flex items-center gap-2">
+            <Button type="submit" variant="primary" className="flex items-center gap-2 px-6 py-2.5">
               <Save size={16} /> Guardar Cambios
             </Button>
           </div>
@@ -474,89 +474,89 @@ export default function EditarPerfilPage({ currentUser, onSave, onCancel }: Edit
         console.log('🔒 [MODAL CONTRASEÑA] CERRANDO MODAL DE CAMBIO DE CONTRASEÑA');
         setShowPasswordModal(false);
       }} title="Cambiar Contraseña">
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div>
-            <label className="block text-gray-700 mb-2">Contraseña Actual (opcional si es la primera vez)</label>
+            <label className="block text-gray-800 font-semibold mb-3 text-base">Contraseña Actual (opcional si es la primera vez)</label>
             <div className="relative">
               <Input
                 type={showCurrentPassword ? 'text' : 'password'}
                 value={passwordData.currentPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                 placeholder="Ingresa tu contraseña actual"
-                className={passwordErrors.currentPassword ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${passwordErrors.currentPassword ? "border-red-500 focus:ring-red-500" : ""}`}
               />
               <button
                 type="button"
                 onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
               >
                 {showCurrentPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
-            {passwordErrors.currentPassword && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.currentPassword}</p>}
+            {passwordErrors.currentPassword && <p className="text-red-600 text-sm mt-2 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.currentPassword}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Nueva Contraseña *</label>
+            <label className="block text-gray-800 font-semibold mb-3 text-base">Nueva Contraseña *</label>
             <div className="relative">
               <Input
                 type={showNewPassword ? 'text' : 'password'}
                 value={passwordData.newPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                 placeholder="Ingresa tu nueva contraseña"
-                className={passwordErrors.newPassword ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${passwordErrors.newPassword ? "border-red-500 focus:ring-red-500" : ""}`}
               />
               <button
                 type="button"
                 onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
               >
                 {showNewPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
             {passwordErrors.newPassword ? (
-              <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.newPassword}</p>
+              <p className="text-red-600 text-sm mt-2 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.newPassword}</p>
             ) : (
-              <p className="text-gray-500 text-sm mt-1">Mínimo 6 caracteres</p>
+              <p className="text-gray-500 text-sm mt-2">Mínimo 6 caracteres</p>
             )}
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-2">Confirmar Nueva Contraseña *</label>
+            <label className="block text-gray-800 font-semibold mb-3 text-base">Confirmar Nueva Contraseña *</label>
             <div className="relative">
               <Input
                 type={showConfirmPassword ? 'text' : 'password'}
                 value={passwordData.confirmPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                 placeholder="Confirma tu nueva contraseña"
-                className={passwordErrors.confirmPassword ? "border-red-500 focus:ring-red-500" : ""}
+                className={`px-4 py-3 text-base ${passwordErrors.confirmPassword ? "border-red-500 focus:ring-red-500" : ""}`}
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
               >
                 {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
-            {passwordErrors.confirmPassword && <p className="text-red-600 text-sm mt-1 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.confirmPassword}</p>}
+            {passwordErrors.confirmPassword && <p className="text-red-600 text-sm mt-2 flex items-center gap-1"><AlertCircle size={14} /> {passwordErrors.confirmPassword}</p>}
             {!passwordErrors.confirmPassword && passwordData.newPassword && passwordData.confirmPassword && (
-              <p className="text-green-600 text-sm mt-1">✓ Las contraseñas coinciden</p>
+              <p className="text-green-600 text-sm mt-2 flex items-center gap-1">✓ Las contraseñas coinciden</p>
             )}
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t">
+          <div className="flex gap-4 justify-end pt-6 border-t-2 border-gray-300">
             <Button onClick={() => {
               setShowPasswordModal(false);
               setPasswordErrors({});
-            }} variant="secondary">
+            }} variant="secondary" className="px-6 py-2.5">
               Cancelar
             </Button>
             <Button 
               onClick={handleChangePassword} 
               variant="primary"
               disabled={Object.keys(passwordErrors).length > 0}
-              className={Object.keys(passwordErrors).length > 0 ? 'opacity-50 cursor-not-allowed' : ''}
+              className={`px-6 py-2.5 flex items-center gap-2 ${Object.keys(passwordErrors).length > 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <Lock size={18} /> Cambiar Contraseña
             </Button>

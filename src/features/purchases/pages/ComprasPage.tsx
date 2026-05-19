@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Card, Button, Input, Label, Select, Modal, DataTable, Badge, useToast } from '../../../shared/components/native';
 import validateField from '../../../shared/utils/validation';
-import { Plus, Edit, Trash2, ShoppingBag } from 'lucide-react';
+import { Plus, Edit, Trash2, ShoppingBag, Download, X } from 'lucide-react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
 
 interface Purchase {
@@ -26,7 +26,9 @@ const mockPurchases: Purchase[] = [
 export default function ComprasPage() {
   const [purchases, setPurchases] = useState<Purchase[]>(mockPurchases);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+  const [cancelingPurchase, setCancelingPurchase] = useState<Purchase | null>(null);
   const [formData, setFormData] = useState({
     provider: '',
     product: '',
@@ -40,7 +42,7 @@ export default function ComprasPage() {
   const { showToast } = useToast();
   const { user } = useAuth();
 
-  const canDelete = user?.role === 'Administrador';
+  const canDelete = user?.rol_name === 'Administrador';
 
   const handleOpenModal = (purchase?: Purchase) => {
     if (purchase) {
@@ -185,6 +187,23 @@ export default function ComprasPage() {
     }
   };
 
+  const handleCancel = (purchase: Purchase) => {
+    setCancelingPurchase(purchase);
+    setShowCancelModal(true);
+  };
+
+  const confirmCancel = () => {
+    if (!cancelingPurchase) return;
+    setPurchases(purchases.map(p =>
+      p.id === cancelingPurchase.id
+        ? { ...p, status: 'Cancelado' as const }
+        : p
+    ));
+    showToast('Compra anulada correctamente', 'success');
+    setShowCancelModal(false);
+    setCancelingPurchase(null);
+  };
+
   const totalCompras = purchases.reduce((sum, p) => sum + p.total, 0);
 
   const columns = [
@@ -234,19 +253,6 @@ export default function ComprasPage() {
       ),
     },
     {
-      key: 'status',
-      label: 'Estado',
-      render: (purchase: Purchase) => (
-        <Badge variant={
-          purchase.status === 'Recibido' ? 'success' :
-          purchase.status === 'Cancelado' ? 'danger' :
-          'warning'
-        }>
-          {purchase.status}
-        </Badge>
-      ),
-    },
-    {
       key: 'actions',
       label: 'Acciones',
       render: (purchase: Purchase) => (
@@ -254,13 +260,23 @@ export default function ComprasPage() {
           <button
             onClick={() => handleOpenModal(purchase)}
             className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+            title="Editar"
           >
             <Edit className="h-4 w-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => handleCancel(purchase)}
+            className="p-1 hover:bg-orange-50 rounded-md transition-colors"
+            title="Anular"
+            disabled={purchase.status === 'Cancelado'}
+          >
+            <X className="h-4 w-4 text-orange-600" />
           </button>
           {canDelete && (
             <button
               onClick={() => handleDelete(purchase.id)}
               className="p-1 hover:bg-red-50 rounded-md transition-colors"
+              title="Eliminar"
             >
               <Trash2 className="h-4 w-4 text-red-600" />
             </button>
@@ -370,19 +386,6 @@ export default function ComprasPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="status">Estado</Label>
-            <Select
-              id="status"
-              value={formData.status}
-              onChange={(e) => handleFieldChange('status', e.target.value as Purchase['status'])}
-            >
-              <option value="Pendiente">Pendiente</option>
-              <option value="Recibido">Recibido</option>
-              <option value="Cancelado">Cancelado</option>
-            </Select>
-          </div>
-
           {formData.quantity && formData.unitPrice && (
             <div className="p-4 bg-gray-100 rounded-lg">
               <p className="text-sm text-gray-600">Total</p>
@@ -401,6 +404,23 @@ export default function ComprasPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal Anular Compra */}
+      <Modal isOpen={showCancelModal} onClose={() => setShowCancelModal(false)} title="Anular Compra" size="sm">
+        <div className="space-y-4 text-sm">
+          <p className="text-gray-700">
+            ¿Deseas anular la compra <strong>{cancelingPurchase?.id}</strong> de <strong>{cancelingPurchase?.provider}</strong>?
+          </p>
+          <div className="flex gap-3 justify-end">
+            <Button onClick={() => setShowCancelModal(false)} variant="secondary">
+              Cancelar
+            </Button>
+            <Button onClick={confirmCancel} variant="primary" className="bg-orange-600 hover:bg-orange-700">
+              Anular Compra
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

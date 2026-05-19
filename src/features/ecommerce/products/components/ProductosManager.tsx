@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Package, Eye, Edit2, Trash2, Download, AlertCircle } from 'lucide-react';
+import { Search, Package, Eye, Edit2, Trash2, Download, AlertCircle, Plus, Grid3x3, List } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { useToast } from '../../../../shared/components/native';
 
@@ -35,7 +35,16 @@ export default function ProductosManager() {
   // ─── UI ──────────────────────────────────────────────────────────────────────
   const [searchTerm,  setSearchTerm]  = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewMode,    setViewMode]    = useState<'grid' | 'list'>(() => {
+    const saved = localStorage.getItem('productos_viewMode');
+    return (saved as 'grid' | 'list') || 'grid';
+  });
   const itemsPerPage = 12;
+
+  // 💾 Guardar preferencia de vista en localStorage
+  useEffect(() => {
+    localStorage.setItem('productos_viewMode', viewMode);
+  }, [viewMode]);
 
   // ─── Modals ──────────────────────────────────────────────────────────────────
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -359,43 +368,70 @@ export default function ProductosManager() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-gray-900 font-bold text-lg mb-1">Gestión de Productos</h2>
-          <p className="text-gray-500 text-xs">
+          <h2 className="text-gray-900 mb-2">Gestión de Productos</h2>
+          <p className="text-gray-600">
             {products.length} productos · {variants.length} variantes
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={handleOpenAdd} variant="primary" className="flex items-center gap-2">
-            <Package size={16} />
-            Nuevo Producto
-          </Button>
           <Button onClick={exportToExcel} variant="secondary">
             <Download size={16} />
             Exportar Excel
           </Button>
+          <Button onClick={handleOpenAdd} variant="primary" className="flex items-center gap-2">
+            <Plus size={16} />
+            Registrar Producto
+          </Button>
         </div>
       </div>
 
-      {/* Search */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-          <Input
-            placeholder="Buscar por nombre, categoría o estado..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 text-sm"
-          />
+      {/* Search and View Mode */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="flex gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <Input
+              placeholder="Buscar por nombre, categoría o estado..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 text-sm"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-2 rounded-lg transition-colors ${
+                viewMode === 'grid'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+              title="Vista de cuadrícula"
+            >
+              <Grid3x3 size={20} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded-lg transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+              title="Vista de lista"
+            >
+              <List size={20} />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {/* Grid/List */}
+      {viewMode === 'grid' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {paginated.length === 0 ? (
           <div className="col-span-full py-16 text-center text-gray-400">
             <Package className="mx-auto mb-3 text-gray-300" size={48} />
@@ -427,13 +463,31 @@ export default function ProductosManager() {
                   <button
                     onClick={(e) => handleToggle(e, product)}
                     title={product.is_active ? 'Desactivar' : 'Activar'}
-                    className={`absolute top-2 right-2 w-10 h-6 rounded-full transition-colors z-10 ${
-                      product.is_active ? 'bg-green-500' : 'bg-gray-400'
-                    }`}
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      width: '44px',
+                      height: '24px',
+                      borderRadius: '9999px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: product.is_active ? '#22c55e' : '#9ca3af',
+                      transition: 'background-color 0.2s',
+                      zIndex: 10
+                    }}
                   >
-                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                      product.is_active ? 'translate-x-4' : 'translate-x-0'
-                    }`} />
+                    <div style={{
+                      position: 'absolute',
+                      top: '2px',
+                      left: product.is_active ? '22px' : '2px',
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '9999px',
+                      backgroundColor: 'white',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      transition: 'left 0.2s',
+                    }} />
                   </button>
                 </div>
 
@@ -511,7 +565,123 @@ export default function ProductosManager() {
             );
           })
         )}
-      </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Nombre</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Categoría</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Precio</th>
+                  <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Stock</th>
+                  <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Estado</th>
+                  <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-16 text-center text-gray-400">
+                      <Package className="mx-auto mb-3 text-gray-300" size={48} />
+                      <p className="text-sm">No se encontraron productos</p>
+                      <p className="text-xs mt-1">Los productos se crean desde el módulo Compras</p>
+                    </td>
+                  </tr>
+                ) : (
+                  paginated.map((product, idx) => {
+                    const stock = getCorrectStock(product.id_product);
+                    const isConsistent = isInventoryConsistent(product.id_product);
+                    return (
+                      <tr key={product.id_product} className={idx !== paginated.length - 1 ? 'border-b border-gray-200' : ''}>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <Package className="text-gray-400" size={20} />
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900 text-sm">{product.name}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{product.category_name}</td>
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{formatCOP(product.price)}</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                            !isConsistent ? 'bg-red-100 text-red-700' :
+                            stock > 20 ? 'bg-green-100 text-green-700' :
+                            stock > 5  ? 'bg-yellow-100 text-yellow-700' :
+                            stock > 0  ? 'bg-red-100 text-red-700' :
+                                         'bg-gray-100 text-gray-500'
+                          }`}>
+                            {stock}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex justify-center">
+                            <button
+                              onClick={(e) => handleToggle(e, product)}
+                              title={product.is_active ? 'Desactivar' : 'Activar'}
+                              style={{
+                                position: 'relative',
+                                width: '44px',
+                                height: '24px',
+                                borderRadius: '9999px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                backgroundColor: product.is_active ? '#22c55e' : '#9ca3af',
+                                transition: 'background-color 0.2s',
+                              }}
+                            >
+                              <div style={{
+                                position: 'absolute',
+                                top: '2px',
+                                left: product.is_active ? '22px' : '2px',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '9999px',
+                                backgroundColor: 'white',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                transition: 'left 0.2s',
+                              }} />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => { setViewingProduct(product); setShowDetailModal(true); }}
+                              className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                              title="Ver detalles"
+                            >
+                              <Eye size={18} />
+                            </button>
+                            <button
+                              onClick={() => handleEdit(product)}
+                              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                              title="Editar"
+                            >
+                              <Edit2 size={18} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(product)}
+                              className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
+                              title="Eliminar"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Paginación */}
       {totalPages > 1 && (
