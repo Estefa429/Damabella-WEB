@@ -103,3 +103,17 @@ export const deleteProduct = async (id: number): Promise<boolean> => {
     return res.data.success === true;
   } catch { return false; }
 };
+
+export const createColor = async (name: string): Promise<Color | null> => {
+  try {
+    const res = await API.post('/colors/create_colors/', { name });
+    return res.data.success ? res.data.object : null;
+  } catch { return null; }
+};
+
+export const createSize = async (name: string): Promise<Size | null> => {
+  try {
+    const res = await API.post('/sizes/create_sizes/', { name });
+    return res.data.success ? res.data.object : null;
+  } catch { return null; }
+};

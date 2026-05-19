@@ -325,12 +325,17 @@ export default function PedidosManager() {
 
   // Cerrar dropdowns al hacer click fuera
   useEffect(() => {
-    const onClick = () => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // No cerrar si el click fue dentro del modal o en los inputs del dropdown
+      if (target.closest('[data-dropdown-cliente]') || target.closest('[data-dropdown-producto]')) {
+        return;
+      }
       setShowClienteDropdown(false);
       setShowProductoDropdown(false);
     };
-    window.addEventListener('click', onClick);
-    return () => window.removeEventListener('click', onClick);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
   const generarNumeroPedido = () => {
@@ -1066,7 +1071,7 @@ DAMABELLA - Moda Femenina
           </Button>
           <Button onClick={handleCreate} variant="primary" className="flex items-center gap-2">
             <Plus size={20} />
-            Agregar Pedido
+            Registrar Pedido
           </Button>
         </div>
       </div>
@@ -1154,6 +1159,20 @@ DAMABELLA - Moda Femenina
                           title="Cambiar estado"
                         >
                           <Repeat size={18} />
+                        </button>
+
+                        {/* ✅ Anular */}
+                        <button
+                          onClick={() => anularPedido(pedido)}
+                          disabled={pedido.estado === 'Anulado'}
+                          className={`p-2 rounded-lg transition-colors ${
+                            pedido.estado === 'Anulado'
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'hover:bg-yellow-50 text-yellow-600'
+                          }`}
+                          title={pedido.estado === 'Anulado' ? 'Pedido ya anulado' : 'Anular pedido'}
+                        >
+                          <Ban size={18} />
                         </button>
 
                         {/* ✅ Editar (solo si NO está en Venta ni Anulado ni tiene ventaId) */}
@@ -1278,7 +1297,7 @@ DAMABELLA - Moda Femenina
               {/* Cliente Search */}
               <div>
                 <label className="block text-gray-700 mb-1 text-[10px]">Cliente *</label>
-                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <div className="relative" data-dropdown-cliente>
                   <Input
                     value={clienteQuery}
                     onChange={(e) => {
@@ -1296,11 +1315,13 @@ DAMABELLA - Moda Femenina
                       }
                     }}
                     onFocus={() => setShowClienteDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowClienteDropdown(false), 200)}
                     placeholder="Buscar cliente..."
                     className="h-6 px-2 text-[10px] leading-tight w-full"
+                    autoComplete="off"
                   />
                   {showClienteDropdown && (
-                    <div className="absolute z-[9999] mt-1 w-full max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
+                    <div className="absolute top-full left-0 z-[9999] mt-0.5 w-full max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
                       {clientesFiltradosSelect.length === 0 ? (
                         <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
                       ) : (
@@ -1308,8 +1329,9 @@ DAMABELLA - Moda Femenina
                           <button
                             type="button"
                             key={cliente.id}
-                            className="w-full text-left px-2 py-1 hover:bg-gray-50"
-                            onClick={() => {
+                            className="w-full text-left px-2 py-1 hover:bg-blue-50 border-b border-gray-100 last:border-0 transition-colors"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
                               handleFieldChange('clienteId', cliente.id.toString());
                               const label = `${cliente.nombre} - ${cliente.numeroDoc}`;
                               setClienteQuery(label);
@@ -1317,7 +1339,7 @@ DAMABELLA - Moda Femenina
                               setShowClienteDropdown(false);
                             }}
                           >
-                            <div className="text-[10px] text-gray-900">{cliente.nombre}</div>
+                            <div className="text-[10px] text-gray-900 font-medium">{cliente.nombre}</div>
                             <div className="text-[10px] text-gray-500">
                               {cliente.numeroDoc} {cliente.telefono ? `• ${cliente.telefono}` : ''}
                             </div>
@@ -1396,7 +1418,7 @@ DAMABELLA - Moda Femenina
               <h4 className="text-gray-900 text-[10px] font-semibold mb-2 mt-2">Agregar productos</h4>
               <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
                 <div className="flex gap-2 items-center">
-                  <div className="flex-1">
+                  <div className="flex-1 relative" data-dropdown-producto>
                     <Input
                       value={productoQuery}
                       onChange={(e) => {
@@ -1408,11 +1430,13 @@ DAMABELLA - Moda Femenina
                         }
                       }}
                       onFocus={() => setShowProductoDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowProductoDropdown(false), 200)}
                       placeholder="Producto"
                       className="w-full h-7 px-2 text-[10px]"
+                      autoComplete="off"
                     />
                     {showProductoDropdown && (
-                      <div className="absolute z-[9999] mt-1 w-80 max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
+                      <div className="absolute top-full left-0 z-[9999] mt-0.5 w-80 max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
                         {productosFiltradosSelect.length === 0 ? (
                           <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
                         ) : (
@@ -1420,15 +1444,16 @@ DAMABELLA - Moda Femenina
                             <button
                               type="button"
                               key={producto.id}
-                              className="w-full text-left px-2 py-1 hover:bg-gray-50"
-                              onClick={() => {
+                              className="w-full text-left px-2 py-1 hover:bg-blue-50 border-b border-gray-100 last:border-0 transition-colors"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
                                 handleNuevoItemChange('productoId', producto.id.toString());
                                 const label = `${producto.nombre}${producto.referencia ? ` (${producto.referencia})` : ''}`;
                                 setProductoQuery(label);
                                 setShowProductoDropdown(false);
                               }}
                             >
-                              <div className="text-[10px] text-gray-900">{producto.nombre}</div>
+                              <div className="text-[10px] text-gray-900 font-medium">{producto.nombre}</div>
                               <div className="text-[10px] text-gray-500">
                                 ${(producto.precioVenta || 0).toLocaleString()}
                               </div>

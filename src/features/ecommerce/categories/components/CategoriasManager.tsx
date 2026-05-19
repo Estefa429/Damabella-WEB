@@ -40,9 +40,17 @@ export default function CategoriasManager() {
   const [showProductsModal, setShowProductsModal] = useState(false);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<Categories | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    const saved = localStorage.getItem('categorias_viewMode');
+    return (saved as 'grid' | 'list') || 'grid';
+  });
   
   const itemsPerPage = 10;
+
+  // 💾 Guardar preferencia de vista en localStorage
+  useEffect(() => {
+    localStorage.setItem('categorias_viewMode', viewMode);
+  }, [viewMode]);
 
   // 🔐 PERMISOS - Usar el hook usePermissions
   const permisos = getModulePermissions('Categorias');
@@ -400,7 +408,7 @@ export default function CategoriasManager() {
           title={!canCreateCategorias ? 'No tienes permiso para crear categorías' : ''}
         >
           <Plus size={20} />
-          Nueva Categoría
+          Registar Categoría
         </Button>
       </div>
 
@@ -446,38 +454,6 @@ export default function CategoriasManager() {
                 <List size={20} />
               </button>
             </div>
-          </div>
-          
-          {/* Filtros rápidos */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => handleSearch('activa')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                searchTerm === 'activa'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
-              }`}
-            >
-              ✓ Activas
-            </button>
-            <button
-              onClick={() => handleSearch('inactiva')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                searchTerm === 'inactiva'
-                  ? 'bg-gray-600 text-white'
-                  : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
-              }`}
-            >
-              ✗ Inactivas
-            </button>
-            {searchTerm && (
-              <button
-                onClick={() => handleSearch('')}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 transition-colors ml-auto"
-              >
-                Limpiar filtro
-              </button>
-            )}
           </div>
         </div>
       </div>

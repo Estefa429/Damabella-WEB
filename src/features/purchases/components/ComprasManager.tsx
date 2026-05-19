@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Truck, Eye, X, Trash2, AlertTriangle, PackagePlus } from 'lucide-react';
+import { Plus, Search, Truck, Eye, X, Trash2, AlertTriangle, PackagePlus, Ban } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 import { useToast } from '../../../shared/components/native';
 import { ProveedoresManager } from '../../suppliers/components/ProveedoresManager';
@@ -9,7 +9,7 @@ import { getAllProviders, Providers }       from '@/features/suppliers/services/
 import { getAllCategories, Categories }     from '@/features/ecommerce/categories/services/categoriesService';
 import { getAllVariants, getAllPurchases, createPurchase, deletePurchase, patchPurchaseState, Purchase, VariantProduct, CreatePurchaseDetailDTO } from '@/features/purchases/services/PurchasesService';
 import { getAllStates, State }              from '@/features/purchases/services/statesService';
-import { getAllProducts, getAllColors, getAllSizes, createProduct, createVariant, Product, Color, Size } from '@/features/ecommerce/products/services/productsService';
+import { getAllProducts, getAllColors, getAllSizes, createProduct, createVariant, createColor, createSize, Product, Color, Size } from '@/features/ecommerce/products/services/productsService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ItemCompra {
@@ -26,6 +26,7 @@ interface ItemCompra {
 
 interface FormData {
   providerId:   number | null;
+  purchaseDate: string;
   stateId:      number | null;
   observations: string;
   items:        ItemCompra[];
@@ -64,7 +65,7 @@ export function ComprasManager() {
   const itemsPerPage = 10;
 
   // ─── Form State ──────────────────────────────────────────────────────────────
-  const [formData,   setFormData]   = useState<FormData>({ providerId: null, stateId: null, observations: '', items: [] });
+  const [formData,   setFormData]   = useState<FormData>({ providerId: null, purchaseDate: new Date().toISOString().split('T')[0], stateId: null, observations: '', items: [] });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [itemsError, setItemsError] = useState('');
 
@@ -94,6 +95,11 @@ export function ComprasManager() {
   // Paso 2: talla, color, SKU
   const [variantSizeId,  setVariantSizeId]  = useState<number | null>(null);
   const [variantColorId, setVariantColorId] = useState<number | null>(null);
+  const [variantCustomSize,  setVariantCustomSize]  = useState('');
+  const [variantCustomColor, setVariantCustomColor] = useState('');
+  const [variantCustomColorHex, setVariantCustomColorHex] = useState('#000000');
+  const [variantSizeMode, setVariantSizeMode] = useState<'select' | 'write'>('select');
+  const [variantColorMode, setVariantColorMode] = useState<'select' | 'write'>('select');
   const [variantSku,     setVariantSku]     = useState('');
   const [variantErrors,  setVariantErrors]  = useState<Record<string, string>>({});
 
@@ -131,7 +137,7 @@ export function ComprasManager() {
 
   // ─── Reset form ───────────────────────────────────────────────────────────────
   const resetForm = () => {
-    setFormData({ providerId: null, stateId: states[0]?.id_state ?? null, observations: '', items: [] });
+    setFormData({ providerId: null, purchaseDate: new Date().toISOString().split('T')[0], stateId: null, observations: '', items: [] });
     setFormErrors({});
     setItemsError('');
     setVariantSearch('');
@@ -152,12 +158,19 @@ export function ComprasManager() {
     setCreatingNewProduct(false);
     setVariantSizeId(null);
     setVariantColorId(null);
+    setVariantCustomSize('');
+    setVariantCustomColor('');
+    setVariantCustomColorHex('#000000');
+    setVariantSizeMode('select');
+    setVariantColorMode('select');
     setVariantSku('');
     setVariantErrors({});
   };
 
   const handleCreate = () => {
     resetForm();
+    setShowProveedorModal(false);
+    setProveedorModalKey(0);
     setShowModal(true);
   };
 
@@ -237,7 +250,7 @@ export function ComprasManager() {
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
     if (!formData.providerId) errors.providerId = 'Selecciona un proveedor';
-    if (!formData.stateId)    errors.stateId    = 'Selecciona un estado';
+    if (!formData.purchaseDate) errors.purchaseDate = 'Ingresa la fecha de compra';
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -261,7 +274,10 @@ export function ComprasManager() {
         showToast('¡Compra creada exitosamente!', 'success');
         await loadData();
         setShowModal(false);
+        setShowProveedorModal(false);
+        setProveedorModalKey(0);
         resetForm();
+        resetVariantModal();
       } else {
         showToast('Error al crear la compra', 'error');
       }
@@ -277,6 +293,16 @@ export function ComprasManager() {
     const result = await patchPurchaseState(purchase.id_purchase, stateId);
     if (result) { showToast('Estado actualizado', 'success'); await loadData(); }
     else          showToast('No se pudo cambiar el estado', 'error');
+  };
+
+  // ─── Anular compra ────────────────────────────────────────────────────────────
+  const handleCancelPurchase = async (purchase: Purchase) => {
+    const anuladoState = states.find(s => s.name_state?.toLowerCase() === 'anulado');
+    if (!anuladoState) {
+      showToast('No se encontró el estado Anulado', 'error');
+      return;
+    }
+    await handlePatchState(purchase, anuladoState.id_state);
   };
 
   // ─── Eliminar compra ──────────────────────────────────────────────────────────
@@ -317,8 +343,12 @@ export function ComprasManager() {
       if (!newProductPurchasePrice || Number(newProductPurchasePrice) <= 0) errors.productPurchasePrice = 'Precio de compra debe ser > 0';
       if (!newProductCategory)                           errors.productCategory = 'Categoría requerida';
     }
-    if (!variantSizeId)   errors.size  = 'Selecciona una talla';
-    if (!variantColorId)  errors.color = 'Selecciona un color';
+    // Validar talla
+    if (variantSizeMode === 'select' && !variantSizeId) errors.size = 'Selecciona una talla';
+    if (variantSizeMode === 'write' && !variantCustomSize.trim()) errors.size = 'Escribe una talla';
+    // Validar color
+    if (variantColorMode === 'select' && !variantColorId) errors.color = 'Selecciona un color';
+    if (variantColorMode === 'write' && !variantCustomColor.trim()) errors.color = 'Escribe un color';
     if (!variantSku.trim()) errors.sku = 'SKU requerido';
 
     setVariantErrors(errors);
@@ -341,11 +371,35 @@ export function ComprasManager() {
         showToast(`Producto "${newProd.name}" creado`, 'success');
       }
 
+      // Obtener o crear talla
+      let sizeId: number;
+      if (variantSizeMode === 'select') {
+        sizeId = variantSizeId!;
+      } else {
+        // Modo write: crear talla personalizada
+        const newSize = await createSize(variantCustomSize.trim());
+        if (!newSize) { showToast('Error al crear la talla', 'error'); return; }
+        sizeId = newSize.id_size;
+        showToast(`Talla "${newSize.name}" creada`, 'success');
+      }
+
+      // Obtener o crear color
+      let colorId: number;
+      if (variantColorMode === 'select') {
+        colorId = variantColorId!;
+      } else {
+        // Modo write: crear color personalizado
+        const newColor = await createColor(variantCustomColor.trim());
+        if (!newColor) { showToast('Error al crear el color', 'error'); return; }
+        colorId = newColor.id_color;
+        showToast(`Color "${newColor.name}" creado`, 'success');
+      }
+
       // Crear variante
       const newVariant = await createVariant({
         product: productId!,
-        size:    variantSizeId!,
-        color:   variantColorId!,
+        size:    sizeId,
+        color:   colorId,
         sku:     variantSku.trim(),
       });
 
@@ -353,10 +407,12 @@ export function ComprasManager() {
 
       showToast('¡Variante creada exitosamente!', 'success');
 
-      // Recargar variantes y productos
-      const [vars, prods] = await Promise.all([getAllVariants(), getAllProducts()]);
+      // Recargar variantes, productos, colores y tallas
+      const [vars, prods, cols, szs] = await Promise.all([getAllVariants(), getAllProducts(), getAllColors(), getAllSizes()]);
       if (vars)  setVariants(vars);
       if (prods) setProducts(prods);
+      if (cols)  setColors(cols);
+      if (szs)   setSizes(szs);
 
       // Auto-seleccionar la variante recién creada
       handleSelectVariant(newVariant);
@@ -400,8 +456,8 @@ export function ComprasManager() {
           <h2 className="text-gray-900 font-bold text-lg mb-1">Gestión de Compras</h2>
           <p className="text-gray-500 text-xs">Administra las compras a proveedores</p>
         </div>
-        <Button onClick={handleCreate} variant="primary" size="lg">
-          <Plus size={16} /> Agregar Compra
+        <Button onClick={handleCreate} variant="primary">
+          <Plus size={20} /> Registrar Compra
         </Button>
       </div>
 
@@ -428,7 +484,6 @@ export function ComprasManager() {
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Proveedor</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Fecha</th>
                 <th className="text-center py-3 px-4 text-gray-600 font-medium">Items</th>
-                <th className="text-left py-3 px-4 text-gray-600 font-medium">Estado</th>
                 <th className="text-right py-3 px-4 text-gray-600 font-medium">Total</th>
                 <th className="text-right py-3 px-4 text-gray-600 font-medium">Acciones</th>
               </tr>
@@ -436,7 +491,7 @@ export function ComprasManager() {
             <tbody className="divide-y divide-gray-100">
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-400">
+                  <td colSpan={6} className="py-12 text-center text-gray-400">
                     <Truck className="mx-auto mb-2 text-gray-300" size={40} />
                     <p>No se encontraron compras</p>
                   </td>
@@ -462,17 +517,6 @@ export function ComprasManager() {
                         {purchase.details?.length ?? 0} items
                       </button>
                     </td>
-                    <td className="py-3 px-4">
-                      <select
-                        value={purchase.state}
-                        onChange={(e) => handlePatchState(purchase, Number(e.target.value))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
-                      >
-                        {states.map(s => (
-                          <option key={s.id_state} value={s.id_state}>{s.name_state}</option>
-                        ))}
-                      </select>
-                    </td>
                     <td className="py-3 px-4 text-right font-semibold text-gray-900">
                       {formatCOP(purchase.total)}
                     </td>
@@ -483,6 +527,13 @@ export function ComprasManager() {
                           className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors"
                         >
                           <Eye size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleCancelPurchase(purchase)}
+                          className="p-1.5 hover:bg-yellow-50 rounded-lg text-yellow-600 transition-colors"
+                          title="Anular compra"
+                        >
+                          <Ban size={16} />
                         </button>
                         <button
                           onClick={() => handleDelete(purchase)}
@@ -529,22 +580,35 @@ export function ComprasManager() {
       </div>
 
       {/* ─── Modal Nueva Compra ─────────────────────────────────────────────── */}
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Nueva Compra" size="xxl" noScroll>
+      <Modal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setShowProveedorModal(false);
+          setProveedorModalKey(0);
+          resetForm();
+          resetVariantModal();
+        }}
+        title="Nueva Compra"
+        size="xxl"
+        noScroll
+      >
         <div className="w-[95vw] max-w-[1200px] max-h-[90vh] mx-auto flex flex-col text-xs">
 
-          {/* Header del form */}
+          {/* ─── SECCIÓN 1: Datos Básicos ─────────────────────────────────── */}
           <div className="border border-gray-200 rounded-lg bg-white p-3 shrink-0 mb-2">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <h4 className="text-xs font-semibold text-gray-900 mb-3 uppercase tracking-wide">Datos de la Compra</h4>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
 
               {/* Proveedor */}
               <div>
-                <label className="block text-gray-700 font-medium mb-1">Proveedor *</label>
+                <label className="block text-gray-700 font-medium mb-1 text-xs">Proveedor *</label>
                 <select
                   value={formData.providerId ?? ''}
                   onChange={(e) => { setFormData(prev => ({ ...prev, providerId: Number(e.target.value) || null })); setFormErrors(prev => ({ ...prev, providerId: '' })); }}
                   className={`w-full h-8 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.providerId ? 'border-red-400' : 'border-gray-300'}`}
                 >
-                  <option value="">Seleccionar proveedor...</option>
+                  <option value="">Seleccionar...</option>
                   {providers.filter(p => p.is_active).map(p => (
                     <option key={p.id_provider} value={p.id_provider}>{p.name}</option>
                   ))}
@@ -553,42 +617,58 @@ export function ComprasManager() {
                 <button
                   type="button"
                   onClick={() => { setShowProveedorModal(true); setProveedorModalKey(k => k + 1); }}
-                  className="mt-1 w-full h-7 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                  className="mt-1 w-full h-7 border border-gray-300 text-gray-600 rounded-lg text-xs hover:bg-gray-50 transition-colors text-xs"
                 >
-                  + Agregar nuevo proveedor
+                  + Nuevo proveedor
                 </button>
-                {showProveedorModal && <ProveedoresManager key={proveedorModalKey} onlyModal openOnMount />}
+                {showProveedorModal && (
+                  <ProveedoresManager
+                    key={proveedorModalKey}
+                    onlyModal
+                    openOnMount
+                    onClose={() => {
+                      setShowProveedorModal(false);
+                      setProveedorModalKey(0);
+                    }}
+                  />
+                )}
               </div>
 
-              {/* Estado */}
+              {/* Fecha de Compra */}
               <div>
-                <label className="block text-gray-700 font-medium mb-1">Estado *</label>
-                <select
-                  value={formData.stateId ?? ''}
-                  onChange={(e) => { setFormData(prev => ({ ...prev, stateId: Number(e.target.value) || null })); setFormErrors(prev => ({ ...prev, stateId: '' })); }}
-                  className={`w-full h-8 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.stateId ? 'border-red-400' : 'border-gray-300'}`}
-                >
-                  <option value="">Seleccionar estado...</option>
-                  {states.map(s => (
-                    <option key={s.id_state} value={s.id_state}>{s.name_state}</option>
-                  ))}
-                </select>
-                {formErrors.stateId && <p className="text-red-500 text-xs mt-1">{formErrors.stateId}</p>}
-              </div>
-
-              {/* Observaciones */}
-              <div>
-                <label className="block text-gray-700 font-medium mb-1">Observaciones</label>
+                <label className="block text-gray-700 font-medium mb-1 text-xs">Fecha de Compra *</label>
                 <input
-                  type="text"
-                  value={formData.observations}
-                  onChange={(e) => setFormData(prev => ({ ...prev, observations: e.target.value }))}
-                  placeholder="Opcional..."
-                  className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  type="date"
+                  value={formData.purchaseDate}
+                  onChange={(e) => { setFormData(prev => ({ ...prev, purchaseDate: e.target.value })); setFormErrors(prev => ({ ...prev, purchaseDate: '' })); }}
+                  className={`w-full h-8 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.purchaseDate ? 'border-red-400' : 'border-gray-300'}`}
                 />
+                {formErrors.purchaseDate && <p className="text-red-500 text-xs mt-1">{formErrors.purchaseDate}</p>}
+              </div>
+
+              {/* IVA informativo */}
+              <div>
+                <label className="block text-gray-700 font-medium mb-1 text-xs">IVA Aplicado</label>
+                <div className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs flex items-center font-medium text-gray-900 bg-gray-50">
+                  19%
+                </div>
               </div>
             </div>
           </div>
+
+          {/* ─── SECCIÓN 2: Observaciones ─────────────────────────────────── */}
+          <div className="border border-gray-200 rounded-lg bg-white p-3 shrink-0 mb-2">
+            <label className="block text-gray-700 font-medium mb-2 text-xs">Observaciones (Opcional)</label>
+            <input
+              type="text"
+              value={formData.observations}
+              onChange={(e) => setFormData(prev => ({ ...prev, observations: e.target.value }))}
+              placeholder="Notas sobre esta compra..."
+              className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
+            />
+          </div>
+
+          {/* ─── SECCIÓN 3: Agregar Productos ────────────────────────────── */}
 
           {/* Body scrolleable */}
           <div className="flex-1 overflow-y-auto min-h-0">
@@ -624,16 +704,17 @@ export function ComprasManager() {
                       value={variantSearch}
                       onChange={(e) => { setVariantSearch(e.target.value); setSelectedVariant(null); setShowVariantDrop(true); }}
                       onFocus={() => setShowVariantDrop(true)}
+                      onBlur={() => setTimeout(() => setShowVariantDrop(false), 200)}
                       className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
                     />
-                    {showVariantDrop && variantSearch && (
+                    {showVariantDrop && (
                       <div className="absolute z-50 mt-1 w-full max-h-48 bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto">
                         {filteredVariants.length === 0 ? (
                           <div className="px-3 py-3 text-center">
                             <p className="text-gray-400 text-xs mb-2">Sin resultados</p>
                             <button
                               type="button"
-                              onClick={() => { setShowVariantDrop(false); resetVariantModal(); setNewProductName(variantSearch); setCreatingNewProduct(true); setShowVariantModal(true); }}
+                              onMouseDown={(e) => { e.preventDefault(); setShowVariantDrop(false); resetVariantModal(); setNewProductName(variantSearch); setCreatingNewProduct(true); setShowVariantModal(true); }}
                               className="text-xs text-blue-600 hover:underline flex items-center gap-1 mx-auto"
                             >
                               <PackagePlus size={12} /> Crear nueva variante
@@ -644,7 +725,7 @@ export function ComprasManager() {
                             <button
                               key={v.id_variant}
                               type="button"
-                              onClick={() => handleSelectVariant(v)}
+                              onMouseDown={(e) => { e.preventDefault(); handleSelectVariant(v); }}
                               className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0"
                             >
                               <p className="font-medium text-gray-900 text-xs">{v.product_name}</p>
@@ -735,7 +816,19 @@ export function ComprasManager() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button onClick={() => setShowModal(false)} variant="secondary" className="h-8 px-4 text-xs">Cancelar</Button>
+                <Button
+                  onClick={() => {
+                    setShowModal(false);
+                    setShowProveedorModal(false);
+                    setProveedorModalKey(0);
+                    resetForm();
+                    resetVariantModal();
+                  }}
+                  variant="secondary"
+                  className="h-8 px-4 text-xs"
+                >
+                  Cancelar
+                </Button>
                 <Button onClick={handleSave} variant="primary" className="h-8 px-4 text-xs" disabled={isSubmitting}>
                   {isSubmitting ? 'Creando...' : 'Crear Compra'}
                 </Button>
@@ -769,6 +862,7 @@ export function ComprasManager() {
                     value={variantProductSearch}
                     onChange={(e) => { setVariantProductSearch(e.target.value); setSelectedProduct(null); setShowProductDrop(true); }}
                     onFocus={() => setShowProductDrop(true)}
+                    onBlur={() => setTimeout(() => setShowProductDrop(false), 200)}
                     className={`w-full h-8 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${variantErrors.product ? 'border-red-400' : 'border-gray-300'}`}
                   />
                   {selectedProduct && (
@@ -788,7 +882,7 @@ export function ComprasManager() {
                           <button
                             key={p.id_product}
                             type="button"
-                            onClick={() => { setSelectedProduct(p); setVariantProductSearch(p.name); setShowProductDrop(false); setVariantErrors(prev => ({ ...prev, product: '' })); }}
+                            onMouseDown={(e) => { e.preventDefault(); setSelectedProduct(p); setVariantProductSearch(p.name); setShowProductDrop(false); setVariantErrors(prev => ({ ...prev, product: '' })); }}
                             className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-xs"
                           >
                             <p className="font-medium text-gray-900">{p.name}</p>
@@ -878,9 +972,37 @@ export function ComprasManager() {
           <div className="border border-gray-200 rounded-lg p-3 space-y-3">
             <h5 className="font-semibold text-gray-900 text-xs uppercase tracking-wide">2. Talla, Color y SKU</h5>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-gray-700 font-medium mb-1 text-xs">Talla *</label>
+            {/* Talla */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-gray-700 font-medium text-xs">Talla *</label>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => { setVariantSizeMode('select'); setVariantCustomSize(''); }}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      variantSizeMode === 'select'
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Seleccionar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setVariantSizeMode('write'); setVariantSizeId(null); }}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      variantSizeMode === 'write'
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Escribir
+                  </button>
+                </div>
+              </div>
+
+              {variantSizeMode === 'select' ? (
                 <select
                   value={variantSizeId ?? ''}
                   onChange={(e) => { setVariantSizeId(Number(e.target.value) || null); setVariantErrors(prev => ({ ...prev, size: '' })); }}
@@ -889,11 +1011,48 @@ export function ComprasManager() {
                   <option value="">Seleccionar talla...</option>
                   {sizes.map(s => <option key={s.id_size} value={s.id_size}>{s.name}</option>)}
                 </select>
-                {variantErrors.size && <p className="text-red-500 text-xs mt-1">{variantErrors.size}</p>}
+              ) : (
+                <Input
+                  value={variantCustomSize}
+                  onChange={(e) => { setVariantCustomSize(e.target.value); setVariantErrors(prev => ({ ...prev, size: '' })); }}
+                  placeholder="Ej: M, L, 38, etc."
+                  className={`h-8 text-xs ${variantErrors.size ? 'border-red-400' : ''}`}
+                />
+              )}
+              {variantErrors.size && <p className="text-red-500 text-xs mt-1">{variantErrors.size}</p>}
+            </div>
+
+            {/* Color */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-gray-700 font-medium text-xs">Color *</label>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => { setVariantColorMode('select'); setVariantCustomColor(''); }}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      variantColorMode === 'select'
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Seleccionar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setVariantColorMode('write'); setVariantColorId(null); }}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      variantColorMode === 'write'
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Escribir
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-gray-700 font-medium mb-1 text-xs">Color *</label>
+              {variantColorMode === 'select' ? (
                 <select
                   value={variantColorId ?? ''}
                   onChange={(e) => { setVariantColorId(Number(e.target.value) || null); setVariantErrors(prev => ({ ...prev, color: '' })); }}
@@ -902,10 +1061,32 @@ export function ComprasManager() {
                   <option value="">Seleccionar color...</option>
                   {colors.map(c => <option key={c.id_color} value={c.id_color}>{c.name}</option>)}
                 </select>
-                {variantErrors.color && <p className="text-red-500 text-xs mt-1">{variantErrors.color}</p>}
-              </div>
+              ) : (
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <Input
+                      value={variantCustomColor}
+                      onChange={(e) => { setVariantCustomColor(e.target.value); setVariantErrors(prev => ({ ...prev, color: '' })); }}
+                      placeholder="Ej: Rojo, Azul Oscuro, etc."
+                      className={`h-8 text-xs ${variantErrors.color ? 'border-red-400' : ''}`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 pb-0.5">
+                    <label className="text-gray-600 font-medium text-xs">Paleta:</label>
+                    <input
+                      type="color"
+                      value={variantCustomColorHex}
+                      onChange={(e) => setVariantCustomColorHex(e.target.value)}
+                      className="w-10 h-8 rounded border border-gray-300 cursor-pointer"
+                      title="Selecciona el color"
+                    />
+                  </div>
+                </div>
+              )}
+              {variantErrors.color && <p className="text-red-500 text-xs mt-1">{variantErrors.color}</p>}
             </div>
 
+            {/* SKU */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-gray-700 font-medium text-xs">SKU *</label>

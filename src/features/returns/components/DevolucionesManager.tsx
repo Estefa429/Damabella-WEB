@@ -569,13 +569,6 @@ DAMABELLA - Moda Femenina
           <p className="text-gray-600">Crea y gestiona todas tus devoluciones</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-          >
-            <Plus size={16} />
-            Nueva Devolución
-          </button>
           {devoluciones.length > 0 && (
             <button
               onClick={descargarExcel}
@@ -607,10 +600,9 @@ DAMABELLA - Moda Femenina
           <div className="flex items-start gap-3">
             <RotateCcw className="text-purple-600 mt-1" size={24} />
             <div>
-              <h3 className="text-purple-900 mb-1">¿Cómo crear devoluciones?</h3>
+              <h3 className="text-purple-900 mb-1">Sin devoluciones registradas</h3>
               <p className="text-purple-700 text-sm">
-                Haz clic en el botón <strong>"Nueva Devolución"</strong> en la esquina superior derecha para crear una nueva devolución. 
-                Selecciona una venta, los productos y el motivo.
+                No hay devoluciones creadas todavía. Este módulo solo muestra el historial existente.
               </p>
             </div>
           </div>

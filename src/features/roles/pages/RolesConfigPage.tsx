@@ -102,7 +102,7 @@ export default function RolesConfigPage() {
 
         <button className="px-4 py-2 bg-black text-white rounded-lg flex items-center gap-2">
           <Plus size={18} />
-          Nuevo Rol
+          Registrar Rol
         </button>
       </div>
 

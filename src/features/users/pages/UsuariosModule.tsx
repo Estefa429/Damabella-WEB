@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Edit2, Trash2, Users, Search, Download, Eye, EyeOff } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, Search, Download, Eye, EyeOff, ChevronDown } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 import { useToast } from '../../../shared/components/native';
 
@@ -246,20 +246,20 @@ export default function UsuariosModule() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-gray-900 font-bold text-lg mb-1">Gestión de Usuarios</h2>
-          <p className="text-gray-500 text-xs">Administra los usuarios del sistema y sus roles</p>
+          <h2 className="text-gray-900 mb-1">Gestión de Usuarios</h2>
+          <p className="text-gray-600">Administra los usuarios del sistema y sus roles</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={() => setShowReporte(true)} variant="secondary">
             <Download size={16} /> Reporte
           </Button>
           <Button onClick={handleCreate} variant="primary">
-            <Plus size={16} /> Nuevo Usuario
+            <Plus size={16} /> Registrar Usuario
           </Button>
         </div>
       </div>
@@ -431,11 +431,14 @@ export default function UsuariosModule() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-gray-700 font-medium mb-1 text-xs">Tipo de documento *</label>
-              <select value={formData.type_doc} onChange={(e) => setField('type_doc', e.target.value)}
-                className={`w-full h-9 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.type_doc ? 'border-red-400' : 'border-gray-300'}`}>
-                <option value="">Seleccionar...</option>
-                {typeDocs.map(t => <option key={t.id_doc} value={t.id_doc}>{t.name}</option>)}
-              </select>
+              <div className="relative">
+                <select value={formData.type_doc} onChange={(e) => setField('type_doc', e.target.value)}
+                  className={`w-full h-9 px-3 pr-9 border rounded-lg text-xs appearance-none bg-white cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-offset-0 ${formErrors.type_doc ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-gray-400 hover:border-gray-400'}` }>
+                  <option value="">Seleccionar...</option>
+                  {typeDocs.map(t => <option key={t.id_doc} value={t.id_doc}>{t.name}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+              </div>
               {formErrors.type_doc && <p className="text-red-500 text-xs mt-1">{formErrors.type_doc}</p>}
             </div>
             <div>
@@ -456,11 +459,14 @@ export default function UsuariosModule() {
             </div>
             <div>
               <label className="block text-gray-700 font-medium mb-1 text-xs">Rol *</label>
-              <select value={formData.id_rol} onChange={(e) => setField('id_rol', e.target.value)}
-                className={`w-full h-9 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.id_rol ? 'border-red-400' : 'border-gray-300'}`}>
-                <option value="">Seleccionar rol...</option>
-                {roles.filter(r => r.is_active).map(r => <option key={r.idRol} value={r.idRol}>{r.name}</option>)}
-              </select>
+              <div className="relative">
+                <select value={formData.id_rol} onChange={(e) => setField('id_rol', e.target.value)}
+                  className={`w-full h-9 px-3 pr-9 border rounded-lg text-xs appearance-none bg-white cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-offset-0 ${formErrors.id_rol ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-gray-400 hover:border-gray-400'}` }>
+                  <option value="">Seleccionar rol...</option>
+                  {roles.filter(r => r.is_active).map(r => <option key={r.idRol} value={r.idRol}>{r.name}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+              </div>
               {formErrors.id_rol && <p className="text-red-500 text-xs mt-1">{formErrors.id_rol}</p>}
             </div>
           </div>

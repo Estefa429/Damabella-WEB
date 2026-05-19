@@ -435,6 +435,7 @@ export default function ClientesManager() {
                 <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Contacto</th>
                 <th className="text-left py-4 px-6 text-gray-600">Ciudad</th>
+                <th className="text-right py-4 px-6 text-gray-600">Saldo a Favor</th>
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
                 <th className="text-right py-4 px-6 text-gray-600">Acciones</th>
               </tr>
@@ -442,7 +443,7 @@ export default function ClientesManager() {
             <tbody className="divide-y divide-gray-100">
               {paginatedClientes.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-500">
+                  <td colSpan={7} className="py-12 text-center text-gray-500">
                     <Users className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron clientes</p>
                   </td>
@@ -479,13 +480,29 @@ export default function ClientesManager() {
                       </div>
                     </td>
                     <td className="py-4 px-6 text-gray-600">{cliente.city || 'N/A'}</td>
+                    <td className="py-4 px-6 text-right">
+                      <span className={`font-semibold ${
+                        (cliente.saldoAFavor ?? 0) > 0 ? 'text-green-600' : 'text-gray-600'
+                      }`}>
+                        ${(cliente.saldoAFavor ?? 0).toLocaleString('es-CO')}
+                      </span>
+                    </td>
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
-                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          cliente.state ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                        }`}>
-                          {cliente.state ? 'Activo' : 'Inactivo'}
-                        </div>
+                        <button
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleToggleState(cliente)}
+                          disabled={actionLoading}
+                          aria-pressed={cliente.state}
+                          title={cliente.state ? 'Inactivar cliente' : 'Activar cliente'}
+                          className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 ${
+                            cliente.state ? 'bg-green-500' : 'bg-gray-400'
+                          }`}
+                        >
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                            cliente.state ? 'translate-x-6' : 'translate-x-0'
+                          }`} />
+                        </button>
                       </div>
                     </td>
                     <td className="py-4 px-6">
@@ -517,22 +534,6 @@ export default function ClientesManager() {
                           title="Eliminar cliente"
                         >
                           <Trash2 size={18} />
-                        </button>
-
-                        {/* Toggle estado */}
-                        <button
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => handleToggleState(cliente)}
-                          disabled={actionLoading}
-                          aria-pressed={cliente.state}
-                          title={cliente.state ? 'Inactivar cliente' : 'Activar cliente'}
-                          className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 ${
-                            cliente.state ? 'bg-green-500' : 'bg-gray-400'
-                          }`}
-                        >
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                            cliente.state ? 'translate-x-6' : 'translate-x-0'
-                          }`} />
                         </button>
                       </div>
                     </td>

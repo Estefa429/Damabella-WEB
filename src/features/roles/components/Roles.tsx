@@ -473,7 +473,7 @@ export const Roles: React.FC = () => {
       <Modal
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
-        title={selectedRole ? 'Editar Rol' : 'Nuevo Rol'}
+        title={selectedRole ? 'Editar Rol' : 'Agregar Rol'}
       >
         <div className="space-y-4">
           <div className="space-y-2">

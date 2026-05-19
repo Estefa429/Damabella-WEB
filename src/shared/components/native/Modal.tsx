@@ -23,20 +23,14 @@ export function Modal({
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-
     if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
       document.body.style.overflow = noScroll ? 'auto' : 'hidden';
     }
 
     return () => {
-      document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, onClose, noScroll]);
+  }, [isOpen, noScroll]);
 
   if (!isOpen) return null;
 
@@ -54,10 +48,9 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
+      {/* Backdrop - No cierra al hacer clic */}
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
       />
 
       {/* Panel */}

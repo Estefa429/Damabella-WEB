@@ -113,7 +113,13 @@ export const patchState = async (
             is_active: is_active
         });
         if (response.data.success === true) {
-            return response.data.categoria
+            // El backend puede retornar la categoría en diferentes formatos
+            const categoria = response.data.categoria || response.data.category || response.data.object || response.data.results;
+            if (categoria) {
+                return categoria;
+            }
+            // Si no retorna la categoría, traerla por separado
+            return await getCategoriesById(id_category);
         }else{
             console.warn(response.data.message || response.data.error);
             return null

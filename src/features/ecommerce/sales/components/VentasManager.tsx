@@ -1162,7 +1162,7 @@ const paginatedVentas = useMemo(() => {
           </Button>
           <Button onClick={handleCreate} variant="primary">
             <Plus size={20} />
-             Agregar Venta
+             Registrar Venta
           </Button>
         </div>
       </div>

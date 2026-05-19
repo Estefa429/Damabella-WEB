@@ -63,6 +63,8 @@ function DialogContent({
           "bg-white data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[999999] w-full max-w-[calc(100%-2rem)] flex flex-col translate-x-[-50%] translate-y-[-50%] rounded-lg border border-gray-200 p-6 shadow-2xl duration-200 sm:max-w-lg",
           className,
         )}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
         {...props}
       >
         {children}
