@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
   Search,
@@ -14,8 +14,10 @@ import {
 } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { jsPDF } from 'jspdf';
+import { getAllSales, createSale, patchSaleState, exportSales, CreateSaleDTO, Sale } from '../services/SalesServices';
+import { getAllClients, createClients, CreateClientsDTO, Clients } from '../../customers/services/clientsServices';
+import { getAllProducts, Product, getAllColors, getAllSizes, Color, Size } from '../../products/services/productsService';
 
-const STORAGE_KEY = 'damabella_ventas';
 const CLIENTES_KEY = 'damabella_clientes';
 const PRODUCTOS_KEY = 'damabella_productos';
 const DEVOLUCIONES_KEY = 'damabella_devoluciones';
@@ -78,98 +80,12 @@ interface Venta {
 }
 
 export default function VentasManager() {
-  const [ventas, setVentas] = useState<Venta[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
-
-  const [clientes, setClientes] = useState(() => {
-    const stored = localStorage.getItem(CLIENTES_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
-
-  const [productos, setProductos] = useState(() => {
-    const stored = localStorage.getItem(PRODUCTOS_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-
-    const productosEjemplo = [
-      {
-        id: '1',
-        nombre: 'Vestido Corto Casual',
-        referencia: 'VES-CORTA-001',
-        codigoInterno: 'VCC-001',
-        precioVenta: 65000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Rojo', 'Negro', 'Blanco', 'Azul', 'Rosa'],
-      },
-      {
-        id: '2',
-        nombre: 'Vestido Largo Elegante',
-        referencia: 'VES-LARGO-002',
-        codigoInterno: 'VLE-002',
-        precioVenta: 95000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Rojo', 'Champagne', 'Azul Marino'],
-      },
-      {
-        id: '3',
-        nombre: 'Enterizo Ejecutivo',
-        referencia: 'ENT-EJE-003',
-        codigoInterno: 'ENE-003',
-        precioVenta: 85000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Beige', 'Azul Marino', 'Gris'],
-      },
-      {
-        id: '4',
-        nombre: 'Enterizo Casual Denim',
-        referencia: 'ENT-CAS-004',
-        codigoInterno: 'ECD-004',
-        precioVenta: 75000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Azul Claro', 'Azul Oscuro', 'Negro'],
-      },
-      {
-        id: '5',
-        nombre: 'Vestido Corto de Fiesta',
-        referencia: 'VES-FIESTA-005',
-        codigoInterno: 'VCF-005',
-        precioVenta: 78000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Dorado', 'Plata', 'Negro', 'Rojo'],
-      },
-      {
-        id: '6',
-        nombre: 'Vestido Largo de Gala',
-        referencia: 'VES-GALA-006',
-        codigoInterno: 'VLG-006',
-        precioVenta: 120000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Blanco', 'Negro', 'Azul Marino', 'Vino'],
-      },
-      {
-        id: '7',
-        nombre: 'Enterizo Premium',
-        referencia: 'ENT-PREM-007',
-        codigoInterno: 'EPR-007',
-        precioVenta: 105000,
-        activo: true,
-        tallas: ['XS', 'S', 'M', 'L', 'XL'],
-        colores: ['Negro', 'Blanco', 'Rosa Palo', 'Azul Cielo'],
-      },
-    ];
-
-    localStorage.setItem(PRODUCTOS_KEY, JSON.stringify(productosEjemplo));
-    return productosEjemplo;
-  });
+  const [ventas, setVentas] = useState<Venta[]>([]);
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [productos, setProductos] = useState<any[]>([]);
+  const [tallas, setTallas] = useState<Size[]>([]);
+  const [colores, setColores] = useState<Color[]>([]);
+  const [loading, setLoading] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -235,42 +151,101 @@ export default function VentasManager() {
 
 
 
-  const [ventaCounter, setVentaCounter] = useState(() => {
-    const counter = localStorage.getItem('damabella_venta_counter');
-    return counter ? parseInt(counter, 10) : 1;
-  });
-
+  // Cargar datos desde API al montar el componente
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(ventas));
-  }, [ventas]);
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        // Cargar ventas
+        const ventasAPI = await getAllSales();
+        if (ventasAPI) {
+          const ventasMapeadas = ventasAPI.map((sale: Sale): Venta => ({
+            id: sale.id_sale,
+            numeroVenta: sale.number_sale,
+            clienteId: sale.client.toString(),
+            clienteNombre: sale.client_name || '',
+            fechaVenta: sale.date_sale,
+            estado: (sale.void ? 'Anulada' : 'Completada') as 'Completada' | 'Anulada' | 'Devolución',
+            items: (sale.details || []).map(detail => ({
+              id: detail.id_detail?.toString() || '',
+              productoId: detail.variant.toString(),
+              productoNombre: '',
+              talla: '',
+              color: '',
+              cantidad: detail.quantity,
+              precioUnitario: parseFloat(detail.unit_price || '0'),
+              subtotal: parseFloat(detail.subtotal || '0')
+            })),
+            subtotal: parseFloat(sale.subtotal),
+            iva: parseFloat(sale.iva),
+            total: parseFloat(sale.total),
+            metodoPago: sale.payment_method_name || 'Efectivo',
+            observaciones: sale.observations || '',
+            anulada: sale.void || false,
+            motivoAnulacion: sale.void_reason || '',
+            createdAt: sale.created_at || new Date().toISOString()
+          }));
+          setVentas(ventasMapeadas);
+        }
 
-  useEffect(() => {
-    localStorage.setItem('damabella_venta_counter', ventaCounter.toString());
-  }, [ventaCounter]);
+        // Cargar clientes
+        const clientesAPI = await getAllClients();
+        if (clientesAPI) {
+          const clientesMapeados = clientesAPI.map((client: Clients) => ({
+            id: client.id_client,
+            nombre: client.name,
+            tipoDoc: client.type_doc,
+            numeroDoc: client.doc,
+            telefono: client.phone,
+            email: client.email,
+            direccion: client.address,
+            ciudad: client.city,
+            activo: client.state,
+            saldoAFavor: 0 // Ajustar si tu API retorna este campo
+          }));
+          setClientes(clientesMapeados);
+        }
+
+        // Cargar productos
+        const productosAPI = await getAllProducts();
+        if (productosAPI) {
+          const productosMapeados = productosAPI.map((product: Product) => ({
+            id: product.id_product.toString(),
+            nombre: product.name,
+            categoria: product.category,
+            categoriaNombre: product.category_name,
+            precioVenta: product.price,
+            precioCompra: product.purchase_price,
+            activo: product.is_active
+          }));
+          setProductos(productosMapeados);
+        }
+
+        // Cargar tallas y colores
+        const tallasAPI = await getAllSizes();
+        const coloresAPI = await getAllColors();
+        if (tallasAPI) setTallas(tallasAPI);
+        if (coloresAPI) setColores(coloresAPI);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
 
   useEffect(() => {
   const handleStorageChange = () => {
-    const storedProductos = localStorage.getItem(PRODUCTOS_KEY);
-    const storedClientes = localStorage.getItem(CLIENTES_KEY);
-    const storedVentas = localStorage.getItem(STORAGE_KEY);
-
-    if (storedProductos) setProductos(JSON.parse(storedProductos));
-    if (storedClientes) setClientes(JSON.parse(storedClientes));
-    if (storedVentas) setVentas(JSON.parse(storedVentas));
-  };
-
-  // ✅ nuevo: refrescar clientes cuando otro módulo actualice CLIENTES_KEY
-  const handleClientsUpdated = () => {
-    const storedClientes = localStorage.getItem(CLIENTES_KEY);
-    if (storedClientes) setClientes(JSON.parse(storedClientes));
+    // Ahora los datos se cargan desde API, no desde localStorage
   };
 
   const handlePedidoConvertidoAVenta = (event: any) => {
     const { pedido } = event.detail;
     if (!pedido?.numeroPedido) return;
 
-    const clientesActuales = JSON.parse(localStorage.getItem(CLIENTES_KEY) || '[]');
-    const cliente = clientesActuales.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
+    const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
     if (!cliente) return;
 
     setVentas((prevVentas) => {
@@ -303,17 +278,12 @@ export default function VentasManager() {
         pedido_id: pedido.numeroPedido
       };
 
-      const counter = parseInt(localStorage.getItem('damabella_venta_counter') || '1', 10);
-      const numeroVenta = `VEN-${String(counter).padStart(3, '0')}`;
+      const numeroVenta = `VEN-${(prevVentas.length + 1).toString().padStart(3, '0')}`;
 
       const nuevaVenta: Venta = {
         ...nuevaVentaBase,
         numeroVenta
       };
-
-      localStorage.setItem('damabella_venta_counter', String(counter + 1));
-      const next = parseInt(localStorage.getItem('damabella_venta_counter') || '1', 10);
-      setVentaCounter(next);
 
       return [...prevVentas, nuevaVenta];
     });
@@ -321,24 +291,17 @@ export default function VentasManager() {
     window.dispatchEvent(new Event('salesUpdated'));
   };
 
-  // carga inicial
-  handleStorageChange();
-
-  window.addEventListener('storage', handleStorageChange);
   window.addEventListener('salesUpdated', handleStorageChange);
-  window.addEventListener('clientsUpdated', handleClientsUpdated);
   window.addEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
 
   return () => {
-    window.removeEventListener('storage', handleStorageChange);
     window.removeEventListener('salesUpdated', handleStorageChange);
-    window.removeEventListener('clientsUpdated', handleClientsUpdated);
     window.removeEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
   };
-}, []);
+}, [clientes]);
 
 
-  const generarNumeroVenta = () => `VEN-${ventaCounter.toString().padStart(3, '0')}`;
+  const generarNumeroVenta = () => `VEN-${(ventas.length + 1).toString().padStart(3, '0')}`;
 
   const calcularTotales = (items: ItemVenta[]) => {
     const subtotal = items.reduce((sum, item) => {
@@ -446,50 +409,37 @@ export default function VentasManager() {
 
 
 
-  const filteredClientes = clientes.filter((c: any) =>
-    (c.nombre?.toLowerCase() ?? '').includes(clienteSearchTerm.toLowerCase()) ||
-    (c.numeroDoc ?? '').includes(clienteSearchTerm)
-  );
+  const filteredClientes = useMemo(() => {
+    // Si el campo de búsqueda está vacío, mostrar todos los clientes
+    if (!clienteSearchTerm.trim()) {
+      return clientes;
+    }
+    // Si hay texto, filtrar por nombre o documento
+    return clientes.filter((c: any) =>
+      (c.nombre?.toLowerCase() ?? '').includes(clienteSearchTerm.toLowerCase()) ||
+      (c.numeroDoc ?? '').includes(clienteSearchTerm)
+    );
+  }, [clientes, clienteSearchTerm]);
 
   const getProductoSeleccionado = () => productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
 
   const getTallasDisponibles = () => {
-    const producto = getProductoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
-    return producto.tallas || [];
+    return tallas.map(t => t.name).filter(Boolean);
   };
 
   const getColoresDisponibles = () => {
-    const producto = getProductoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes && nuevoItem.talla) {
-      const variante = producto.variantes.find((v: any) => v.talla === nuevoItem.talla);
-      if (!variante) return [];
-      return variante.colores.map((c: any) => c.color);
-    }
-    return producto.colores || [];
+    return colores.map(c => c.name).filter(Boolean);
   };
 
   const getProductoNuevoSeleccionado = () =>
     productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
 
   const getTallasDisponiblesCambio = () => {
-    const producto = getProductoNuevoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes) return producto.variantes.map((v: any) => v.talla);
-    return producto.tallas || [];
+    return tallas.map(t => t.name).filter(Boolean);
   };
 
   const getColoresDisponiblesCambio = () => {
-    const producto = getProductoNuevoSeleccionado();
-    if (!producto) return [];
-    if (producto.variantes && devolucionData.productoNuevoTalla) {
-      const variante = producto.variantes.find((v: any) => v.talla === devolucionData.productoNuevoTalla);
-      if (!variante) return [];
-      return (variante.colores || []).map((c: any) => c.color);
-    }
-    return producto.colores || [];
+    return colores.map(c => c.name).filter(Boolean);
   };
 
   // Helper: obtener stock actual para un item de venta (por talla/color si aplica)
@@ -598,8 +548,7 @@ export default function VentasManager() {
     }));
   };
 
-  const handleSave = () => {
-    const numeroVenta = generarNumeroVenta();
+  const handleSave = async () => {
     const allErrors: any = {};
     const fieldErrors = validateField('clienteId', formData.clienteId);
     if (fieldErrors.clienteId) allErrors.clienteId = fieldErrors.clienteId;
@@ -638,49 +587,99 @@ export default function VentasManager() {
       return;
     }
 
-    const ventaData: Venta = {
-      id: Date.now(),
-      numeroVenta,
-      clienteId: formData.clienteId,
-      clienteNombre: clienteSel.nombre,
-      fechaVenta: formData.fechaVenta,
-      estado: 'Completada',
-      items: formData.items,
-      subtotal: totales.subtotal,
-      iva: totales.iva,
-      total: totales.total,
-      metodoPago: usarSaldoAFavor
-        ? (restante > 0 ? `Saldo a favor + ${metodoPagoRestante}` : 'Saldo a favor')
-        : formData.metodoPago,
+    try {
+      setLoading(true);
+      
+      // Crear la venta en la API
+      const saleDTO: CreateSaleDTO = {
+        client: parseInt(formData.clienteId, 10),
+        payment_method: 1, // ID del método de pago (ajustar según tu API)
+        date_sale: formData.fechaVenta,
+        state: 1, // Estado: Completada
+        observations: formData.observaciones,
+        details: formData.items.map(item => ({
+          variant: parseInt(item.productoId, 10),
+          quantity: item.cantidad,
+          unit_price: item.precioUnitario.toString(),
+          subtotal: item.subtotal.toString()
+        }))
+      };
 
-      observaciones: formData.observaciones,
-      anulada: false,
-      createdAt: new Date().toISOString()
-    };
-
-    setVentas(prev => [...prev, ventaData]);
-    if (saldoUsado > 0) {
-      const clientesActualizados = clientes.map((c: any) => {
-        if (c.id.toString() === formData.clienteId.toString()) {
-          return { ...c, saldoAFavor: Number(c.saldoAFavor || 0) - saldoUsado };
+      const resultado = await createSale(saleDTO);
+      
+      if (resultado) {
+        // Recargar ventas desde el API
+        const ventasActualizadas = await getAllSales();
+        if (ventasActualizadas) {
+          const ventasMapeadas = ventasActualizadas.map((sale: Sale): Venta => ({
+            id: sale.id_sale,
+            numeroVenta: sale.number_sale,
+            clienteId: sale.client.toString(),
+            clienteNombre: sale.client_name || '',
+            fechaVenta: sale.date_sale,
+            estado: (sale.void ? 'Anulada' : 'Completada') as 'Completada' | 'Anulada' | 'Devolución',
+            items: (sale.details || []).map(detail => ({
+              id: detail.id_detail?.toString() || '',
+              productoId: detail.variant.toString(),
+              productoNombre: '',
+              talla: '',
+              color: '',
+              cantidad: detail.quantity,
+              precioUnitario: parseFloat(detail.unit_price || '0'),
+              subtotal: parseFloat(detail.subtotal || '0')
+            })),
+            subtotal: parseFloat(sale.subtotal),
+            iva: parseFloat(sale.iva),
+            total: parseFloat(sale.total),
+            metodoPago: sale.payment_method_name || 'Efectivo',
+            observaciones: sale.observations || '',
+            anulada: sale.void || false,
+            motivoAnulacion: sale.void_reason || '',
+            createdAt: sale.created_at || new Date().toISOString()
+          }));
+          setVentas(ventasMapeadas);
         }
-        return c;
-      });
 
-      localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
-      window.dispatchEvent(new Event('clientsUpdated'));
-      setClientes(clientesActualizados);
+        // Actualizar saldo del cliente si se utilizó (actualización local)
+        if (saldoUsado > 0) {
+          const clientesActualizados = clientes.map((c: any) => {
+            if (c.id.toString() === formData.clienteId.toString()) {
+              return { ...c, saldoAFavor: Number(c.saldoAFavor || 0) - saldoUsado };
+            }
+            return c;
+          });
+
+          setClientes(clientesActualizados);
+        }
+
+        setShowModal(false);
+        setFormData({
+          clienteId: '',
+          fechaVenta: new Date().toISOString().split('T')[0],
+          metodoPago: 'Efectivo',
+          observaciones: '',
+          items: []
+        });
+
+        setNotificationMessage('Venta creada exitosamente');
+        setNotificationType('success');
+        setShowNotificationModal(true);
+      } else {
+        setNotificationMessage('Error al crear la venta');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+      }
+    } catch (error) {
+      console.error('Error al guardar venta:', error);
+      setNotificationMessage('Error al crear la venta');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+    } finally {
+      setLoading(false);
     }
-
-    setVentaCounter(ventaCounter + 1);
-    setShowModal(false);
-
-    setNotificationMessage('Venta creada exitosamente');
-    setNotificationType('success');
-    setShowNotificationModal(true);
   };
 
-  const handleAnular = () => {
+  const handleAnular = async () => {
     if (!ventaToAnular || !motivoAnulacion.trim()) {
       setNotificationMessage('Debes ingresar un motivo de anulación');
       setNotificationType('error');
@@ -688,22 +687,68 @@ export default function VentasManager() {
       return;
     }
 
-    setVentas(ventas.map(v =>
-      v.id === ventaToAnular.id
-        ? { ...v, estado: 'Anulada', anulada: true, motivoAnulacion }
-        : v
-    ));
+    try {
+      setLoading(true);
+      
+      // Actualizar estado en la API (cambiar a anulada)
+      const resultado = await patchSaleState(ventaToAnular.id, 3); // Estado 3 = Anulada (ajustar según API)
+      
+      if (resultado) {
+        // Recargar ventas desde la API
+        const ventasActualizadas = await getAllSales();
+        if (ventasActualizadas) {
+          const ventasMapeadas = ventasActualizadas.map((sale: Sale): Venta => ({
+            id: sale.id_sale,
+            numeroVenta: sale.number_sale,
+            clienteId: sale.client.toString(),
+            clienteNombre: sale.client_name || '',
+            fechaVenta: sale.date_sale,
+            estado: (sale.void ? 'Anulada' : 'Completada') as 'Completada' | 'Anulada' | 'Devolución',
+            items: (sale.details || []).map(detail => ({
+              id: detail.id_detail?.toString() || '',
+              productoId: detail.variant.toString(),
+              productoNombre: '',
+              talla: '',
+              color: '',
+              cantidad: detail.quantity,
+              precioUnitario: parseFloat(detail.unit_price || '0'),
+              subtotal: parseFloat(detail.subtotal || '0')
+            })),
+            subtotal: parseFloat(sale.subtotal),
+            iva: parseFloat(sale.iva),
+            total: parseFloat(sale.total),
+            metodoPago: sale.payment_method_name || 'Efectivo',
+            observaciones: sale.observations || '',
+            anulada: sale.void || false,
+            motivoAnulacion: sale.void_reason || '',
+            createdAt: sale.created_at || new Date().toISOString()
+          }));
+          setVentas(ventasMapeadas);
+        }
 
-    setShowAnularModal(false);
-    setVentaToAnular(null);
-    setMotivoAnulacion('');
+        setShowAnularModal(false);
+        setVentaToAnular(null);
+        setMotivoAnulacion('');
 
-    setNotificationMessage('Venta anulada exitosamente');
-    setNotificationType('success');
-    setShowNotificationModal(true);
+        setNotificationMessage('Venta anulada exitosamente');
+        setNotificationType('success');
+        setShowNotificationModal(true);
+      } else {
+        setNotificationMessage('Error al anular la venta');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+      }
+    } catch (error) {
+      console.error('Error al anular venta:', error);
+      setNotificationMessage('Error al anular la venta');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleCrearCliente = () => {
+  const handleCrearCliente = async () => {
     if (!nuevoCliente.nombre || !nuevoCliente.numeroDoc || !nuevoCliente.telefono) {
       setNotificationMessage('Completa los campos obligatorios');
       setNotificationType('error');
@@ -711,34 +756,65 @@ export default function VentasManager() {
       return;
     }
 
-    const clienteData = {
-      id: Date.now(),
-      ...nuevoCliente,
-      saldoAFavor: 0,
-      activo: true,
-      createdAt: new Date().toISOString()
-    };
+    try {
+      setLoading(true);
 
-    const clientesActuales = JSON.parse(localStorage.getItem(CLIENTES_KEY) || '[]');
-    localStorage.setItem(CLIENTES_KEY, JSON.stringify([...clientesActuales, clienteData]));
+      const clienteDTO: CreateClientsDTO = {
+        name: nuevoCliente.nombre,
+        type_doc: nuevoCliente.tipoDoc === 'CC' ? 1 : nuevoCliente.tipoDoc === 'CE' ? 2 : 3,
+        doc: nuevoCliente.numeroDoc,
+        phone: nuevoCliente.telefono,
+        email: nuevoCliente.email,
+        address: nuevoCliente.direccion,
+        city: ''
+      };
 
-    setClientes([...clientes, clienteData]);
-    setFormData({ ...formData, clienteId: clienteData.id.toString() });
-    setClienteSearchTerm(clienteData.nombre);
-    setSelectedClienteNombre(clienteData.nombre);
-    setShowClienteModal(false);
-    setNuevoCliente({
-      nombre: '',
-      tipoDoc: 'CC',
-      numeroDoc: '',
-      telefono: '',
-      email: '',
-      direccion: ''
-    });
+      const clienteCreado = await createClients(clienteDTO);
 
-    setNotificationMessage('Cliente creado exitosamente');
-    setNotificationType('success');
-    setShowNotificationModal(true);
+      if (clienteCreado) {
+        const clienteMapeado = {
+          id: clienteCreado.id_client,
+          nombre: clienteCreado.name,
+          tipoDoc: clienteCreado.type_doc,
+          numeroDoc: clienteCreado.doc,
+          telefono: clienteCreado.phone,
+          email: clienteCreado.email,
+          direccion: clienteCreado.address,
+          ciudad: clienteCreado.city,
+          activo: clienteCreado.state,
+          saldoAFavor: 0
+        };
+
+        setClientes([...clientes, clienteMapeado]);
+        setFormData({ ...formData, clienteId: clienteMapeado.id.toString() });
+        setClienteSearchTerm(clienteMapeado.nombre);
+        setSelectedClienteNombre(clienteMapeado.nombre);
+        setShowClienteModal(false);
+        setNuevoCliente({
+          nombre: '',
+          tipoDoc: 'CC',
+          numeroDoc: '',
+          telefono: '',
+          email: '',
+          direccion: ''
+        });
+
+        setNotificationMessage('Cliente creado exitosamente');
+        setNotificationType('success');
+        setShowNotificationModal(true);
+      } else {
+        setNotificationMessage('Error al crear el cliente');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+      }
+    } catch (error) {
+      console.error('Error al crear cliente:', error);
+      setNotificationMessage('Error al crear el cliente');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCrearDevolucion = () => {
@@ -873,7 +949,7 @@ export default function VentasManager() {
 
     localStorage.setItem(DEVOLUCIONES_KEY, JSON.stringify([...devoluciones, nuevaDevolucion]));
 
-    // Actualizar saldo a favor del cliente
+    // Actualizar saldo a favor del cliente (actualización local)
     const clientesActualizados = clientes.map((c: any) => {
       if (c.id.toString() === ventaToDevolver.clienteId.toString()) {
         return {
@@ -884,8 +960,6 @@ export default function VentasManager() {
       return c;
     });
 
-
-    localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientesActualizados));
     setClientes(clientesActualizados);
 
     // ✅ CAMBIO CLAVE: Marcar la venta como "Devolución"
@@ -1000,109 +1074,29 @@ export default function VentasManager() {
   };
 
   
-  const descargarTodasEnExcel = () => {
-  if (ventas.length === 0) {
-    setNotificationMessage('No hay ventas para descargar');
-    setNotificationType('info');
-    setShowNotificationModal(true);
-    return;
-  }
+  const descargarTodasEnExcel = async () => {
+    if (ventas.length === 0) {
+      setNotificationMessage('No hay ventas para descargar');
+      setNotificationType('info');
+      setShowNotificationModal(true);
+      return;
+    }
 
-  try {
-    // 1) Armamos filas DETALLADAS: 1 fila por item (producto)
-    const filas: any[] = [];
-
-    ventas.forEach((v) => {
-      if (!v.items || v.items.length === 0) {
-        // Si una venta no tiene items, igual dejamos una fila (opcional)
-        filas.push({
-          'ID Venta': v.numeroVenta,
-          'ID Pedido': v.pedido_id || 'N/A',
-          'Cliente': v.clienteNombre,
-          'Fecha': new Date(v.fechaVenta).toLocaleDateString(),
-          'Estado': v.estado,
-          'Método Pago': v.metodoPago,
-          'Observaciones': v.observaciones || 'N/A',
-
-          'Producto': 'N/A',
-          'Talla': 'N/A',
-          'Color': 'N/A',
-          'Cantidad': 0,
-          'Precio Unitario': 0,
-          'Subtotal Ítem': 0,
-
-          'Subtotal Venta': v.subtotal,
-          'IVA Venta': v.iva,
-          'Total Venta': v.total
-        });
-        return;
-      }
-
-      v.items.forEach((item) => {
-        filas.push({
-          'ID Venta': v.numeroVenta,
-          'ID Pedido': v.pedido_id || 'N/A',
-          'Cliente': v.clienteNombre,
-          'Fecha': new Date(v.fechaVenta).toLocaleDateString(),
-          'Estado': v.estado,
-          'Método Pago': v.metodoPago,
-          'Observaciones': v.observaciones || 'N/A',
-
-          'Producto': item.productoNombre,
-          'Talla': item.talla,
-          'Color': item.color,
-          'Cantidad': item.cantidad,
-          'Precio Unitario': item.precioUnitario,
-          'Subtotal Ítem': item.subtotal,
-
-          'Subtotal Venta': v.subtotal,
-          'IVA Venta': v.iva,
-          'Total Venta': v.total
-        });
-      });
-    });
-
-    // 2) Definimos headers
-    const headers = Object.keys(filas[0] || {});
-
-    // 3) CSV escape
-    const escapeCSV = (value: any) => {
-      if (value === null || value === undefined) return '';
-      const str = value.toString();
-      return `"${str.replace(/"/g, '""')}"`;
-    };
-
-    // 4) Generar TSV (tab-separated) y descargar con extensión .xlsx
-    const tsvContent = [
-      headers.join('\t'),
-      ...filas.map((row) => headers.map((h) => {
-        const v = row[h];
-        const s = v == null ? '' : String(v);
-        return s.replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
-      }).join('\t'))
-    ].join('\n');
-
-    // 5) Descargar con nombre .xlsx
-    const blob = new Blob([tsvContent], { type: 'text/plain;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Ventas_Detalladas_${new Date().toISOString().split('T')[0]}.xlsx`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    setNotificationMessage('Ventas descargadas exitosamente');
-    setNotificationType('success');
-    setShowNotificationModal(true);
-  } catch (error) {
-    setNotificationMessage('Error al descargar las ventas');
-    setNotificationType('error');
-    setShowNotificationModal(true);
-  }
-};
+    try {
+      setLoading(true);
+      await exportSales();
+      setNotificationMessage('Ventas descargadas exitosamente');
+      setNotificationType('success');
+      setShowNotificationModal(true);
+    } catch (error) {
+      console.error('Error al descargar ventas:', error);
+      setNotificationMessage('Error al descargar las ventas');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
 
   const filteredVentas = ventas.filter(v => {
