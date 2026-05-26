@@ -168,6 +168,7 @@ export default function PermisosPage() {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         title={editingPermission ? 'Editar Permiso' : 'Crear Permiso'}
+        size="md"
       >
         <div className="space-y-4">
           <div>

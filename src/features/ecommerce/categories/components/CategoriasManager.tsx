@@ -9,6 +9,7 @@ import {
   deleteCategories, 
   patchState, 
   searchCategories,
+  getProductsByCategory,
   Categories 
 } from '../services/categoriesService';
 
@@ -18,6 +19,7 @@ export default function CategoriasManager() {
   const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [productCountByCategory, setProductCountByCategory] = useState<Record<number, number>>({});
   
   // Hooks
   const { showToast } = useToast();
@@ -74,6 +76,14 @@ export default function CategoriasManager() {
           active: cat.is_active
         }));
         setCategories(normalized);
+
+        // Cargar cantidad de productos por cada categoría
+        const counts: Record<number, number> = {};
+        for (const category of normalized) {
+          const count = await getProductsByCategory(category.id_category);
+          counts[category.id_category] = count || 0;
+        }
+        setProductCountByCategory(counts);
       } else {
         showToast('Error al cargar las categorías', 'error');
       }
@@ -105,7 +115,7 @@ export default function CategoriasManager() {
   }, [canViewCategorias, canCreateCategorias, canEditCategorias]);
 
   const getProductosPorCategoria = (categoryId: number) => {
-    return 0;
+    return productCountByCategory[categoryId] ?? 0;
   };
 
   const handleViewProducts = (category: Categories) => {

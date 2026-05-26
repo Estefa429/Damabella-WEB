@@ -5,6 +5,11 @@ export interface Categories {
     name : string;
     description : string;
     is_active : boolean;
+}
+
+export interface CategoryProductsCount {
+    id_category: number;
+    count: number;
 } 
 export const getAllCategories = async (): Promise<Categories[] | null> => {
     try{
@@ -127,5 +132,23 @@ export const patchState = async (
     }catch(error:any){
         console.error(error)
         return null
+    }
+}
+
+export const getProductsByCategory = async (id_category: number): Promise<number | null> => {
+    try {
+        const response = await API.get(`/categories/${id_category}/get_products_by_category/`);
+        if (response.data.success === true) {
+            // El servidor retorna el count de productos
+            const count = response.data.count || response.data.results?.length || 0;
+            console.log(`📦 getProductsByCategory - Categoría ${id_category}: ${count} productos`);
+            return count;
+        } else {
+            console.warn(response.data.message || response.data.error);
+            return 0;
+        }
+    } catch (error: any) {
+        console.error('Error obteniendo productos por categoría:', error);
+        return 0;
     }
 }

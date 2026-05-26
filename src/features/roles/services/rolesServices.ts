@@ -137,7 +137,7 @@ export const getAllPermissions = async (): Promise<Permission[] | null> => {
 
 export const getPermissionsByRol = async (rolId: number): Promise<RolPermission[] | null> => {
   try {
-    const response = await API.get(`/rolPermissions/${rolId}/get_permissions_by_rol/`);
+    const response = await API.get(`/rolPermission/${rolId}/get_permissions_by_rol/`);
     if (response.data.success === true) return response.data.results;
     console.warn(response.data.message);
     return null;
@@ -149,7 +149,7 @@ export const getPermissionsByRol = async (rolId: number): Promise<RolPermission[
 
 export const assignPermission = async (rol: number, permission: number): Promise<boolean> => {
   try {
-    const response = await API.post('/rolPermissions/assing_permission/', { rol, permission });
+    const response = await API.post('/rolPermission/assing_permission/', { rol, permission });
     if (response.data.success === true) return true;
     console.warn(response.data.message);
     return false;
@@ -161,7 +161,7 @@ export const assignPermission = async (rol: number, permission: number): Promise
 
 export const removePermission = async (rol: number, permission: number): Promise<boolean> => {
   try {
-    const response = await API.delete('/rolPermissions/delete_rol_permission/', {
+    const response = await API.delete('/rolPermission/delete_rol_permission/', {
       data: { rol, permission },
     });
     if (response.data.success === true) return true;

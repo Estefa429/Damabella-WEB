@@ -38,6 +38,17 @@ export interface CreateVariantDTO {
   sku:     string;
 }
 
+export interface CreateProductWithVariantDTO {
+  name:            string;
+  category:        number;
+  price:           number;
+  purchase_price:  number;
+  sku:             string;
+  size:            number;
+  color:           number;
+  stock:           number;
+}
+
 export const getAllColors = async (): Promise<Color[] | null> => {
   try {
     const res = await API.get('/colors/get_colors/');
@@ -73,14 +84,32 @@ export const createProduct = async (data: CreateProductDTO): Promise<Product | n
   } catch { return null; }
 };
 
+export const createProductWithVariant = async (data: CreateProductWithVariantDTO): Promise<Product | null> => {
+  try {
+    console.log('🔄 createProductWithVariant - Datos enviados:', data);
+    const res = await API.post('/products/create_products/', data);
+    console.log('✅ createProductWithVariant - Respuesta:', res.data);
+    return res.data.success ? res.data.product : null;
+  } catch(error:any) {
+    console.error('❌ createProductWithVariant - Error:', error.message);
+    console.error('❌ createProductWithVariant - Detalles:', JSON.stringify(error.response?.data, null, 2));
+    console.error('❌ createProductWithVariant - Status:', error.response?.status);
+    return null;
+  }
+};
+
 export const createVariant = async (data: CreateVariantDTO): Promise<VariantProduct | null> => {
   try {
+    console.log('🔄 createVariant - Datos enviados:', data);
     const res = await API.post('/variants/create_variant/', data);
+    console.log('✅ createVariant - Respuesta:', res.data);
     return res.data.success ? res.data.object : null;
   } catch(error:any) { 
-    console.error('createVariant error:', JSON.stringify(error.response?.data));
+    console.error('❌ createVariant - Error directo:', error.message);
+    console.error('❌ createVariant - Datos del error:', JSON.stringify(error.response?.data, null, 2));
+    console.error('❌ createVariant - Status:', error.response?.status);
     return null; 
-}
+  }
 };
 
 export const updateProduct = async (id: number, data: Partial<Product>): Promise<Product | null> => {

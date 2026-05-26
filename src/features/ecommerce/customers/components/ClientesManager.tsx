@@ -3,6 +3,7 @@ import { Plus, Edit2, Eye, Search, Phone, Mail, Trash2, Users, Loader } from 'lu
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import {
   getAllClients,
+  getClientsByRol,
   createClients,
   updateClients,
   deleteClients,
@@ -81,7 +82,7 @@ export default function ClientesManager() {
   // ─── Carga inicial ────────────────────────────────────────────────────────────
   const fetchClientes = useCallback(async () => {
     setLoading(true);
-    const data = await getAllClients();
+    const data = await getClientsByRol();
     setClientes(data ?? []);
     setLoading(false);
   }, []);

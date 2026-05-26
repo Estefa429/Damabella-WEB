@@ -11,8 +11,16 @@ import {
   patchProductState,
   deleteProduct,
   createProduct,
+  createProductWithVariant,
+  createVariant,
+  getAllColors,
+  getAllSizes,
+  createColor,
+  createSize,
   Product,
   Inventory,
+  Color,
+  Size,
 } from '@/features/ecommerce/products/services/productsService';
 import { getAllVariants, VariantProduct } from '@/features/purchases/services/PurchasesService';
 import { getAllCategories, Categories } from '@/features/ecommerce/categories/services/categoriesService';
@@ -30,6 +38,8 @@ export default function ProductosManager() {
   const [variants,   setVariants]   = useState<VariantProduct[]>([]);
   const [inventory,  setInventory]  = useState<Inventory[]>([]);
   const [categories, setCategories] = useState<Categories[]>([]);
+  const [colors,     setColors]     = useState<Color[]>([]);
+  const [sizes,      setSizes]      = useState<Size[]>([]);
   const [loading,    setLoading]    = useState(true);
 
   // ─── UI ──────────────────────────────────────────────────────────────────────
@@ -73,24 +83,35 @@ export default function ProductosManager() {
   const [addImage, setAddImage] = useState<File | null>(null);
   const [addImagePreview, setAddImagePreview] = useState<string>('');
   const [addStock, setAddStock] = useState('');
-  const [addColor, setAddColor] = useState('');
-  const [addSize, setAddSize] = useState('');
+  const [addColorId, setAddColorId] = useState<number | null>(null);
+  const [addSizeId, setAddSizeId] = useState<number | null>(null);
   const [imageBase64, setImageBase64] = useState<string>('');
+  const [addSku, setAddSku] = useState('');
+
+  // Estados para crear nueva talla/color
+  const [isCreatingNewColor, setIsCreatingNewColor] = useState(false);
+  const [isCreatingNewSize, setIsCreatingNewSize] = useState(false);
+  const [newColorName, setNewColorName] = useState('');
+  const [newSizeName, setNewSizeName] = useState('');
 
   // ─── Load data ───────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [prods, vars, inv, cats] = await Promise.all([
+      const [prods, vars, inv, cats, cols, szs] = await Promise.all([
         getAllProducts(),
         getAllVariants(),
         getAllInventory(),
         getAllCategories(),
+        getAllColors(),
+        getAllSizes(),
       ]);
       if (prods) setProducts(prods);
       if (vars)  setVariants(vars);
       if (inv)   setInventory(inv);
       if (cats)  setCategories(cats);
+      if (cols)  setColors(cols);
+      if (szs)   setSizes(szs);
     } catch {
       showToast('Error cargando productos', 'error');
     } finally {
@@ -156,6 +177,16 @@ export default function ProductosManager() {
     return 0;
   };
 
+  // ─── Auto-generar SKU ────────────────────────────────────────────────────────
+  const autoGenerateSku = () => {
+    const productPrefix = addName.substring(0, 3).toUpperCase() || 'PRD';
+    const sizeStr = sizes.find(s => s.id_size === addSizeId)?.name.toUpperCase() || 'N/A';
+    const colorStr = colors.find(c => c.id_color === addColorId)?.name.substring(0, 3).toUpperCase() || 'N/A';
+    const timestamp = Date.now().toString().slice(-6);
+    
+    setAddSku(`${productPrefix}-${sizeStr}-${colorStr}-${timestamp}`);
+  };
+
   // ─── Filter & paginate ───────────────────────────────────────────────────────
   const filtered = products.filter(p => {
     const q = searchTerm.toLowerCase();
@@ -217,10 +248,15 @@ export default function ProductosManager() {
     setAddImage(null);
     setAddImagePreview('');
     setAddStock('');
-    setAddColor('');
-    setAddSize('');
+    setAddColorId(null);
+    setAddSizeId(null);
     setImageBase64('');
+    setAddSku('');
     setAddErrors({});
+    setIsCreatingNewColor(false);
+    setIsCreatingNewSize(false);
+    setNewColorName('');
+    setNewSizeName('');
     setShowAddModal(true);
   };
 
@@ -238,54 +274,185 @@ export default function ProductosManager() {
     }
   };
 
+  // Crear nuevo color
+  const handleCreateColor = async () => {
+    if (!newColorName.trim()) {
+      showToast('Ingresa un nombre para el color', 'error');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    const newColor = await createColor(newColorName.trim());
+    
+    if (newColor) {
+      showToast('Color creado exitosamente', 'success');
+      setColors([...colors, newColor]);
+      setAddColorId(newColor.id_color);
+      setIsCreatingNewColor(false);
+      setNewColorName('');
+    } else {
+      showToast('Error al crear el color', 'error');
+    }
+    setIsSubmitting(false);
+  };
+
+  // Crear nueva talla
+  const handleCreateSize = async () => {
+    if (!newSizeName.trim()) {
+      showToast('Ingresa un nombre para la talla', 'error');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    const newSize = await createSize(newSizeName.trim());
+    
+    if (newSize) {
+      showToast('Talla creada exitosamente', 'success');
+      setSizes([...sizes, newSize]);
+      setAddSizeId(newSize.id_size);
+      setIsCreatingNewSize(false);
+      setNewSizeName('');
+    } else {
+      showToast('Error al crear la talla', 'error');
+    }
+    setIsSubmitting(false);
+  };
+
   const handleSaveAdd = async () => {
     const errors: Record<string, string> = {};
     if (!addName.trim())                     errors.name     = 'El nombre es obligatorio';
     if (!addPrice || Number(addPrice) <= 0) errors.price    = 'El precio debe ser mayor a 0';
     if (!addPurchasePrice || Number(addPurchasePrice) <= 0) errors.purchasePrice = 'El precio de compra debe ser mayor a 0';
     if (!addCategory)                        errors.category = 'Selecciona una categoría';
+    
+    // Detectar si hay campos de variante parcialmente llenados
+    const hasAnyVariantField = !!(addColorId || addSizeId || addStock || addSku.trim());
+    const allVariantFieldsPresent = !!(addColorId && addSizeId && addStock && Number(addStock) > 0 && addSku.trim());
+
+    console.log('📋 handleSaveAdd - Estado de campos:');
+    console.log('  addColorId:', addColorId, 'tipo:', typeof addColorId);
+    console.log('  addSizeId:', addSizeId, 'tipo:', typeof addSizeId);
+    console.log('  addStock:', addStock, 'tipo:', typeof addStock);
+    console.log('  addSku:', addSku, 'tipo:', typeof addSku);
+    console.log('  hasAnyVariantField:', hasAnyVariantField);
+    console.log('  allVariantFieldsPresent:', allVariantFieldsPresent);
+
+    // Si hay al menos un campo de variante, validar que TODOS estén presentes
+    if (hasAnyVariantField && !allVariantFieldsPresent) {
+      if (!addColorId) errors.color = 'Color es requerido (o déjalo vacío para omitir variante)';
+      if (!addSizeId)  errors.size  = 'Talla es requerida (o déjalo vacío para omitir variante)';
+      if (!addStock || Number(addStock) <= 0) errors.stock = 'Stock es requerido (o déjalo vacío para omitir variante)';
+      if (!addSku.trim()) errors.sku = 'SKU es requerido (o déjalo vacío para omitir variante)';
+    }
+
     setAddErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     setIsSubmitting(true);
-    const result = await createProduct({
-      name: addName.trim(),
-      category: addCategory!,
-      price: Number(addPrice),
-      purchase_price: Number(addPurchasePrice)
-    });
 
-    if (result) {
-      // Guardar imagen en localStorage si existe
-      if (imageBase64) {
-        localStorage.setItem(`product_image_${result.id_product}`, imageBase64);
-      }
+    let result: Product | null = null;
+
+    // 1. Crear el producto CON o SIN variante
+    console.log('🔍 handleSaveAdd - Verificando variante:', { allVariantFieldsPresent });
+    
+    if (allVariantFieldsPresent) {
+      // Enviar TODO junto: producto + variante en una sola petición
+      console.log('📤 handleSaveAdd - Creando PRODUCTO + VARIANTE en UNA petición:');
+      console.log('  name:', addName.trim());
+      console.log('  category:', addCategory);
+      console.log('  price:', Number(addPrice));
+      console.log('  purchase_price:', Number(addPurchasePrice));
+      console.log('  sku:', addSku.trim());
+      console.log('  size:', addSizeId);
+      console.log('  color:', addColorId);
+      console.log('  stock:', Number(addStock));
       
-      // Validación: Solo guardar quantity, color y size si NO es cero
-      // Para evitar inconsistencias entre meta y stock real
+      result = await createProductWithVariant({
+        name: addName.trim(),
+        category: addCategory!,
+        price: Number(addPrice),
+        purchase_price: Number(addPurchasePrice),
+        sku: addSku.trim(),
+        size: addSizeId!,
+        color: addColorId!,
+        stock: Number(addStock)
+      });
+
+      if (!result) {
+        showToast('Error al crear el producto con variante', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      console.log('✅ handleSaveAdd - Producto + Variante creado:', result);
+
+      // Guardar metadata
       const productMeta = {
-        stock: addStock && Number(addStock) > 0 ? addStock : '',
-        color: addColor || '',
-        size: addSize || ''
+        stock: addStock,
+        color: colors.find(c => c.id_color === addColorId)?.name || '',
+        size: sizes.find(s => s.id_size === addSizeId)?.name || ''
       };
-      
-      // Solo guardar si hay al menos un campo válido
-      if (productMeta.stock || productMeta.color || productMeta.size) {
-        localStorage.setItem(`product_meta_${result.id_product}`, JSON.stringify(productMeta));
-      }
-      
-      showToast('Producto creado exitosamente', 'success');
-      await loadData();
-      handleCloseAddModal();
+      localStorage.setItem(`product_meta_${result.id_product}`, JSON.stringify(productMeta));
+      showToast('Producto y variante creados exitosamente', 'success');
     } else {
-      showToast('Error al crear el producto', 'error');
+      // Solo crear el producto base
+      console.log('⏭️ handleSaveAdd - Creando solo PRODUCTO (sin variante)');
+      result = await createProduct({
+        name: addName.trim(),
+        category: addCategory!,
+        price: Number(addPrice),
+        purchase_price: Number(addPurchasePrice)
+      });
+
+      if (!result) {
+        showToast('Error al crear el producto', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      console.log('✅ handleSaveAdd - Producto creado:', result);
+      showToast('Producto creado exitosamente', 'success');
     }
+
+    // 2. Guardar imagen en localStorage si existe
+    if (imageBase64 && result) {
+      localStorage.setItem(`product_image_${result.id_product}`, imageBase64);
+    }
+
+    await loadData();
+    setShowAddModal(false);
     setIsSubmitting(false);
+    
+    // Limpiar estados del formulario
+    setAddName('');
+    setAddPrice('');
+    setAddCategory(null);
+    setAddPurchasePrice('');
+    setAddImage(null);
+    setAddImagePreview('');
+    setAddStock('');
+    setAddColorId(null);
+    setAddSizeId(null);
+    setAddSku('');
+    setImageBase64('');
+    setAddErrors({});
   };
 
   const handleCloseAddModal = () => {
     setShowAddModal(false);
-    handleOpenAdd(); // Limpia todos los campos
+    // Limpiar todos los estados del formulario
+    setAddName('');
+    setAddPrice('');
+    setAddCategory(null);
+    setAddPurchasePrice('');
+    setAddImage(null);
+    setAddImagePreview('');
+    setAddStock('');
+    setAddColorId(null);
+    setAddSizeId(null);
+    setAddSku('');
+    setImageBase64('');
+    setAddErrors({});
   };
 
   // ─── Toggle ──────────────────────────────────────────────────────────────────
@@ -436,7 +603,7 @@ export default function ProductosManager() {
           <div className="col-span-full py-16 text-center text-gray-400">
             <Package className="mx-auto mb-3 text-gray-300" size={48} />
             <p className="text-sm">No se encontraron productos</p>
-            <p className="text-xs mt-1">Los productos se crean desde el módulo Compras</p>
+            <p className="text-xs mt-0.5">Los productos se crean desde el módulo Compras</p>
           </div>
         ) : (
           paginated.map(product => {
@@ -494,7 +661,7 @@ export default function ProductosManager() {
                 {/* Contenido del Producto */}
                 <div className="p-3">
                   {/* Nombre */}
-                  <h3 className="font-semibold text-gray-900 text-sm mb-1 truncate">{product.name}</h3>
+                  <h3 className="font-semibold text-gray-900 text-sm mb-0.5 truncate">{product.name}</h3>
                   
                   {/* Categoría */}
                   <p className="text-xs text-gray-500 mb-2">{product.category_name}</p>
@@ -530,7 +697,7 @@ export default function ProductosManager() {
                   </div>
 
                   {/* Precio */}
-                  <div className="text-xl font-bold text-gray-900 mb-1">
+                  <div className="text-xl font-bold text-gray-900 mb-0.5">
                     {formatCOP(product.price)}
                   </div>
                   <div className="text-xs text-gray-500 mb-3">
@@ -586,7 +753,7 @@ export default function ProductosManager() {
                     <td colSpan={6} className="px-6 py-16 text-center text-gray-400">
                       <Package className="mx-auto mb-3 text-gray-300" size={48} />
                       <p className="text-sm">No se encontraron productos</p>
-                      <p className="text-xs mt-1">Los productos se crean desde el módulo Compras</p>
+                      <p className="text-xs mt-0.5">Los productos se crean desde el módulo Compras</p>
                     </td>
                   </tr>
                 ) : (
@@ -596,8 +763,8 @@ export default function ProductosManager() {
                     return (
                       <tr key={product.id_product} className={idx !== paginated.length - 1 ? 'border-b border-gray-200' : ''}>
                         <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
                               <Package className="text-gray-400" size={20} />
                             </div>
                             <div>
@@ -719,23 +886,23 @@ export default function ProductosManager() {
             <div className="space-y-5 text-sm">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Nombre</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Nombre</p>
                   <p className="font-semibold text-gray-900">{viewingProduct.name}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Categoría</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Categoría</p>
                   <p className="font-medium">{viewingProduct.category_name}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Precio</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Precio</p>
                   <p className="text-2xl font-bold text-gray-900">{formatCOP(viewingProduct.price)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Precio de compra</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Precio de compra</p>
                   <p className="text-2xl font-bold text-gray-900">{formatCOP(viewingProduct.purchase_price)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Estado</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Estado</p>
                   <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
                     viewingProduct.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                   }`}>
@@ -759,22 +926,22 @@ export default function ProductosManager() {
                 return (meta.size || meta.color || (meta.stock && totalStock > 0)) ? (
                   <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                     <h4 className="font-semibold text-gray-900 mb-3">Información Adicional</h4>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-3 gap-2">
                       {meta.stock && totalStock > 0 && (
                         <div>
-                          <p className="text-xs text-gray-600 mb-1">Cantidad Inicial</p>
+                          <p className="text-xs text-gray-600 mb-0.5">Cantidad Inicial</p>
                           <p className="font-semibold text-gray-900">{meta.stock}</p>
                         </div>
                       )}
                       {meta.size && (
                         <div>
-                          <p className="text-xs text-gray-600 mb-1">Talla</p>
+                          <p className="text-xs text-gray-600 mb-0.5">Talla</p>
                           <p className="font-semibold text-gray-900">{meta.size}</p>
                         </div>
                       )}
                       {meta.color && (
                         <div>
-                          <p className="text-xs text-gray-600 mb-1">Color</p>
+                          <p className="text-xs text-gray-600 mb-0.5">Color</p>
                           <p className="font-semibold text-gray-900">{meta.color}</p>
                         </div>
                       )}
@@ -833,7 +1000,6 @@ export default function ProductosManager() {
       </Modal>
 
       {/* ─── Modal Editar ───────────────────────────────────────────────────── */}
-      {/* ─── Modal Editar Producto ─────────────────────────────────────────── */}
       <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Editar Producto" size="md">
         <div className="space-y-4 text-sm">
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
@@ -841,18 +1007,18 @@ export default function ProductosManager() {
           </div>
 
           <div>
-            <label className="block text-gray-700 font-medium mb-1 text-xs">Nombre *</label>
+            <label className="block text-gray-700 font-medium mb-0.5 text-xs">Nombre *</label>
             <Input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               placeholder="Nombre del producto"
               className={editErrors.name ? 'border-red-400' : ''}
             />
-            {editErrors.name && <p className="text-red-500 text-xs mt-1">{editErrors.name}</p>}
+            {editErrors.name && <p className="text-red-500 text-xs mt-0.5">{editErrors.name}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 font-medium mb-1 text-xs">Precio *</label>
+            <label className="block text-gray-700 font-medium mb-0.5 text-xs">Precio *</label>
             <Input
               type="number"
               value={editPrice}
@@ -860,11 +1026,11 @@ export default function ProductosManager() {
               placeholder="0"
               className={editErrors.price ? 'border-red-400' : ''}
             />
-            {editErrors.price && <p className="text-red-500 text-xs mt-1">{editErrors.price}</p>}
+            {editErrors.price && <p className="text-red-500 text-xs mt-0.5">{editErrors.price}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 font-medium mb-1 text-xs">Precio de compra *</label>
+            <label className="block text-gray-700 font-medium mb-0.5 text-xs">Precio de compra *</label>
             <Input
               type="number"
               value={editPurchasePrice}
@@ -872,15 +1038,15 @@ export default function ProductosManager() {
               placeholder="0"
               className={editErrors.purchasePrice ? 'border-red-400' : ''}
             />
-            {editErrors.purchasePrice && <p className="text-red-500 text-xs mt-1">{editErrors.purchasePrice}</p>}
+            {editErrors.purchasePrice && <p className="text-red-500 text-xs mt-0.5">{editErrors.purchasePrice}</p>}
           </div>
 
           <div>
-            <label className="block text-gray-700 font-medium mb-1 text-xs">Categoría *</label>
+            <label className="block text-gray-700 font-medium mb-0.5 text-xs">Categoría *</label>
             <select
               value={editCategory ?? ''}
               onChange={(e) => setEditCategory(Number(e.target.value) || null)}
-              className={`w-full h-10 px-3 border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 ${
+              className={`w-full h-8 px-2 border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 ${
                 editErrors.category ? 'border-red-400' : 'border-gray-300'
               }`}
             >
@@ -889,10 +1055,10 @@ export default function ProductosManager() {
                 <option key={c.id_category} value={c.id_category}>{c.name}</option>
               ))}
             </select>
-            {editErrors.category && <p className="text-red-500 text-xs mt-1">{editErrors.category}</p>}
+            {editErrors.category && <p className="text-red-500 text-xs mt-0.5">{editErrors.category}</p>}
           </div>
 
-          <div className="flex gap-3 justify-end pt-2">
+          <div className="flex gap-2 justify-end pt-1">
             <Button onClick={() => setShowEditModal(false)} variant="secondary">Cancelar</Button>
             <Button onClick={handleSaveEdit} variant="primary" disabled={isSubmitting}>
               {isSubmitting ? 'Guardando...' : 'Guardar cambios'}
@@ -904,28 +1070,33 @@ export default function ProductosManager() {
      {/* ─── Modal Agregar Producto ────────────────────────────────────────── */}
 <Modal 
   isOpen={showAddModal} 
-  onClose={() => setShowAddModal(false)} 
+  onClose={handleCloseAddModal} 
   title="Nuevo Producto" 
-  size="lg"
+  size="md"
 >
-  <div className="space-y-4 text-sm">
+  <div className="space-y-1.5 text-xs max-h-[400px] overflow-y-auto">
+
+    {/* Alerta informativa */}
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-xs text-blue-700">
+      <strong>Opcional:</strong> Puedes crear el producto con talla, color y stock inicial. Si no los completas, podrás agregar variantes más tarde desde el módulo de Compras.
+    </div>
 
     {/* Imagen */}
     <div>
-      <label className="block text-gray-700 font-medium mb-2 text-xs">
+      <label className="block text-gray-700 font-medium mb-1 text-xs">
         Imagen del Producto
       </label>
 
-      <div className="border border-dashed border-gray-300 rounded-lg p-4 text-center bg-gray-50">
+      <div className="border border-dashed border-gray-300 rounded-lg p-1.5 text-center bg-gray-50">
         {addImagePreview ? (
           <div>
             <img 
               src={addImagePreview} 
               alt="Preview" 
-              className="w-full h-40 object-cover rounded-lg mb-2" 
+              className="w-full h-16 object-cover rounded-lg mb-1" 
             />
-            <div className="flex gap-3 justify-center text-xs">
-              <label className="text-blue-500 hover:underline cursor-pointer">
+            <div className="flex gap-2 justify-center text-xs">
+              <label className="text-blue-500 hover:underline cursor-pointer text-xs">
                 Cambiar
                 <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
               </label>
@@ -961,8 +1132,9 @@ export default function ProductosManager() {
         value={addName}
         onChange={(e) => setAddName(e.target.value)}
         placeholder="Nombre del producto"
-        className={`h-10 ${addErrors.name ? 'border-red-400' : ''}`}
+        className={`h-9 text-sm ${addErrors.name ? 'border-red-400' : ''}`}
       />
+      {addErrors.name && <p className="text-red-500 text-xs mt-0.5">{addErrors.name}</p>}
     </div>
 
     {/* Precios */}
@@ -976,8 +1148,9 @@ export default function ProductosManager() {
           value={addPurchasePrice}
           onChange={(e) => setAddPurchasePrice(e.target.value)}
           placeholder="0"
-          className={`h-10 ${addErrors.purchasePrice ? 'border-red-400' : ''}`}
+          className={`h-9 text-sm ${addErrors.purchasePrice ? 'border-red-400' : ''}`}
         />
+        {addErrors.purchasePrice && <p className="text-red-500 text-xs mt-0.5">{addErrors.purchasePrice}</p>}
       </div>
 
       <div>
@@ -989,79 +1162,203 @@ export default function ProductosManager() {
           value={addPrice}
           onChange={(e) => setAddPrice(e.target.value)}
           placeholder="0"
-          className={`h-10 ${addErrors.price ? 'border-red-400' : ''}`}
+          className={`h-9 text-sm ${addErrors.price ? 'border-red-400' : ''}`}
         />
+        {addErrors.price && <p className="text-red-500 text-xs mt-0.5">{addErrors.price}</p>}
       </div>
     </div>
 
-    {/* Categoría + Talla + Color + Stock */}
-    <div className="grid grid-cols-4 gap-3">
+    {/* Categoría */}
+    <div>
+      <label className="block text-gray-700 font-medium mb-1 text-xs">
+        Categoría *
+      </label>
+      <select
+        value={addCategory ?? ''}
+        onChange={(e) => setAddCategory(Number(e.target.value) || null)}
+        className={`w-full h-9 px-2 border rounded-lg text-sm ${
+          addErrors.category ? 'border-red-400' : 'border-gray-300'
+        }`}
+      >
+        <option value="">Seleccionar</option>
+        {categories.map(c => (
+          <option key={c.id_category} value={c.id_category}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      {addErrors.category && <p className="text-red-500 text-xs mt-0.5">{addErrors.category}</p>}
+    </div>
 
-      {/* Categoría grande */}
-      <div className="col-span-2">
-        <label className="block text-gray-700 font-medium mb-1 text-xs">
-          Categoría *
-        </label>
-        <select
-          value={addCategory ?? ''}
-          onChange={(e) => setAddCategory(Number(e.target.value) || null)}
-          className={`w-full h-10 px-3 border rounded-lg ${
-            addErrors.category ? 'border-red-400' : 'border-gray-300'
-          }`}
-        >
-          <option value="">Seleccionar</option>
-          {categories.map(c => (
-            <option key={c.id_category} value={c.id_category}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+    {/* Sección de Variante (Talla, Color, Stock, SKU) */}
+    <div className="border-t pt-2">
+      <h4 className="font-semibold text-gray-900 mb-2 text-xs">Variante Inicial (Opcional)</h4>
+      
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        {/* Talla */}
+        <div>
+          <label className="block text-gray-700 font-medium mb-1 text-xs">
+            Talla
+          </label>
+          {isCreatingNewSize ? (
+            <div className="space-y-1">
+              <Input
+                value={newSizeName}
+                onChange={(e) => setNewSizeName(e.target.value)}
+                placeholder="Ej: M, L, XL"
+                className="h-8 text-sm"
+              />
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={handleCreateSize}
+                  disabled={isSubmitting}
+                  className="flex-1 px-1.5 py-0.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Creando...' : 'Crear'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingNewSize(false);
+                    setNewSizeName('');
+                  }}
+                  className="flex-1 px-1.5 py-0.5 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <select
+                value={addSizeId ?? ''}
+                onChange={(e) => setAddSizeId(Number(e.target.value) || null)}
+                className={`w-full h-9 px-2 border rounded-lg text-sm ${
+                  addErrors.size ? 'border-red-400' : 'border-gray-300'
+                }`}
+              >
+                <option value="">Seleccionar</option>
+                {sizes.map(s => (
+                  <option key={s.id_size} value={s.id_size}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setIsCreatingNewSize(true)}
+                className="text-blue-600 text-xs mt-0.5 hover:underline"
+              >
+                + Nueva talla
+              </button>
+            </>
+          )}
+          {addErrors.size && <p className="text-red-500 text-xs mt-0.5">{addErrors.size}</p>}
+        </div>
+
+        {/* Color */}
+        <div>
+          <label className="block text-gray-700 font-medium mb-1 text-xs">
+            Color
+          </label>
+          {isCreatingNewColor ? (
+            <div className="space-y-2">
+              <Input
+                value={newColorName}
+                onChange={(e) => setNewColorName(e.target.value)}
+                placeholder="Ej: Negro, Rojo"
+                className="h-9 text-sm"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCreateColor}
+                  disabled={isSubmitting}
+                  className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Creando...' : 'Crear'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingNewColor(false);
+                    setNewColorName('');
+                  }}
+                  className="flex-1 px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <select
+                value={addColorId ?? ''}
+                onChange={(e) => setAddColorId(Number(e.target.value) || null)}
+                className={`w-full h-9 px-2 border rounded-lg text-sm ${
+                  addErrors.color ? 'border-red-400' : 'border-gray-300'
+                }`}
+              >
+                <option value="">Seleccionar</option>
+                {colors.map(c => (
+                  <option key={c.id_color} value={c.id_color}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setIsCreatingNewColor(true)}
+                className="text-blue-600 text-xs mt-0.5 hover:underline"
+              >
+                + Nuevo color
+              </button>
+            </>
+          )}
+          {addErrors.color && <p className="text-red-500 text-xs mt-0.5">{addErrors.color}</p>}
+        </div>
+
+        {/* Stock */}
+        <div>
+          <label className="block text-gray-700 font-medium mb-1 text-xs">
+            Stock Inicial
+          </label>
+          <Input
+            type="number"
+            value={addStock}
+            onChange={(e) => setAddStock(e.target.value)}
+            placeholder="0"
+            className={`h-9 text-sm ${addErrors.stock ? 'border-red-400' : ''}`}
+          />
+          {addErrors.stock && <p className="text-red-500 text-xs mt-0.5">{addErrors.stock}</p>}
+        </div>
+
+        {/* SKU */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-gray-700 font-medium text-xs">SKU</label>
+            <button 
+              type="button" 
+              onClick={autoGenerateSku} 
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Generar automático
+            </button>
+          </div>
+          <Input
+            value={addSku}
+            onChange={(e) => setAddSku(e.target.value)}
+            placeholder="Ej: VES-M-NEG-001"
+            className={`h-9 text-sm font-mono ${addErrors.sku ? 'border-red-400' : ''}`}
+          />
+          {addErrors.sku && <p className="text-red-500 text-xs mt-0.5">{addErrors.sku}</p>}
+        </div>
       </div>
-
-      {/* Talla */}
-      <div>
-        <label className="block text-gray-700 font-medium mb-1 text-xs">
-          Talla
-        </label>
-        <Input
-          value={addSize}
-          onChange={(e) => setAddSize(e.target.value)}
-          placeholder="M"
-          className="h-10 text-sm"
-        />
-      </div>
-
-      {/* Color */}
-      <div>
-        <label className="block text-gray-700 font-medium mb-1 text-xs">
-          Color
-        </label>
-        <Input
-          value={addColor}
-          onChange={(e) => setAddColor(e.target.value)}
-          placeholder="Negro"
-          className="h-10 text-sm"
-        />
-      </div>
-
-      {/* Stock */}
-      <div>
-        <label className="block text-gray-700 font-medium mb-1 text-xs">
-          Stock
-        </label>
-        <Input
-          type="number"
-          value={addStock}
-          onChange={(e) => setAddStock(e.target.value)}
-          placeholder="0"
-          className="h-10 text-sm"
-        />
-      </div>
-
     </div>
 
     {/* Botones */}
-    <div className="flex gap-3 justify-end pt-2 border-t">
+    <div className="flex gap-2 justify-end pt-1.5 border-t">
       <Button onClick={handleCloseAddModal} variant="secondary">
         Cancelar
       </Button>
@@ -1086,7 +1383,7 @@ export default function ProductosManager() {
           <p className="text-xs text-red-600 bg-red-50 rounded-lg p-2">
             Si el producto tiene variantes o compras asociadas no se podrá eliminar.
           </p>
-          <div className="flex gap-3 justify-end">
+          <div className="flex gap-2 justify-end">
             <Button onClick={() => setShowDeleteModal(false)} variant="secondary">Cancelar</Button>
             <Button
               onClick={confirmDelete}

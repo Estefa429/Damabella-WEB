@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useToast } from '../components/native';
 import { sampleProducts } from '../utils/sampleData';
+import { getAllProducts } from '@/features/ecommerce/products/services/productsService';
+import { getAllCategories } from '@/features/ecommerce/categories/services/categoriesService';
 
 // Cargar assets locales con Vite para resolver nombres de archivo dinámicos
 const _images = import.meta.glob('../../assets/*.{png,jpg,jpeg,svg}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
@@ -133,100 +135,119 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const { showToast } = useToast();
 
-  // Cargar desde localStorage
+  // Cargar desde API
   useEffect(() => {
+    const loadDataFromAPI = async () => {
+      try {
+        // Cargar categorías desde API
+        const categoriesData = await getAllCategories();
+        if (categoriesData) {
+          const mapped = categoriesData.map((c: any) => ({ 
+            id: c.id_category ?? c.name, 
+            name: c.name 
+          }));
+          setCategories(mapped);
+          console.log('[EcommerceContext] Categorías cargadas desde API:', mapped.length + ' categorías');
+        } else {
+          console.warn('[EcommerceContext] Error cargando categorías desde API');
+          setCategories([]);
+        }
+      } catch (error) {
+        console.error('[EcommerceContext] Error en getAllCategories:', error);
+        setCategories([]);
+      }
+
+      try {
+        // Cargar productos desde API
+        const productsData = await getAllProducts();
+        if (productsData && Array.isArray(productsData)) {
+          // Solo mostrar productos activos
+          const activeProducts = productsData.filter((p: any) => p && (p.is_active === true || p.is_active === 1 || p.is_active === '1' || p.is_active === 'true'));
+          
+          const resolvedProducts = activeProducts.map((p: any) => {
+            // Mapear campos del producto API al formato esperado en el contexto
+            const mapped: any = {
+              id: (p.id_product !== undefined && p.id_product !== null) ? Number(p.id_product) : NaN,
+              name: p.name || 'Producto sin nombre',
+              description: p.description || '',
+              price: p.price || 0,
+              image: resolveImage(p.image || ''),
+              category: p.category_name || 'Sin categoría',
+              featured: p.featured || false,
+              new: p.new || false,
+              variants: [] as any[],
+              rating: p.rating || 0,
+            };
+
+            // Convertir variantes del API al formato esperado
+            // El API retorna información de variantes, colores e inventario
+            // Por ahora, creamos variantes básicas
+            const variantList: any[] = [];
+            
+            // Si el producto tiene información de variantes/colores del API, usarla
+            if (p.variants && Array.isArray(p.variants)) {
+              p.variants.forEach((v: any) => {
+                const colorName = v.color_name || 'Negro';
+                const sizeName = v.size_name || 'M';
+                const stock = v.stock || 0;
+                
+                let existing = variantList.find(x => x.color === colorName);
+                if (!existing) {
+                  existing = { color: colorName, colorHex: getColorHex(colorName), sizes: [] };
+                  variantList.push(existing);
+                }
+                
+                const sizeExists = existing.sizes.find((s: any) => s.size === sizeName);
+                if (!sizeExists) {
+                  existing.sizes.push({ size: sizeName, stock });
+                }
+              });
+            }
+
+            // Fallback: si no hay variantes del API, crear una variante genérica
+            if (variantList.length === 0) {
+              variantList.push({ 
+                color: 'Negro', 
+                colorHex: '#000000', 
+                sizes: [{ size: 'M', stock: 0 }] 
+              });
+            }
+
+            mapped.variants = variantList;
+            return mapped;
+          });
+
+          setProducts(resolvedProducts);
+          console.log('[EcommerceContext] Productos cargados desde API:', resolvedProducts.length + ' productos');
+        } else {
+          console.warn('[EcommerceContext] Error cargando productos desde API o lista vacía');
+          setProducts(convertSampleProducts());
+        }
+      } catch (error) {
+        console.error('[EcommerceContext] Error en getAllProducts:', error);
+        console.log('[EcommerceContext] Usando productos de ejemplo como fallback');
+        setProducts(convertSampleProducts());
+      }
+    };
+
+    loadDataFromAPI();
+
+    // Cargar datos del carrito desde localStorage (estos sí se mantienen en local)
     const savedCart = localStorage.getItem('damabella_cart');
     const savedFavorites = localStorage.getItem('damabella_favorites');
     const savedRecentlyViewed = localStorage.getItem('damabella_recently_viewed');
-    // Priorizar la fuente administrativa actual: 'damabella_productos'
-    const savedAdminProducts = localStorage.getItem('damabella_productos');
-    const savedProducts = savedAdminProducts || localStorage.getItem('damabella_ecommerce_products');
     const savedOrders = localStorage.getItem('damabella_orders');
 
     if (savedCart) setCart(JSON.parse(savedCart));
     if (savedFavorites) setFavorites(JSON.parse(savedFavorites));
     if (savedRecentlyViewed) setRecentlyViewed(JSON.parse(savedRecentlyViewed));
     if (savedOrders) setOrders(JSON.parse(savedOrders));
-    
-    if (savedProducts) {
-      // Si proviene de 'damabella_productos' (estructura administrativa), convertir al formato UI esperado
-      try {
-        const adminProducts = JSON.parse(savedProducts) as any[];
-        // Mostrar solo productos activos (aceptar true / 1 / '1' / 'true' por compatibilidad)
-        const adminProductsActive = adminProducts.filter((p: any) => p && (p.activo === true || p.activo === 1 || p.activo === '1' || p.activo === 'true'));
-        const resolvedAdmin = adminProductsActive.map((p: any) => {
-          // Mapear campos obligatorios
-          const mapped: any = {
-              id: (p.id !== undefined && p.id !== null) ? Number(p.id) : NaN,
-              name: p.nombre || p.name || 'Producto sin nombre',
-              description: p.descripcion || p.description || '',
-              price: p.precioVenta || p.price || 0,
-              image: resolveImage(p.imagen || p.image || ''),
-              category: p.categoria || p.category || 'Sin categoría',
-              featured: p.destacado || false,
-              new: p.nuevo || false,
-              variants: [] as any[],
-              rating: p.rating || 0,
-            };
-
-          // Convertir variantes administrativas a la forma { color, colorHex, sizes: [{size, stock}] }
-          const variantes = p.variantes || [];
-          const variantList: any[] = [];
-          variantes.forEach((v: any) => {
-            const talla = v.talla || v.size || '';
-            const colores = v.colores || [];
-            colores.forEach((c: any) => {
-              const colorName = c.color || 'Negro';
-              const cantidad = Number(c.cantidad || c.stock || 0);
-              // Buscar si ya existe variante para ese color
-              let existing = variantList.find(x => x.color === colorName);
-              if (!existing) {
-                existing = { color: colorName, colorHex: getColorHex(colorName), sizes: [] };
-                variantList.push(existing);
-              }
-              existing.sizes.push({ size: talla, stock: cantidad });
-            });
-          });
-
-          // Fallback: si no hay variantes, crear una variante genérica
-          if (variantList.length === 0) {
-            variantList.push({ color: 'Negro', colorHex: '#000000', sizes: [{ size: 'S', stock: 0 }] });
-          }
-
-          mapped.variants = variantList;
-          return mapped;
-        });
-
-        setProducts(resolvedAdmin);
-      } catch (e) {
-        console.error('[EcommerceContext] Error parsing saved products:', e);
-        setProducts(convertSampleProducts());
-      }
-    } else {
-      setProducts(convertSampleProducts());
-    }
-
-    // Cargar categorías (desde localStorage si existen)
-    try {
-      const storedCats = localStorage.getItem('damabella_categorias');
-      if (storedCats) {
-        const parsed = JSON.parse(storedCats) as any[];
-        const mapped = parsed.map(c => ({ id: c.id ?? c.name, name: c.name }));
-        setCategories(mapped);
-      }
-    } catch (e) {
-      console.warn('[EcommerceContext] No se pudieron cargar categorías desde localStorage', e);
-    }
   }, []);
 
   // Guardar cambios en localStorage
   useEffect(() => { localStorage.setItem('damabella_cart', JSON.stringify(cart)); }, [cart]);
   useEffect(() => { localStorage.setItem('damabella_favorites', JSON.stringify(favorites)); }, [favorites]);
   useEffect(() => { localStorage.setItem('damabella_recently_viewed', JSON.stringify(recentlyViewed)); }, [recentlyViewed]);
-  useEffect(() => {
-    // Asegurarse de convertir `id` a string antes de usar `startsWith` para evitar errores
-    localStorage.setItem('damabella_ecommerce_products', JSON.stringify(products.filter(p => !String(p.id).startsWith('p'))));
-  }, [products]);
   useEffect(() => { localStorage.setItem('damabella_orders', JSON.stringify(orders)); }, [orders]);
 
   // Funciones de carrito
@@ -312,38 +333,43 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
   };
   const deleteProduct = (productId: string) => setProducts(prev => prev.filter(p => p.id !== productId));
 
-  // Obtener stock real desde el storage administrativo
+  // Obtener stock real desde el estado local de productos (cargados desde API)
   const getProductStock = (productId: string, color: string, size: string): number => {
     try {
-      const adminProducts = localStorage.getItem('damabella_productos');
-      if (!adminProducts) return 0;
-      const prods = JSON.parse(adminProducts) as any[];
-
       const prodIdRaw = (productId || '').toString();
-      const prodDigitsMatch = prodIdRaw.match(/\d+/);
-      const prodDigits = prodDigitsMatch ? prodDigitsMatch[0] : prodIdRaw;
-      console.log('[EcommerceContext] getProductStock called', { productId: prodIdRaw, prodDigits, color, size });
-
-      const adminProduct = prods.find((p: any) => {
-        const pid = p?.id;
-        const pidStr = pid !== undefined && pid !== null ? pid.toString() : '';
-        const pidDigitsMatch = pidStr.match(/\d+/);
-        const pidDigits = pidDigitsMatch ? pidDigitsMatch[0] : pidStr;
-
-        const matches = pidStr === prodIdRaw || pidDigits === prodDigits || `p${pidStr}` === prodIdRaw || `admin_${pidStr}` === prodIdRaw || `admin-${pidStr}` === prodIdRaw;
-        if (matches) console.log('[EcommerceContext] getProductStock matched product', { storageId: pidStr, pidDigits });
-        return matches;
+      
+      // Buscar el producto en el estado local - Intenta múltiples coincidencias
+      const product = products.find((p: any) => {
+        const pid = String(p.id);
+        // Coincidencia directa
+        if (pid === prodIdRaw) return true;
+        // Coincidencia con prefijo
+        if (`p${pid}` === prodIdRaw || prodIdRaw === `p${pid}`) return true;
+        // Coincidencia de dígitos
+        const prodDigitsMatch = prodIdRaw.match(/\d+/);
+        const pidDigitsMatch = pid.match(/\d+/);
+        if (prodDigitsMatch && pidDigitsMatch && prodDigitsMatch[0] === pidDigitsMatch[0]) return true;
+        return false;
       });
 
-      if (!adminProduct) {
-        console.log('[EcommerceContext] getProductStock: adminProduct not found for', productId);
+      if (!product) {
+        console.log('[EcommerceContext] getProductStock: product not found for', productId);
         return 0;
       }
 
-      const variant = adminProduct.variantes?.find((v: any) => v.talla === size) || adminProduct.variantes?.[0];
-      if (!variant) return 0;
-      const colorData = variant.colores?.find((c: any) => c.color === color || (c.color && c.color.toString().trim().toLowerCase() === (color || '').toString().trim().toLowerCase()));
-      return colorData ? (colorData.cantidad || 0) : 0;
+      // Buscar la variante con el color coincidente
+      const variant = product.variants.find((v: any) => 
+        v.color === color || v.color.toLowerCase() === (color || '').toLowerCase()
+      );
+      
+      if (!variant) {
+        console.log('[EcommerceContext] getProductStock: variant not found for color', color);
+        return 0;
+      }
+
+      // Buscar la talla coincidente
+      const sizeData = variant.sizes.find((s: any) => s.size === size);
+      return sizeData ? (sizeData.stock || 0) : 0;
     } catch (e) {
       console.error('[EcommerceContext] getProductStock error', e);
       return 0;

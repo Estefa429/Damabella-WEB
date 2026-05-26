@@ -305,7 +305,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   ];
 
   // Filtrar menús según permisos
-  const filteredMenuItems = user.role === 'Administrador' 
+  const filteredMenuItems = user.rol_name?.toLowerCase() === 'administrador' 
     ? menuItems // Los admins ven TODO sin filtrar
     : menuItems.filter(menu => {
       // El Dashboard siempre es visible para todos

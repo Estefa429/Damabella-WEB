@@ -1,34 +1,110 @@
-import React, { useMemo, useState } from 'react';
-import { TrendingUp, TrendingDown, Users, ShoppingBag, Package, RotateCcw, Truck, DollarSign } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { TrendingUp, TrendingDown, Users, ShoppingBag, Package, RotateCcw, Truck, DollarSign, Loader } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import {
+  getDashboardSummary,
+  getDineroVentasPorMes,
+  getCantidadVentasPorMes,
+  type DashboardSummary,
+  type ProductoMasVendido,
+  type DistribucionCategoria,
+  type DatoMensual,
+} from '../services/dashboardServices';
 
 export default function DashboardMain() {
-  // Leer datos reales desde localStorage (solo lectura)
-  const ventasStored = JSON.parse(localStorage.getItem('damabella_ventas') || '[]');
-  const pedidosStored = JSON.parse(localStorage.getItem('damabella_pedidos') || '[]');
-  const clientesStored = JSON.parse(localStorage.getItem('damabella_clientes') || '[]');
-  const devolucionesStored = JSON.parse(localStorage.getItem('damabella_devoluciones') || '[]');
+  console.log('🔴 [DashboardMain] Componente montándose...');
 
-  // 1) Ventas del Mes: sumar el total de todas las ventas registradas (no creamos filtros nuevos)
-  const ventasTotal = (ventasStored || []).reduce((acc: number, v: any) => acc + Number(v.total || 0), 0);
+  // ============================================================
+  // ESTADO
+  // ============================================================
+  const [summary, setSummary] = useState<DashboardSummary>({
+    usersActive: 0,
+    pendingOrders: 0,
+    ventasMes: 0,
+    dineroVentasMes: 0,
+  });
+  const [productosMasVendidos, setProductosMasVendidos] = useState<ProductoMasVendido[]>([]);
+  const [distribucionCategorias, setDistribucionCategorias] = useState<DistribucionCategoria[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [dineroVentasPorMes, setDineroVentasPorMes] = useState<DatoMensual[]>([]);
+  const [cantidadVentasPorMes, setCantidadVentasPorMes] = useState<DatoMensual[]>([]);
 
-  // 2) Pedidos Pendientes: contar pedidos con estado exactamente 'Pendiente'
-  const pedidosPendientesCount = (pedidosStored || []).filter((p: any) => p?.estado === 'Pendiente').length;
+  // ============================================================
+  // CARGA DE DATOS - useEffect
+  // ============================================================
+  useEffect(() => {
+    console.log('🔴 [DashboardMain] useEffect ejecutándose...');
+    
+    const loadDashboardData = async () => {
+      try {
+        console.log('🔴 [DashboardMain] Iniciando carga de datos...');
+        setLoading(true);
+        setError(null);
 
-  // 3) Clientes Activos: contar clientes con campo 'activo' truthy (boolean o string)
-  const clientesActivosCount = (clientesStored || []).filter((c: any) => {
-    if (c == null) return false;
-    if (typeof c.activo === 'boolean') return c.activo === true;
-    return String(c.activo).toLowerCase() === 'true';
-  }).length;
+        // Cargar resumen principal y datos mensuales
+        console.log('🔴 [DashboardMain] Llamando servicios...');
+        const [summaryData, dineroData, cantidadData] = await Promise.all([
+          getDashboardSummary(),
+          getDineroVentasPorMes(),
+          getCantidadVentasPorMes(),
+        ]);
+        
+        console.log('🔴 [DashboardMain] Respuesta dineroData:', dineroData);
+        console.log('🔴 [DashboardMain] Respuesta cantidadData:', cantidadData);
 
-  // 4) Devoluciones (incluye cambios): contar entradas en la llave de devoluciones
-  const devolucionesCount = (devolucionesStored || []).length;
+        // Actualizar estado
+        setSummary(summaryData);
+        setProductosMasVendidos(summaryData.productosMasVendidos || []);
+        setDistribucionCategorias(summaryData.distribucionCategorias || []);
+        setDineroVentasPorMes(dineroData || []);
+        setCantidadVentasPorMes(cantidadData || []);
 
+        if (summaryData.error) {
+          console.log('🔴 [DashboardMain] Error en summaryData:', summaryData.error);
+          setError(summaryData.error);
+        }
+      } catch (err: any) {
+        console.error('🔴 [DashboardMain] Error crítico:', err);
+        setError(err?.message || 'Error al cargar el dashboard');
+      } finally {
+        setLoading(false);
+        console.log('🔴 [DashboardMain] Carga completada');
+      }
+    };
+
+    loadDashboardData();
+  }, []);
+
+  // ============================================================
+  // PREPARACIÓN DE DATOS PARA GRÁFICOS
+  // ============================================================
+
+  // Transformar productos más vendidos para el gráfico
+  const topProductsData = useMemo(() => {
+    return (productosMasVendidos || []).slice(0, 5).map((p) => ({
+      name: p.nombre,
+      sales: p.cantidad_vendida,
+      revenue: p.ingresos,
+    }));
+  }, [productosMasVendidos]);
+
+  // Transformar distribución de categorías para el gráfico
+  const categoryData = useMemo(() => {
+    const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#34d399', '#60a5fa'];
+    return (distribucionCategorias || []).map((cat, index) => ({
+      name: cat.categoria,
+      value: cat.porcentaje,
+      color: colors[index % colors.length],
+    }));
+  }, [distribucionCategorias]);
+
+  // Stats cards
   const stats = [
     {
-      title: 'Ventas del Mes',
-      value: `$${ventasTotal.toLocaleString()}`,
+      title: 'Dinero en Ventas',
+      value: `$${summary.dineroVentasMes.toLocaleString()}`,
       change: '',
       trend: 'up',
       icon: DollarSign,
@@ -36,158 +112,60 @@ export default function DashboardMain() {
     },
     {
       title: 'Pedidos Pendientes',
-      value: String(pedidosPendientesCount),
+      value: String(summary.pendingOrders),
       change: '',
-      trend: pedidosPendientesCount > 0 ? 'down' : 'up',
+      trend: summary.pendingOrders > 0 ? 'down' : 'up',
       icon: Package,
       color: 'from-blue-500 to-blue-600'
     },
     {
-      title: 'Clientes Activos',
-      value: String(clientesActivosCount),
+      title: 'Cantidad de Ventas',
+      value: String(summary.ventasMes),
       change: '',
       trend: 'up',
-      icon: Users,
+      icon: ShoppingBag,
       color: 'from-purple-500 to-purple-600'
     },
     {
-      title: 'Devoluciones',
-      value: String(devolucionesCount),
+      title: 'Usuarios Activos',
+      value: String(summary.usersActive),
       change: '',
       trend: 'up',
-      icon: RotateCcw,
+      icon: Users,
       color: 'from-orange-500 to-orange-600'
     }
   ];
 
-  // 1) Construir ventas mensuales (últimos 6 meses) a partir de `damabella_ventas`
-  const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const now = new Date();
-  const months: { key: string; label: string; year: number; month: number }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${d.getMonth() + 1}`; // e.g. 2026-2
-    months.push({ key, label: monthNames[d.getMonth()], year: d.getFullYear(), month: d.getMonth() + 1 });
-  }
-
-  const ventasByMonth: Record<string, { ventas: number; pedidos: number }> = {};
-  months.forEach((m) => { ventasByMonth[m.key] = { ventas: 0, pedidos: 0 }; });
-
-  (ventasStored || []).forEach((v: any) => {
-    try {
-      const fecha = v?.fechaVenta ? new Date(v.fechaVenta) : null;
-      if (!fecha || isNaN(fecha.getTime())) return;
-      const key = `${fecha.getFullYear()}-${fecha.getMonth() + 1}`;
-      if (ventasByMonth[key]) {
-        ventasByMonth[key].ventas += Number(v.total || 0);
-        ventasByMonth[key].pedidos += 1;
-      }
-    } catch (err) {
-      // ignorar registros inválidos
-      return;
+  // ============================================================
+  // DATOS PARA GRÁFICO DE VENTAS MENSUALES (simulado)
+  // ============================================================
+  const salesData = useMemo(() => {
+    // Si tenemos datos del backend, los usamos
+    if (dineroVentasPorMes.length > 0 && cantidadVentasPorMes.length > 0) {
+      console.log('🔴 [DashboardMain] Usando datos reales del backend');
+      return dineroVentasPorMes.map((dinero, index) => ({
+        month: dinero.mes,
+        ventas: dinero.valor,
+        pedidos: cantidadVentasPorMes[index]?.valor || 0,
+      }));
     }
-  });
-
-  const salesData = months.map((m) => ({ month: m.label, ventas: ventasByMonth[m.key]?.ventas || 0, pedidos: ventasByMonth[m.key]?.pedidos || 0 }));
-
-  // Leer productos y categorías desde localStorage (necesario antes de calcular topProducts)
-  const productosStored = JSON.parse(localStorage.getItem('damabella_productos') || '[]');
-  const categoriasStored = JSON.parse(localStorage.getItem('damabella_categorias') || '[]');
-
-  // Productos más vendidos: agregar unidades y revenue desde damabella_ventas
-  const productSalesMap: Record<string, { units: number; revenue: number }> = {};
-  (ventasStored || []).forEach((v: any) => {
-    const items = v?.items || [];
-    items.forEach((it: any) => {
-      const prodId = String(it.productoId ?? it.producto_id ?? it.productoId ?? '');
-      if (!prodId) return;
-      const qty = Number(it.cantidad ?? it.quantity ?? 1) || 0;
-      const subtotal = Number(it.subtotal ?? (it.precioUnitario ? it.precioUnitario * qty : 0)) || 0;
-      if (!productSalesMap[prodId]) productSalesMap[prodId] = { units: 0, revenue: 0 };
-      productSalesMap[prodId].units += qty;
-      productSalesMap[prodId].revenue += subtotal;
-    });
-  });
-
-  const topProducts = Object.keys(productSalesMap)
-    .map((id) => {
-      const prod = (productosStored || []).find((p: any) => String(p.id) === String(id));
-      return {
-        name: prod?.nombre || prod?.name || `#${id}`,
-        sales: productSalesMap[id].units,
-        revenue: productSalesMap[id].revenue
-      };
-    })
-    .sort((a, b) => b.sales - a.sales)
-    .slice(0, 5);
-
-  // 2) Distribución porcentual por categoría usando ventas reales
-  
-
-  // Determinar lista de categorías a considerar: preferir damabella_categorias, si no hay, derivar de productos
-  let categoryNames: string[] = [];
-  if (Array.isArray(categoriasStored) && categoriasStored.length > 0) {
-    categoryNames = categoriasStored.map((c: any) => c.name).filter(Boolean);
-  } else if (Array.isArray(productosStored) && productosStored.length > 0) {
-    const set = new Set<string>();
-    productosStored.forEach((p: any) => {
-      const cat = p.categoria || p.category || null;
-      if (cat) set.add(cat);
-    });
-    categoryNames = Array.from(set);
-  }
-
-  const totalsByCategory: Record<string, number> = {};
-  categoryNames.forEach((c) => (totalsByCategory[c] = 0));
-
-  (ventasStored || []).forEach((v: any) => {
-    const items = v?.items || [];
-    items.forEach((it: any) => {
-      const prodId = it.productoId ?? it.productoId;
-      const producto = (productosStored || []).find((p: any) => String(p.id) === String(prodId));
-      const categoria = producto ? (producto.categoria || producto.category) : null;
-      if (!categoria) return;
-      if (!totalsByCategory.hasOwnProperty(categoria)) return; // no crear nuevas categorías
-      const monto = Number(it.subtotal ?? (it.precioUnitario ? it.precioUnitario * (it.cantidad || 1) : 0)) || 0;
-      totalsByCategory[categoria] += monto;
-    });
-  });
-
-  const totalAll = Object.values(totalsByCategory).reduce((s, n) => s + n, 0) || 0;
-  const palette = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#34d399', '#60a5fa'];
-  const categoryData = categoryNames.map((name, idx) => ({ name, value: totalsByCategory[name] || 0, color: palette[idx % palette.length] }));
-
-  // Pedidos recientes: derivar pendientes desde damabella_pedidos
-  const recentOrders = (pedidosStored || []).map((p: any) => {
-    const id = p?.numeroPedido ?? (typeof p.id !== 'undefined' ? `PED-${p.id}` : '—');
-    const customer = p?.clienteNombre || p?.cliente?.nombre || 'Cliente desconocido';
-    const firstItem = Array.isArray(p?.items) && p.items.length > 0 ? p.items[0] : null;
-    const productName = firstItem
-      ? ((productosStored || []).find((pr: any) => String(pr.id) === String(firstItem.productoId))?.nombre || firstItem.productoNombre || firstItem.nombre || '—')
-      : '—';
-    const amount = Number(p?.total ?? p?.subtotal ?? (firstItem ? (Number(firstItem.subtotal ?? (firstItem.precioUnitario ? firstItem.precioUnitario * (firstItem.cantidad || 1) : 0))) : 0)) || 0;
-    return {
-      id,
-      customer,
-      product: productName,
-      amount,
-      status: p?.estado ?? 'Pendiente'
-    };
-  });
-
-  const pendingOrders = recentOrders.filter((order) => order.status === 'Pendiente');
-
-  // PAGINACIÓN (duplicada desde PedidosManager): mostrar 5 pedidos por página (useMemo + useState)
-  const ITEMS_PER_PAGE = 5;
-  const [currentPage, setCurrentPage] = useState(1);
-
-  const totalPages = Math.ceil(pendingOrders.length / ITEMS_PER_PAGE);
-
-  const paginatedPendingOrders = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    return pendingOrders.slice(start, end);
-  }, [pendingOrders, currentPage]);
+    
+    // Si no tenemos datos, generamos datos simulados
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const now = new Date();
+    const data = [];
+    
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      data.push({
+        month: monthNames[d.getMonth()],
+        ventas: Math.floor(Math.random() * summary.dineroVentasMes * 0.8),
+        pedidos: Math.floor(Math.random() * summary.ventasMes * 0.8),
+      });
+    }
+    
+    return data;
+  }, [dineroVentasPorMes, cantidadVentasPorMes, summary.dineroVentasMes, summary.ventasMes]);
 
   return (
     <div className="space-y-6">
@@ -197,191 +175,150 @@ export default function DashboardMain() {
         <p className="text-gray-600">Vista general de tu tienda DAMABELLA</p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center text-white`}>
-                  <stat.icon size={24} />
-                </div>
-                <div className={`flex items-center gap-1 text-sm ${
-                  stat.trend === 'up' ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {stat.trend === 'up' ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                  {stat.change}
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <Loader className="animate-spin mx-auto mb-4 text-blue-600" size={48} />
+            <p className="text-gray-600">Cargando datos del dashboard...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-800">⚠️ {error}</p>
+        </div>
+      )}
+
+      {!loading && (
+        <>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {stats.map((stat, index) => (
+              <div key={index} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center text-white`}>
+                      <stat.icon size={24} />
+                    </div>
+                    <div className={`flex items-center gap-1 text-sm ${
+                      stat.trend === 'up' ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {stat.trend === 'up' ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                      {stat.change}
+                    </div>
+                  </div>
+                  <div className="text-gray-600 mb-1">{stat.title}</div>
+                  <div className="text-gray-900 font-semibold text-lg">{stat.value}</div>
                 </div>
               </div>
-              <div className="text-gray-600 mb-1">{stat.title}</div>
-              <div className="text-gray-900">{stat.value}</div>
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Ventas por Mes */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-gray-900 mb-4">
-            Ventas mensuales (COP) 
-          </h3>
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Ventas por Mes */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-gray-900 mb-4">Ventas mensuales (COP)</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart 
+                  data={salesData}
+                  margin={{top: 20, right: 20, left: 60, bottom: 20}}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="month" 
+                    stroke="#6b7280" 
+                    label={{
+                      value: 'Mes',
+                      position: 'insideBottom' as const,
+                      offset: -10
+                    }}
+                  />
+                  <YAxis 
+                    stroke="#6b7280" 
+                    tickMargin={12}
+                    tickFormatter={(value) => `$${value.toLocaleString()}`}
+                  />
+                  <Tooltip
+                    formatter={(value) => `$${Number(value).toLocaleString()}`}  
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="ventas" stroke="#6366f1" strokeWidth={2} name="Ventas" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
 
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart 
-            data={salesData}
-            margin={{top: 20, right: 20, left: 60, bottom: 20}}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-
-              <XAxis 
-              dataKey="month" 
-              stroke="#6b7280" 
-              label={{
-                value: 'Mes',
-                position: 'InsideBottom',
-                offset: -10
-                }}
-                />
-
-              <YAxis 
-              stroke="#6b7280" 
-              tickMargin={12}
-              tickFormatter={(value) => `$${value.toLocaleString()}`}
-            
-                />
-
-              <Tooltip
-                formatter={(value) =>
-                   `$${Number(value).toLocaleString()}`}  
-              />
-
-              <Legend />
-
-              <Line type="monotone" dataKey="ventas" stroke="#6366f1" strokeWidth={2} name="Ventas" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Distribución por Categoría */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-gray-900 mb-4">Distribución porcentual de ventas por categoría</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={categoryData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {categoryData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Productos más vendidos */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Productos Más Vendidos</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={topProducts}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="name" stroke="#6b7280" />
-            <YAxis stroke="#6b7280" />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="sales" fill="#6366f1" name="Unidades Vendidas" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Pedidos Recientes */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Pedidos Pendientes</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-gray-600">ID</th>
-                <th className="text-left py-3 px-4 text-gray-600">Cliente</th>
-                <th className="text-left py-3 px-4 text-gray-600">Producto</th>
-                <th className="text-left py-3 px-4 text-gray-600">Monto</th>
-                <th className="text-left py-3 px-4 text-gray-600">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedPendingOrders.map((order) => (
-                <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="py-3 px-4 text-gray-900">{order.id}</td>
-                  <td className="py-3 px-4 text-gray-600">{order.customer}</td>
-                  <td className="py-3 px-4 text-gray-600">{order.product}</td>
-                  <td className="py-3 px-4 text-gray-900">${order.amount}</td>
-                  <td className="py-3 px-4">
-                    <span className={`inline-block px-3 py-1 rounded-full text-sm ${
-                      order.status === 'Enviado' ? 'bg-green-100 text-green-700' :
-                      order.status === 'Pendiente' ? 'bg-yellow-100 text-yellow-700' :
-                      order.status === 'Devolución' ? 'bg-red-100 text-red-700' :
-                      'bg-blue-100 text-blue-700'
-                    }`}>
-                      {order.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {/* Paginador */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
-            {/* Texto informativo */}
-            <span className="text-sm text-gray-500">
-              {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, pendingOrders.length || 0)} a ${Math.min(currentPage * ITEMS_PER_PAGE, pendingOrders.length)} de ${pendingOrders.length} pedidos`}
-            </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Anterior
-              </button>
-
-              {Array.from({ length: totalPages }).map((_, index) => {
-                const page = index + 1;
-                const isActive = currentPage === page;
-                return (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={isActive ? 'px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-semibold' : 'px-3 py-1.5 rounded-md border text-sm text-gray-700 hover:bg-gray-100 transition'}
+            {/* Distribución por Categoría */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-gray-900 mb-4">Distribución porcentual de ventas por categoría</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={categoryData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, value }) => `${name} ${value}%`}
+                    outerRadius={100}
+                    fill="#8884d8"
+                    dataKey="value"
                   >
-                    {page}
-                  </button>
-                );
-              })}
-
-              <button
-                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1.5 rounded-md border text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
-              >
-                Siguiente
-              </button>
+                    {categoryData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => `${value}%`} />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Productos más vendidos */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-gray-900 mb-4">Productos Más Vendidos (Top 5)</h3>
+            {topProductsData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={topProductsData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="name" stroke="#6b7280" />
+                  <YAxis stroke="#6b7280" />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="sales" fill="#6366f1" name="Unidades Vendidas" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-center text-gray-500 py-8">No hay datos de productos disponibles</p>
+            )}
+          </div>
+
+          {/* Resumen del período */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-gray-900 mb-4">Resumen del Período</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="pb-4 border-b">
+                <span className="text-gray-600 block text-sm">Dinero en ventas</span>
+                <span className="text-gray-900 font-semibold text-lg">${summary.dineroVentasMes.toLocaleString()}</span>
+              </div>
+              <div className="pb-4 border-b">
+                <span className="text-gray-600 block text-sm">Cantidad de ventas</span>
+                <span className="text-gray-900 font-semibold text-lg">{summary.ventasMes}</span>
+              </div>
+              <div className="pb-4 border-b">
+                <span className="text-gray-600 block text-sm">Pedidos pendientes</span>
+                <span className="text-gray-900 font-semibold text-lg">{summary.pendingOrders}</span>
+              </div>
+              <div className="pb-4 border-b">
+                <span className="text-gray-600 block text-sm">Usuarios activos</span>
+                <span className="text-gray-900 font-semibold text-lg">{summary.usersActive}</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

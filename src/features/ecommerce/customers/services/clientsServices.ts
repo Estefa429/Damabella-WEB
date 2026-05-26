@@ -31,6 +31,25 @@ export const getAllClients = async (): Promise<Clients[] | null> => {
     }
 }
 
+export const getClientsByRol = async (rolId?: number): Promise<Clients[] | null> => {
+    try {
+        console.log('📥 getClientsByRol - Trayendo clientes con rol:', rolId || 'cliente');
+        // Si se proporciona un rolId, usarlo en la URL; si no, usar el endpoint sin pk
+        const endpoint = rolId ? `/clients/${rolId}/get_clients_by_rol/` : '/clients/get_clients_by_rol/';
+        const response = await API.get(endpoint);
+        if (response.data.success === true) {
+            console.log('✅ getClientsByRol - Clientes obtenidos:', response.data.results?.length);
+            return response.data.results;
+        } else {
+            console.warn("Error al traer clientes por rol");
+            return null;
+        }
+    } catch (error: any) {
+        console.error('❌ getClientsByRol - Error:', error);
+        return null;
+    }
+}
+
 export const getClientsById = async (id_client : number): Promise<Clients | null> => {
     try{
         const response = await API.get(`/clients/${id_client}/get_clients_by_id/`)

@@ -49,6 +49,7 @@ export default function RolesPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [modulePerms, setModulePerms] = useState<ModulePerms[]>([]);
   const [loadingPerms, setLoadingPerms] = useState(false);
+  const [selectedPermissions, setSelectedPermissions] = useState<number[]>([]);
 
   // ─── Carga inicial ──────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -70,6 +71,31 @@ export default function RolesPage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ─── Cargar permisos automáticamente al editar un rol ────────────────────────
+  useEffect(() => {
+    if (!editingRole) return;
+    
+    const loadRolePermissions = async () => {
+      setLoadingPerms(true);
+      try {
+        const permissions = await getPermissionsByRol(editingRole.idRol);
+        if (!permissions) {
+          throw new Error('Error al cargar permisos');
+        }
+        const permissionIds = permissions.map((item: any) => item.permission) || [];
+        setSelectedPermissions(permissionIds);
+      } catch (error) {
+        console.error('Error cargando permisos del rol:', error);
+        showToast('Error al cargar permisos del rol', 'error');
+        setSelectedPermissions([]);
+      } finally {
+        setLoadingPerms(false);
+      }
+    };
+
+    loadRolePermissions();
+  }, [editingRole?.idRol]);
 
   // ─── Agrupar permisos por módulo ─────────────────────────────────────────────
   const groupPermsByModule = useCallback(
@@ -97,10 +123,7 @@ export default function RolesPage() {
   );
 
   // IDs de permisos actualmente seleccionados en el formulario
-  const getAssignedIds = (): number[] =>
-    modulePerms.flatMap((m) =>
-      m.perms.filter((p) => p.assigned).map((p) => p.permission.id_permissions)
-    );
+  const getAssignedIds = (): number[] => selectedPermissions;
 
   // ─── Abrir modal crear ───────────────────────────────────────────────────────
   const handleOpenCreate = () => {
@@ -108,52 +131,44 @@ export default function RolesPage() {
     setFormData({ name: '', description: '' });
     setFormErrors({});
     setModulePerms(groupPermsByModule([]));
+    setSelectedPermissions([]);
     setShowFormModal(true);
   };
 
   // ─── Abrir modal editar ──────────────────────────────────────────────────────
-  const handleOpenEdit = async (role: Role) => {
+  const handleOpenEdit = (role: Role) => {
     setEditingRole(role);
     setFormData({ name: role.name, description: role.description ?? '' });
     setFormErrors({});
+    setModulePerms(groupPermsByModule([]));
     setShowFormModal(true);
-    setLoadingPerms(true);
-    try {
-      const rolPerms: RolPermission[] | null = await getPermissionsByRol(role.idRol);
-      const assignedIds = rolPerms ? rolPerms.map((rp) => rp.permission) : [];
-      setModulePerms(groupPermsByModule(assignedIds));
-    } catch {
-      showToast('Error cargando permisos del rol', 'error');
-      setModulePerms(groupPermsByModule([]));
-    } finally {
-      setLoadingPerms(false);
-    }
+    // El useEffect se encargará de cargar los permisos del backend
   };
 
-  // ─── Toggle permiso individual ────────────────────────────────────────────────
-  const handleTogglePerm = (moduleIdx: number, permIdx: number) => {
-    setModulePerms((prev) =>
-      prev.map((m, mi) =>
-        mi !== moduleIdx ? m : {
-          ...m,
-          perms: m.perms.map((p, pi) =>
-            pi !== permIdx ? p : { ...p, assigned: !p.assigned }
-          ),
-        }
-      )
+  const handleTogglePerm = (permissionId: number) => {
+    setSelectedPermissions((prev) =>
+      prev.includes(permissionId)
+        ? prev.filter((id) => id !== permissionId)
+        : [...prev, permissionId]
     );
   };
 
   // ─── Toggle todos los permisos de un módulo ───────────────────────────────────
   const handleToggleModule = (moduleIdx: number, enable: boolean) => {
-    setModulePerms((prev) =>
-      prev.map((m, mi) =>
-        mi !== moduleIdx ? m : {
-          ...m,
-          perms: m.perms.map((p) => ({ ...p, assigned: enable })),
-        }
-      )
-    );
+    const module = modulePerms[moduleIdx];
+    if (!module) return;
+    
+    const modulePermIds = module.perms.map((p) => p.permission.id_permissions);
+    
+    setSelectedPermissions((prev) => {
+      if (enable) {
+        // Agregar todos los permisos del módulo
+        return [...new Set([...prev, ...modulePermIds])];
+      } else {
+        // Quitar todos los permisos del módulo
+        return prev.filter((id) => !modulePermIds.includes(id));
+      }
+    });
   };
 
   // ─── Guardar rol (crear o editar) ─────────────────────────────────────────────
@@ -387,12 +402,13 @@ export default function RolesPage() {
         isOpen={showFormModal}
         onClose={() => setShowFormModal(false)}
         title={editingRole ? `Editar: ${editingRole.name}` : 'Agregar Rol'}
+        size="sm"
       >
-        <div className="space-y-5">
+        <div className="space-y-3">
 
           {/* Nombre */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Nombre *</label>
             <Input
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -400,7 +416,7 @@ export default function RolesPage() {
               disabled={actionLoading}
             />
             {formErrors.name && (
-              <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+              <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
                 <AlertCircle size={14} /> {formErrors.name}
               </p>
             )}
@@ -408,79 +424,79 @@ export default function RolesPage() {
 
           {/* Descripción */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Descripción</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              rows={2}
+              rows={1}
               placeholder="Describe brevemente el rol"
               disabled={actionLoading}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 text-sm resize-none disabled:opacity-50"
+              className="w-full px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 text-xs resize-none disabled:opacity-50"
             />
           </div>
 
           {/* Permisos por módulo */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Permisos por módulo</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Permisos por módulo</label>
             {loadingPerms ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader className="animate-spin text-gray-400" size={28} />
+              <div className="flex items-center justify-center py-6">
+                <Loader className="animate-spin text-gray-400" size={24} />
               </div>
             ) : (
-              <div className="border border-gray-200 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
-                <table className="w-full text-sm">
+              <div className="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                <table className="w-full text-xs min-w-full">
                   <thead className="bg-gray-50 sticky top-0 border-b border-gray-200">
                     <tr>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-700">Módulo</th>
+                      <th className="px-2 py-1.5 text-left font-semibold text-gray-700 text-xs min-w-max">Módulo</th>
                       {ACTIONS.map((action) => (
-                        <th key={action} className="px-2 py-2 text-center font-semibold text-gray-700 text-xs w-14">
+                        <th key={action} className="px-1.5 py-1.5 text-center font-semibold text-gray-700 text-xs min-w-fit">
                           {ACTION_LABELS[action]}
                         </th>
                       ))}
-                      <th className="px-2 py-2 text-center font-semibold text-gray-700 text-xs w-16">Todos</th>
+                      <th className="px-1.5 py-1.5 text-center font-semibold text-gray-700 text-xs min-w-fit">Todos</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {modulePerms.map((mod, mi) => (
                       <tr key={mod.module} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 font-medium text-gray-800 text-sm">{mod.module}</td>
+                        <td className="px-2 py-1.5 font-medium text-gray-800 text-xs whitespace-nowrap">{mod.module}</td>
                         {ACTIONS.map((action) => {
                           const entry = mod.perms.find((p) => p.permission.Action === action);
                           if (!entry) {
                             return (
-                              <td key={action} className="px-2 py-2 text-center text-gray-300 text-xs">—</td>
+                              <td key={action} className="px-1.5 py-1.5 text-center text-gray-300 text-xs">—</td>
                             );
                           }
                           const pi = mod.perms.indexOf(entry);
                           return (
-                            <td key={action} className="px-2 py-2 text-center">
+                            <td key={action} className="px-1.5 py-1.5 text-center">
                               <input
                                 type="checkbox"
-                                checked={entry.assigned}
-                                onChange={() => handleTogglePerm(mi, pi)}
+                                checked={selectedPermissions.includes(entry.permission.id_permissions)}
+                                onChange={() => handleTogglePerm(entry.permission.id_permissions)}
                                 disabled={actionLoading}
-                                className="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                                className="h-3.5 w-3.5 rounded border-gray-300 cursor-pointer"
                               />
                             </td>
                           );
                         })}
-                        <td className="px-2 py-2 text-center">
-                          <div className="flex justify-center gap-1">
+                        <td className="px-1.5 py-1.5 text-center">
+                          <div className="flex justify-center gap-0.5">
                             <button
                               type="button"
                               onClick={() => handleToggleModule(mi, true)}
-                              className="p-1 hover:bg-green-50 rounded"
+                              className="p-0.5 hover:bg-green-50 rounded"
                               title="Activar todos"
                             >
-                              <Check size={14} className="text-green-600" />
+                              <Check size={12} className="text-green-600" />
                             </button>
                             <button
                               type="button"
                               onClick={() => handleToggleModule(mi, false)}
-                              className="p-1 hover:bg-red-50 rounded"
+                              className="p-0.5 hover:bg-red-50 rounded"
                               title="Desactivar todos"
                             >
-                              <X size={14} className="text-red-500" />
+                              <X size={12} className="text-red-500" />
                             </button>
                           </div>
                         </td>
@@ -493,13 +509,13 @@ export default function RolesPage() {
           </div>
 
           {/* Botones */}
-          <div className="flex gap-3 justify-end pt-2">
+          <div className="flex gap-2 justify-end pt-1">
             <Button variant="secondary" onClick={() => setShowFormModal(false)} disabled={actionLoading}>
               Cancelar
             </Button>
             <Button variant="primary" onClick={handleSave} disabled={actionLoading || loadingPerms}>
               {actionLoading ? (
-                <><Loader size={16} className="animate-spin" /> Guardando...</>
+                <><Loader size={14} className="animate-spin" /> Guardando...</>
               ) : (
                 editingRole ? 'Guardar cambios' : 'Crear Rol'
               )}
