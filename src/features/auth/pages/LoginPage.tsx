@@ -28,7 +28,14 @@ export function LoginPage() {
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-    if (!email.trim()) newErrors.email = 'El email es obligatorio';
+    if (!email.trim()) {
+      newErrors.email = 'El email es obligatorio';
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        newErrors.email = 'El email es inválido (ej: usuario@dominio.com)';
+      }
+    }
     if (!password.trim()) newErrors.password = 'La contraseña es obligatoria';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
