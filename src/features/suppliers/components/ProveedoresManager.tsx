@@ -13,6 +13,8 @@ import {
   TypesDocs,
   createProviderDTO,
   updateProviderDTO,
+  getProviderPurchaseHistory,
+  ProviderPurchaseHistory,
 } from '@/features/suppliers/services/providersService';
 
 const COMPRAS_KEY = 'damabella_compras';
@@ -31,6 +33,8 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false, onC
 
   const [showModal, setShowModal] = useState(false);
   const [showHistorialModal, setShowHistorialModal] = useState(false);
+  const [purchaseHistory, setPurchaseHistory] = useState<ProviderPurchaseHistory | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [editingProveedor, setEditingProveedor] = useState<Providers | null>(null);
   const [viewingProveedor, setViewingProveedor] = useState<Providers | null>(null);
@@ -356,9 +360,18 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false, onC
   };
 
   // ─── Historial / Ver ──────────────────────────────────────────────────────────
-  const handleVerHistorial = (proveedor: Providers) => {
+  const handleVerHistorial = async (proveedor: Providers) => {
     setViewingProveedor(proveedor);
+    setLoadingHistory(true);
     setShowHistorialModal(true);
+    setPurchaseHistory(null);
+    const history = await getProviderPurchaseHistory(proveedor.id_provider);
+    if (history) {
+      setPurchaseHistory(history);
+    } else {
+      showToast('Error al obtener el historial de compras', 'error');
+    }
+    setLoadingHistory(false);
   };
 
   const handleVerProveedor = (proveedor: Providers) => {
@@ -701,66 +714,72 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false, onC
         <div className="space-y-6">
           {viewingProveedor && (
             <>
-              <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <div className="text-blue-600 text-sm font-medium mb-1">Total Compras</div>
-                    <div className="text-3xl font-bold text-blue-900">{getComprasProveedor(viewingProveedor.id_provider).length}</div>
-                  </div>
-                  <div>
-                    <div className="text-blue-600 text-sm font-medium mb-1">Productos Recibidos</div>
-                    <div className="text-3xl font-bold text-blue-900">{getCantidadProductosProveedor(viewingProveedor.id_provider)}</div>
-                  </div>
-                  <div>
-                    <div className="text-blue-600 text-sm font-medium mb-1">Monto Acumulado</div>
-                    <div className="text-2xl font-bold text-green-600">{formatearCOP(getTotalComprasProveedor(viewingProveedor.id_provider))}</div>
-                  </div>
-                </div>
-              </div>
-              {getComprasProveedor(viewingProveedor.id_provider).length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Store className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p className="text-lg font-medium">Este proveedor aún no tiene compras registradas.</p>
-                  <p className="text-sm mt-2">Las compras aparecerán aquí cuando se registren en el módulo de Compras.</p>
+              {loadingHistory ? (
+                <div className="py-12 flex flex-col items-center justify-center space-y-4">
+                  <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-gray-500 font-medium">Cargando historial de compras...</p>
                 </div>
               ) : (
-                <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-100 border-b border-gray-200">
-                      <tr>
-                        <th className="text-left py-3 px-4 text-gray-700 font-semibold">Fecha</th>
-                        <th className="text-left py-3 px-4 text-gray-700 font-semibold">N° Compra</th>
-                        <th className="text-center py-3 px-4 text-gray-700 font-semibold">Cantidad</th>
-                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">Subtotal</th>
-                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">IVA</th>
-                        <th className="text-right py-3 px-4 text-gray-700 font-semibold">Total</th>
-                        <th className="text-center py-3 px-4 text-gray-700 font-semibold">Estado</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {getComprasProveedor(viewingProveedor.id_provider).map((compra: any) => (
-                        <tr key={compra.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-4 text-gray-900">{new Date(compra.fechaCompra || compra.fechaRegistro).toLocaleDateString('es-CO')}</td>
-                          <td className="py-3 px-4 text-gray-900 font-medium">{compra.numeroCompra}</td>
-                          <td className="py-3 px-4 text-center text-gray-700">{(compra.items || []).reduce((sum: number, item: any) => sum + (item.cantidad || 0), 0)}</td>
-                          <td className="py-3 px-4 text-right text-gray-900">{formatearCOP(compra.subtotal || 0)}</td>
-                          <td className="py-3 px-4 text-right text-gray-900">{formatearCOP(compra.iva || 0)}</td>
-                          <td className="py-3 px-4 text-right font-semibold text-gray-900">{formatearCOP(compra.total || 0)}</td>
-                          <td className="py-3 px-4 text-center">
-                            <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                              compra.estado === 'Recibida' ? 'bg-green-100 text-green-700' :
-                              compra.estado === 'Pendiente' ? 'bg-yellow-100 text-yellow-700' :
-                              compra.estado === 'Anulada' ? 'bg-red-100 text-red-700' :
-                              'bg-blue-100 text-blue-700'
-                            }`}>
-                              {compra.estado || 'Confirmada'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-blue-600 text-sm font-medium mb-1">Total Compras</div>
+                        <div className="text-3xl font-bold text-blue-900">{purchaseHistory?.stats?.total_purchases ?? 0}</div>
+                      </div>
+                      <div>
+                        <div className="text-blue-600 text-sm font-medium mb-1">Productos Recibidos</div>
+                        <div className="text-3xl font-bold text-blue-900">{purchaseHistory?.stats?.total_products_received ?? 0}</div>
+                      </div>
+                      <div>
+                        <div className="text-blue-600 text-sm font-medium mb-1">Monto Acumulado</div>
+                        <div className="text-2xl font-bold text-green-600">{formatearCOP(purchaseHistory?.stats?.total_amount_accumulated ?? 0)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  {!purchaseHistory || purchaseHistory.results.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <Store className="mx-auto mb-4 text-gray-300" size={48} />
+                      <p className="text-lg font-medium">Este proveedor aún no tiene compras registradas.</p>
+                      <p className="text-sm mt-2">Las compras aparecerán aquí cuando se registren en el módulo de Compras.</p>
+                    </div>
+                  ) : (
+                    <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100 border-b border-gray-200">
+                          <tr>
+                            <th className="text-left py-3 px-4 text-gray-700 font-semibold">Fecha</th>
+                            <th className="text-left py-3 px-4 text-gray-700 font-semibold">N° Compra</th>
+                            <th className="text-center py-3 px-4 text-gray-700 font-semibold">Cantidad</th>
+                            <th className="text-right py-3 px-4 text-gray-700 font-semibold">Subtotal</th>
+                            <th className="text-right py-3 px-4 text-gray-700 font-semibold">IVA</th>
+                            <th className="text-right py-3 px-4 text-gray-700 font-semibold">Total</th>
+                            <th className="text-center py-3 px-4 text-gray-700 font-semibold">Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {purchaseHistory.results.map((compra: any) => (
+                            <tr key={compra.id_purchase} className="hover:bg-gray-50 transition-colors">
+                              <td className="py-3 px-4 text-gray-900">{new Date(compra.purchase_date || compra.registration_date).toLocaleDateString('es-CO')}</td>
+                              <td className="py-3 px-4 text-gray-900 font-medium">{compra.purchase_number}</td>
+                              <td className="py-3 px-4 text-center text-gray-700">{(compra.details || []).reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)}</td>
+                              <td className="py-3 px-4 text-right text-gray-900">{formatearCOP(parseFloat(compra.subtotal || 0))}</td>
+                              <td className="py-3 px-4 text-right text-gray-900">{formatearCOP(parseFloat(compra.total || 0) - parseFloat(compra.subtotal || 0))}</td>
+                              <td className="py-3 px-4 text-right font-semibold text-gray-900">{formatearCOP(parseFloat(compra.total || 0))}</td>
+                              <td className="py-3 px-4 text-center">
+                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                                  compra.canceled ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {compra.canceled ? 'Anulada' : 'Recibida'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

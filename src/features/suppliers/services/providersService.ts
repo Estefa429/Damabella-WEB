@@ -155,3 +155,28 @@ export const getAllTypesDocs = async (): Promise<TypesDocs[] | null> =>{
         return null
     }
 }
+
+export interface ProviderPurchaseHistory {
+    success: boolean;
+    stats: {
+        total_purchases: number;
+        total_products_received: number;
+        total_amount_accumulated: number;
+    };
+    results: any[];
+}
+
+export const getProviderPurchaseHistory = async (id_provider: number): Promise<ProviderPurchaseHistory | null> => {
+    try {
+        const response = await API.get(`/providers/${id_provider}/purchase_history/`);
+        if (response.data.success === true) {
+            return response.data;
+        } else {
+            console.warn(response.data.message || 'Error al obtener el historial de compras');
+            return null;
+        }
+    } catch (error: any) {
+        console.error('getProviderPurchaseHistory error:', error);
+        return null;
+    }
+};

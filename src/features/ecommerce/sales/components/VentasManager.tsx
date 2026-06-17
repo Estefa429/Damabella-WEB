@@ -1506,7 +1506,7 @@ const paginatedVentas = useMemo(() => {
           {/* SECCIÓN 1: DATOS DE VENTA Y CLIENTE (HEADER FIJO) */}
           {/* CORRECCIÓN: Sin flex-1, ocupa solo el espacio necesario */}
           {/* ═══════════════════════════════════════════════════════ */}
-          <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0">
+          <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0 relative z-10">
               {/* Contenedor centrado con max-width para inputs */}
               <div className="max-w-5xl mx-auto">
               

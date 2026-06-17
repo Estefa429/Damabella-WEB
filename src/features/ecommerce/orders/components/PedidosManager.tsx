@@ -535,6 +535,12 @@ export default function PedidosManager() {
     const errs: Record<string, string> = {};
     if (!formData.clienteId)   errs.clienteId   = 'Debes seleccionar un cliente';
     if (!formData.fechaPedido) errs.fechaPedido  = 'La fecha del pedido es obligatoria';
+    if (!formData.direccionEnvio || !formData.direccionEnvio.trim()) {
+      errs.direccionEnvio = 'La dirección de envío es obligatoria';
+    }
+    if (!formData.personaRecibe || !formData.personaRecibe.trim()) {
+      errs.personaRecibe = 'La persona que recibe es obligatoria';
+    }
     if (Object.keys(errs).length) {
       setFormErrors(errs);
       notify('Por favor completa todos los campos obligatorios', 'error');
@@ -1063,7 +1069,7 @@ DAMABELLA - Moda Femenina
         <div className="w-[95vw] max-w-[1400px] max-h-[90vh] pr-0.5 text-[10px] leading-tight overflow-hidden mx-auto flex flex-col">
 
           {/* Header fijo */}
-          <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0">
+          <div className="border border-gray-200 rounded-md bg-white p-2 shrink-0 relative z-10">
             <div className="max-w-5xl mx-auto">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 mb-2">
                 <div>
@@ -1171,12 +1177,14 @@ DAMABELLA - Moda Femenina
                     </select>
                   </div>
                   <div>
-                    <label className="block text-gray-700 mb-1 text-[10px]">Dirección de Envío</label>
-                    <Input value={formData.direccionEnvio} onChange={e => handleFieldChange('direccionEnvio', e.target.value)} placeholder="Dirección (opcional)" className="h-6 px-2 text-[10px]" />
+                    <label className="block text-gray-700 mb-1 text-[10px]">Dirección de Envío *</label>
+                    <Input value={formData.direccionEnvio} onChange={e => handleFieldChange('direccionEnvio', e.target.value)} placeholder="Dirección" className="h-6 px-2 text-[10px]" />
+                    {formErrors.direccionEnvio && <p className="text-red-500 text-[10px] mt-1">{formErrors.direccionEnvio}</p>}
                   </div>
                   <div>
-                    <label className="block text-gray-700 mb-1 text-[10px]">Persona que recibe</label>
-                    <Input value={formData.personaRecibe} onChange={e => handleFieldChange('personaRecibe', e.target.value)} placeholder="Nombre (opcional)" className="h-6 px-2 text-[10px]" />
+                    <label className="block text-gray-700 mb-1 text-[10px]">Persona que recibe *</label>
+                    <Input value={formData.personaRecibe} onChange={e => handleFieldChange('personaRecibe', e.target.value)} placeholder="Nombre" className="h-6 px-2 text-[10px]" />
+                    {formErrors.personaRecibe && <p className="text-red-500 text-[10px] mt-1">{formErrors.personaRecibe}</p>}
                   </div>
                 </div>
 
@@ -1215,7 +1223,7 @@ DAMABELLA - Moda Femenina
                           </div>
                         </div>
                       )}
-                      {showVariantDrop && (
+                      {showVariantDrop && variantSearch.trim() !== '' && (
                         <div className="absolute z-50 mt-1 w-full max-h-60 bg-white border border-gray-200 rounded-md shadow-lg overflow-y-auto text-[10px]">
                           {productosFiltradosSelect.length === 0 ? (
                             <div className="px-3 py-3 text-center text-gray-500">No hay resultados</div>
