@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Settings,
@@ -40,20 +41,20 @@ import { DevolucionesManager } from '../../returns';
 import { EditarPerfilPage } from '../../profile';
 import { NotificacionesPage } from '../../notifications';
 import { Modal, ToastProvider } from '../../../shared/components/native';
-import { AuthProvider } from '../../../shared/contexts/AuthContext';
+import { useAuth } from '../../../shared/contexts/AuthContext';
+import { usePermissions } from '../../../shared/hooks/usePermissions';
 
-interface AppLayoutProps {
-  currentUser: any;
-  onLogout: () => void;
-}
-
-export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
+export default function AppLayout() {
+  const { user, isAdmin, logout } = useAuth();
+  const navigate = useNavigate();
+  const { hasPermission, getVisibleModules } = usePermissions();
+  const isUserAdmin = isAdmin();
+  
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['dashboard']);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [user, setUser] = useState(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [clienteDetalleActual, setClienteDetalleActual] = useState<any>(null);
@@ -62,100 +63,6 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   useEffect(() => {
     setSidebarOpen(true);
   }, []);
-
-  // Obtener permisos del rol del usuario
-  const getUserPermissions = () => {
-    const roles = JSON.parse(localStorage.getItem('damabella_roles') || '[]');
-    const userRole = roles.find((r: any) => 
-      r.id === user.roleId || 
-      r.nombre === user.role ||
-      r.name === user.role
-    );
-    
-    // Si encontramos el rol y tiene permisos definidos, usarlos
-    if (userRole && (userRole.permissions || userRole.permisos) && Array.isArray(userRole.permissions || userRole.permisos)) {
-      const permArray = userRole.permissions || userRole.permisos;
-      const permisosMap: any = {};
-      
-      permArray.forEach((p: any) => {
-        const moduleName = (p.module || p.modulo || '').toLowerCase();
-        permisosMap[moduleName] = {
-          ver: p.canView ?? p.ver ?? false,
-          crear: p.canCreate ?? p.crear ?? false,
-          editar: p.canEdit ?? p.editar ?? false,
-          eliminar: p.canDelete ?? p.eliminar ?? false
-        };
-      });
-      
-      console.log(`✅ [getUserPermissions] Permisos dinámicos encontrados para ${user.role}:`, permisosMap);
-      return permisosMap;
-    }
-    
-    // Fallback a permisos por rol si no están definidos dinámicamente
-    if (!userRole || (!userRole.permissions && !userRole.permisos)) {
-      console.log(`⚠️ [getUserPermissions] No se encontraron permisos dinámicos para ${user.role}, usando fallback`);
-      
-      // Si es Administrador y no tiene permisos definidos, dar acceso total
-      if (user.role === 'Administrador') {
-        return {
-          dashboard: { ver: true },
-          roles: { ver: true, crear: true, editar: true, eliminar: true },
-          permisos: { ver: true, crear: true, editar: true, eliminar: true },
-          usuarios: { ver: true, crear: true, editar: true, eliminar: true },
-          categorías: { ver: true, crear: true, editar: true, eliminar: true },
-          productos: { ver: true, crear: true, editar: true, eliminar: true },
-          proveedores: { ver: true, crear: true, editar: true, eliminar: true },
-          compras: { ver: true, crear: true, editar: true, eliminar: true },
-          clientes: { ver: true, crear: true, editar: true, eliminar: true },
-          pedidos: { ver: true, crear: true, editar: true, eliminar: true },
-          ventas: { ver: true, crear: true, editar: true, eliminar: true },
-          devoluciones: { ver: true, crear: true, editar: true, eliminar: true }
-        };
-      }
-      
-      // Empleado: acceso limitado (sin permisos dinámicos)
-      if (user.role === 'Empleado') {
-        return {
-          dashboard: { ver: true },
-          productos: { ver: true, crear: false, editar: false, eliminar: false },
-          clientes: { ver: true, crear: true, editar: true, eliminar: false },
-          pedidos: { ver: true, crear: true, editar: true, eliminar: false },
-          ventas: { ver: true, crear: true, editar: false, eliminar: false },
-          devoluciones: { ver: true, crear: true, editar: false, eliminar: false }
-        };
-      }
-      
-      return {};
-    }
-    
-    return userRole.permisos;
-  };
-
-  const permisos = getUserPermissions();
-
-  // Normalizar nombre de módulo (remover acentos y convertir a minúsculas)
-  const normalizeModuleName = (name: string): string => {
-    return name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, ''); // Remover acentos
-  };
-
-  const hasPermission = (modulo: string, accion: string = 'ver') => {
-    const moduloKey = normalizeModuleName(modulo);
-    
-    // Buscar en permisos normalizados
-    let hasAccess = false;
-    for (const [key, value] of Object.entries(permisos)) {
-      if (normalizeModuleName(key) === moduloKey) {
-        hasAccess = (value as any)?.[accion] === true;
-        break;
-      }
-    }
-    
-    console.log(`🔍 [hasPermission] Módulo: "${modulo}" (${moduloKey}), Acción: ${accion}, Acceso: ${hasAccess}`);
-    return hasAccess;
-  };
 
   const toggleMenu = (menuId: string) => {
     setExpandedMenus(prev =>
@@ -166,8 +73,6 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   };
 
   const handleSaveProfile = (updatedUser: any) => {
-    setUser(updatedUser);
-    // Actualizar también en el localStorage para que persista
     localStorage.setItem('damabella_current_user', JSON.stringify(updatedUser));
     setCurrentPage('dashboard');
   };
@@ -261,7 +166,7 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      page: 'dashboard', // Enlace directo, no desplegable
+      page: 'dashboard',
       modulo: 'dashboard'
     },
     {
@@ -304,31 +209,27 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
     }
   ];
 
-  // Filtrar menús según permisos
-  const filteredMenuItems = user.rol_name?.toLowerCase() === 'administrador' 
+  // Filtrar menús según permisos del usuario
+  const filteredMenuItems = isUserAdmin
     ? menuItems // Los admins ven TODO sin filtrar
-    : menuItems.filter(menu => {
-      // El Dashboard siempre es visible para todos
-      if (menu.id === 'dashboard') {
-        return true;
-      }
-      // Si el menú tiene enlace directo (page), verificar permiso
-      if (menu.page) {
-        return hasPermission(menu.modulo || menu.id);
-      }
-      // Si tiene submenu, filtrar items del submenu
-      const filteredSubmenu = menu.submenu?.filter((item: any) => hasPermission(item.modulo || item.id));
-      return filteredSubmenu && filteredSubmenu.length > 0;
-    }).map(menu => {
-      // Si tiene submenu, filtrar items del submenu
-      if (menu.submenu) {
-        return {
-          ...menu,
-          submenu: menu.submenu?.filter((item: any) => hasPermission(item.modulo || item.id))
-        };
-      }
-      return menu;
-    });
+    : menuItems
+      .map((menu) => {
+        if (menu.id === 'dashboard') return menu;
+
+        if (menu.submenu) {
+          return {
+            ...menu,
+            submenu: menu.submenu.filter((item: any) => hasPermission(item.modulo || item.id, 'view')),
+          };
+        }
+
+        return menu;
+      })
+      .filter((menu) => {
+        if (menu.id === 'dashboard') return true;
+        if (!menu.submenu) return hasPermission(menu.modulo || menu.id, 'view');
+        return menu.submenu && menu.submenu.length > 0;
+      });
 
   const renderContent = () => {
     switch (currentPage) {
@@ -370,9 +271,8 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
   };
 
   return (
-    <AuthProvider>
-      <ToastProvider>
-        <div className="min-h-screen bg-gray-50">
+    <ToastProvider>
+      <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 fixed top-0 left-0 right-0 z-40">
         <div className="flex items-center justify-between px-4 h-16">
@@ -583,7 +483,14 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
               Cancelar
             </button>
             <button
-              onClick={onLogout}
+              onClick={() => {
+                try {
+                  logout();
+                } catch (e) {
+                  // ignore
+                }
+                navigate('/login');
+              }}
               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
             >
               Cerrar Sesión
@@ -592,7 +499,6 @@ export default function AppLayout({ currentUser, onLogout }: AppLayoutProps) {
         </div>
       </Modal>
     </div>
-      </ToastProvider>
-    </AuthProvider>
+    </ToastProvider>
   );
 }

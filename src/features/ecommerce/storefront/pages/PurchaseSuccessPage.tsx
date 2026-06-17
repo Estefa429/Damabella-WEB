@@ -97,8 +97,8 @@ export const PurchaseSuccessPage: React.FC<PurchaseSuccessPageProps> = ({ onNavi
 
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Totales</p>
-                    <p className="text-base font-medium text-gray-900">Subtotal: ${purchase.subtotal.toLocaleString('es-CO')}</p>
-                    <p className="text-base font-medium text-gray-900">Total: ${purchase.total.toLocaleString('es-CO')}</p>
+                    <p className="text-base font-medium text-gray-900">Subtotal: {purchase.subtotal.toLocaleString('es-CO')} COP</p>
+                    <p className="text-base font-medium text-gray-900">Total: {purchase.total.toLocaleString('es-CO')} COP</p>
                   </div>
                 </div>
 
@@ -153,8 +153,8 @@ export const PurchaseSuccessPage: React.FC<PurchaseSuccessPageProps> = ({ onNavi
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium text-gray-900 text-sm">${item.price.toLocaleString('es-CO')}</p>
-                        <p className="text-xs text-gray-600 mt-1">${(item.price * item.quantity).toLocaleString('es-CO')}</p>
+                        <p className="font-medium text-gray-900 text-sm">{item.price.toLocaleString('es-CO')} COP</p>
+                        <p className="text-xs text-gray-600 mt-1">{(item.price * item.quantity).toLocaleString('es-CO')} COP</p>
                       </div>
                     </div>
                   ))}
@@ -191,24 +191,24 @@ export const PurchaseSuccessPage: React.FC<PurchaseSuccessPageProps> = ({ onNavi
           <div className="space-y-3">
             <div className="flex justify-between text-gray-700">
               <span>Subtotal:</span>
-              <span>${purchase.subtotal.toLocaleString('es-CO')}</span>
+              <span>{purchase.subtotal.toLocaleString('es-CO')} COP</span>
             </div>
 
             <div className="flex justify-between text-gray-700">
               <span>Envío:</span>
               <span className={purchase.shipping === 0 ? 'text-green-600 font-medium' : ''}>
-                {purchase.shipping === 0 ? '¡Gratis!' : `$${purchase.shipping.toLocaleString('es-CO')}`}
+                {purchase.shipping === 0 ? '¡Gratis!' : `${purchase.shipping.toLocaleString('es-CO')} COP`}
               </span>
             </div>
 
             <div className="flex justify-between text-gray-700">
               <span>IVA (19%):</span>
-              <span>${purchase.iva.toLocaleString('es-CO')}</span>
+              <span>{purchase.iva.toLocaleString('es-CO')} COP</span>
             </div>
 
             <div className="border-t pt-3 flex justify-between text-lg font-bold text-gray-900">
               <span>Total:</span>
-              <span className="text-pink-600">${purchase.total.toLocaleString('es-CO')}</span>
+              <span className="text-pink-600">{purchase.total.toLocaleString('es-CO')} COP</span>
             </div>
           </div>
         </div>
@@ -303,15 +303,15 @@ export const PurchaseSuccessPage: React.FC<PurchaseSuccessPageProps> = ({ onNavi
           <div className="border-t pt-3">
             <div className="flex justify-between text-gray-700">
               <span>Subtotal</span>
-              <span>${purchase.subtotal.toLocaleString('es-CO')}</span>
+              <span>{purchase.subtotal.toLocaleString('es-CO')} COP</span>
             </div>
             <div className="flex justify-between text-gray-700">
               <span>Envío</span>
-              <span>{purchase.shipping === 0 ? '¡Gratis!' : `$${purchase.shipping.toLocaleString('es-CO')}`}</span>
+              <span>{purchase.shipping === 0 ? '¡Gratis!' : `${purchase.shipping.toLocaleString('es-CO')} COP`}</span>
             </div>
             <div className="flex justify-between text-gray-700">
               <span>Total</span>
-              <span className="font-bold text-pink-600">${purchase.total.toLocaleString('es-CO')}</span>
+              <span className="font-bold text-pink-600">{purchase.total.toLocaleString('es-CO')} COP</span>
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield, Plus, Edit2, Trash2, Search, Loader,
-  Check, X, AlertCircle
+  Check, X, AlertCircle, Eye
 } from 'lucide-react';
 import { Button, Input, Modal, useToast } from '../../../shared/components/native';
 import {
@@ -43,6 +43,9 @@ export default function RolesPage() {
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
   const [roleToToggle, setRoleToToggle] = useState<Role | null>(null);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [viewingRole, setViewingRole] = useState<Role | null>(null);
+  const [viewingPerms, setViewingPerms] = useState<ModulePerms[]>([]);
 
   // ─── Formulario ─────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({ name: '', description: '' });
@@ -143,6 +146,25 @@ export default function RolesPage() {
     setModulePerms(groupPermsByModule([]));
     setShowFormModal(true);
     // El useEffect se encargará de cargar los permisos del backend
+  };
+
+  // ─── Abrir modal ver permisos desglosados ────────────────────────────────────
+  const handleOpenView = async (role: Role) => {
+    setViewingRole(role);
+    setLoadingPerms(true);
+    setShowViewModal(true);
+    try {
+      const permissions = await getPermissionsByRol(role.idRol);
+      const permissionIds = permissions?.map((item: any) => item.permission) || [];
+      const grouped = groupPermsByModule(permissionIds);
+      setViewingPerms(grouped);
+    } catch (error) {
+      console.error('Error loading permissions:', error);
+      showToast('Error al cargar los permisos del rol', 'error');
+      setViewingPerms([]);
+    } finally {
+      setLoadingPerms(false);
+    }
   };
 
   const handleTogglePerm = (permissionId: number) => {
@@ -373,6 +395,13 @@ export default function RolesPage() {
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-2">
                       <button
+                        onClick={() => handleOpenView(role)}
+                        className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                        title="Ver privilegios y permisos"
+                      >
+                        <Eye size={17} />
+                      </button>
+                      <button
                         onClick={() => handleOpenEdit(role)}
                         className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
                         title="Editar rol y permisos"
@@ -594,6 +623,78 @@ export default function RolesPage() {
                 ? <><Loader size={16} className="animate-spin" /> Eliminando...</>
                 : 'Eliminar Rol'
               }
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal Ver Permisos ────────────────────────────────────────────────── */}
+      <Modal
+        isOpen={showViewModal}
+        onClose={() => { setShowViewModal(false); setViewingRole(null); setViewingPerms([]); }}
+        title={`Detalle de Permisos: ${viewingRole?.name}`}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <h3 className="font-semibold text-gray-800 text-sm">{viewingRole?.name}</h3>
+            <p className="text-gray-600 text-xs mt-1">{viewingRole?.description || 'Sin descripción disponible.'}</p>
+          </div>
+
+          {loadingPerms ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader className="animate-spin text-blue-600 mr-2" size={20} />
+              <span className="text-gray-600 text-sm">Cargando privilegios...</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto pr-2">
+              {viewingPerms.map((mod) => {
+                // Filter permissions that are actually assigned
+                const assignedPerms = mod.perms.filter(p => p.assigned);
+                if (assignedPerms.length === 0) return null;
+
+                return (
+                  <div key={mod.module} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                    <h4 className="font-medium text-gray-700 text-sm border-b border-gray-100 pb-2 mb-3 capitalize">
+                      {mod.module}
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {assignedPerms.map((p) => {
+                        const actionName = ACTION_LABELS[p.permission.Action] || p.permission.Action;
+                        let badgeColor = 'bg-gray-100 text-gray-800 border-gray-200';
+                        if (p.permission.Action === 'View') badgeColor = 'bg-blue-50 text-blue-700 border-blue-100';
+                        else if (p.permission.Action === 'Create') badgeColor = 'bg-green-50 text-green-700 border-green-100';
+                        else if (p.permission.Action === 'Edit') badgeColor = 'bg-amber-50 text-amber-700 border-amber-100';
+                        else if (p.permission.Action === 'Delete') badgeColor = 'bg-red-50 text-red-700 border-red-100';
+
+                        return (
+                          <span
+                            key={p.permission.id_permissions}
+                            className={`text-xs px-2.5 py-1 rounded-full border ${badgeColor} font-medium`}
+                          >
+                            {actionName}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {viewingPerms.every(mod => mod.perms.filter(p => p.assigned).length === 0) && (
+                <div className="col-span-2 py-8 text-center text-gray-400">
+                  <Shield className="mx-auto mb-2 text-gray-300" size={32} />
+                  <p className="text-sm">Este rol no tiene ningún permiso asignado.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2 border-t border-gray-100">
+            <Button
+              variant="secondary"
+              onClick={() => { setShowViewModal(false); setViewingRole(null); setViewingPerms([]); }}
+            >
+              Cerrar
             </Button>
           </div>
         </div>

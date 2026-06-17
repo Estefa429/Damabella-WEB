@@ -1,15 +1,32 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, RotateCcw, Eye, Download, AlertCircle, CheckCircle, Ban, Plus } from 'lucide-react';
-import { Input, Modal, Button } from '../../../shared/components/native';
+import {
+  Search,
+  Download,
+  Eye,
+  Ban,
+  AlertCircle,
+  CheckCircle,
+  RotateCcw
+} from 'lucide-react';
+import { Input, Modal } from '../../../shared/components/native';
+import { 
+  getAllReturns, createReturn, deleteReturn, getReturnMetrics, Return, CreateReturnDTO, getReturnById, exportAllReturns 
+} from '../services/ReturnServices';
+import { 
+  getAllChanges, createChange, deleteChange, getChangeMetrics, Change, CreateChangeDTO, getChangeById 
+} from '../services/ChangeServices';
+import { getAllSales, Sale as SaleAPI } from '../../ecommerce/sales/services/SalesServices';
+import { getAllVariants, VariantProduct } from '@/features/purchases/services/PurchasesService';
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
-const STORAGE_KEY = 'damabella_devoluciones';
+const STORAGE_KEY = 'damabella_devoluciones'; // Deprecated for display, kept for safety
 const VENTAS_KEY = 'damabella_ventas';
 const PRODUCTOS_KEY = 'damabella_productos';
-const DEVOLUCION_COUNTER_KEY = 'damabella_devolucion_counter';
 
 
 interface ItemDevolucion {
   id: string;
+  variantId?: number;
   productoNombre: string;
   talla: string;
   color: string;
@@ -40,15 +57,17 @@ interface Devolucion {
 }
 
 export function DevolucionesManager() {
-  const [devoluciones, setDevoluciones] = useState<Devolucion[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+  const [devoluciones, setDevoluciones] = useState<Devolucion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [metrics, setMetrics] = useState({
+    totalCount: 0,
+    totalAmount: 0,
+    pending: 0,
+    completed: 0
   });
 
-  const [ventas, setVentas] = useState(() => {
-    const stored = localStorage.getItem(VENTAS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [ventas, setVentas] = useState([]);
+  const [variants, setVariants] = useState<VariantProduct[]>([]);
 
   const [productos, setProductos] = useState(() => {
     const stored = localStorage.getItem(PRODUCTOS_KEY);
@@ -155,7 +174,17 @@ export function DevolucionesManager() {
   const [productoNuevoColor, setProductoNuevoColor] = useState('');
   const [medioPagoExcedente, setMedioPagoExcedente] = useState<MedioPago>('Efectivo');
 
-  // ✅ Helpers (deben estar en el componente para poder usarlos en el JSX)
+  // ✅ Helpers (re-añadidos)
+  const getVariantDetails = (variantId: string | number) => {
+    const vId = Number(variantId);
+    const variant = variants.find(v => v.id_variant === vId);
+    return {
+      nombre: variant?.product_name || `Ref: ${variant?.sku || variantId}`,
+      talla: variant?.size_name || '',
+      color: variant?.color_name || ''
+    };
+  };
+
   const getProductoNuevoSeleccionado = () =>
     productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
 
@@ -180,37 +209,145 @@ export function DevolucionesManager() {
   const handleToggleItemDevolucion = (itemId: string, cantidad: number) => {
     setItemsDevueltos((prev) => {
       const idx = prev.findIndex((i) => i.itemId === itemId);
-
-      if (cantidad <= 0) {
-        return prev.filter((i) => i.itemId !== itemId);
-      }
-
+      if (cantidad <= 0) return prev.filter((i) => i.itemId !== itemId);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = { itemId, cantidad };
         return copy;
       }
-
       return [...prev, { itemId, cantidad }];
     });
   };
 
+  // ── MAPPING HELPERS ────────────────────────────────────────────────────────
+  const mapApiReturnToLocal = (ret: Return): Devolucion => ({
+    id: ret.id_return,
+    numeroDevolucion: ret.return_number,
+    ventaId: ret.sale,
+    numeroVenta: ret.sale_number || `V-${ret.sale}`,
+    clienteNombre: ret.client_name || 'Desconocido',
+    fechaDevolucion: ret.created_at,
+    motivo: ret.reason_of_return as any,
+    items: (ret.details || []).map(d => ({
+      id: String(d.id_detail),
+      variantId: d.variant,
+      productoNombre: d.variant_name || `ID: ${d.variant}`,
+      talla: '',
+      color: '',
+      cantidad: d.quantity,
+      precioUnitario: parseFloat(d.unit_price),
+      subtotal: parseFloat(d.subtotal)
+    })),
+    total: (ret.details || []).reduce((acc, d) => acc + parseFloat(d.subtotal), 0),
+    createdAt: ret.created_at,
+    estadoGestion: ret.state === 1 ? 'Cambiado' : ret.state === 3 ? 'Anulado' : 'Pendiente'
+  });
 
+  const mapApiChangeToLocal = (ch: Change): Devolucion => ({
+    id: ch.id_change,
+    numeroDevolucion: ch.change_number,
+    ventaId: ch.sale,
+    numeroVenta: ch.sale_number || `V-${ch.sale}`,
+    clienteNombre: ch.client_name || 'Desconocido',
+    fechaDevolucion: ch.created_at,
+    motivo: ch.reason_of_change as any,
+    items: [], // Los cambios no suelen mostrar los items originales en la lista unificada
+    total: 0,
+    createdAt: ch.created_at,
+    estadoGestion: ch.stock_applied ? 'Cambiado' : 'Pendiente',
+    productoNuevo: ch.details && ch.details[0] ? {
+      id: String(ch.details[0].variant),
+      nombre: ch.details[0].variant_name || `Cambio por Var: ${ch.details[0].variant}`,
+      precio: parseFloat(ch.details[0].price_difference)
+    } : null
+  });
 
+  // ── LOAD DATA ──────────────────────────────────────────────────────────────
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [rets, changes, retMetrics, changeMetrics, salesData, variantsAPI] = await Promise.all([
+        getAllReturns(),
+        getAllChanges(),
+        getReturnMetrics(),
+        getChangeMetrics(),
+        getAllSales(),
+        getAllVariants()
+      ]);
+
+      const localReturns = (rets || []).map(mapApiReturnToLocal);
+      const localChanges = (changes || []).map(mapApiChangeToLocal);
+
+      // Unificar y ordenar por fecha descendente
+      const unified = [...localReturns, ...localChanges].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      setDevoluciones(unified);
+      if (variantsAPI) setVariants(variantsAPI);
+      
+      // Adaptar ventas para el select del modal de creación
+      if (salesData) {
+        setVentas(salesData.map((s: SaleAPI) => ({
+          id: s.id_sale,
+          numeroVenta: s.number_sale,
+          clienteNombre: s.client_name || 'Desconocido',
+          total: parseFloat(s.total),
+          items: (s.details || []).map(d => ({
+            id: String(d.id_detail),
+            variantId: d.variant,
+            productoNombre: (d as any).variant_name || `ID: ${d.variant}`,
+            cantidad: d.quantity,
+            precioUnitario: parseFloat(d.unit_price || "0"),
+            talla: '',
+            color: ''
+          }))
+        })) as any);
+      }
+
+      // Sincronizar métricas calculadas localmente a partir de los datos reales de la BD
+      const pendingCount = unified.filter(d => d.estadoGestion === 'Pendiente' || d.estadoGestion === 'Enviado a reparación').length;
+      const completedCount = unified.filter(d => d.estadoGestion === 'Cambiado' || d.estadoGestion === 'Reparado').length;
+      const totalAmountVal = unified.reduce((acc, curr) => {
+        if (curr.estadoGestion !== 'Anulado') {
+          return acc + (curr.total || 0);
+        }
+        return acc;
+      }, 0);
+
+      setMetrics({
+        totalCount: unified.length,
+        totalAmount: totalAmountVal,
+        pending: pendingCount,
+        completed: completedCount
+      });
+
+    } catch (error) {
+      console.error('Error loading returns/changes data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
+    loadData();
     const handleStorageChange = () => {
-      const storedDevoluciones = localStorage.getItem(STORAGE_KEY);
       const storedVentas = localStorage.getItem(VENTAS_KEY);
       const storedProductos = localStorage.getItem(PRODUCTOS_KEY);
-      if (storedDevoluciones) setDevoluciones(JSON.parse(storedDevoluciones));
       if (storedVentas) setVentas(JSON.parse(storedVentas));
       if (storedProductos) setProductos(JSON.parse(storedProductos));
     };
     
-    handleStorageChange(); // Load initial data
+    handleStorageChange();
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('devolucionProcessed', loadData);
+    window.addEventListener('cambioProcessed', loadData);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('devolucionProcessed', loadData);
+      window.removeEventListener('cambioProcessed', loadData);
+    };
   }, []);
 
   const descargarComprobante = (devolucion: Devolucion) => {
@@ -232,17 +369,20 @@ ${devolucion.motivo}
 ---------------------------------
 PRODUCTOS DEVUELTOS
 ---------------------------------
-${devolucion.items.map(item => `
-${item.productoNombre}
-Talla: ${item.talla} | Color: ${item.color}
-Cantidad: ${item.cantidad} x $${item.precioUnitario.toLocaleString()}
-Subtotal: $${item.subtotal.toLocaleString()}
-`).join('\n')}
+${devolucion.items.map(item => {
+  const details = getVariantDetails(item.variantId || 0);
+  return `
+${details.nombre || item.productoNombre}
+Talla: ${details.talla || item.talla} | Color: ${details.color || item.color}
+Cantidad: ${item.cantidad} x ${formatCOP(item.precioUnitario)}
+Subtotal: ${formatCOP(item.subtotal)}
+`;
+}).join('\n')}
 
 ---------------------------------
 TOTAL A DEVOLVER
 ---------------------------------
-$${devolucion.total.toLocaleString()}
+${formatCOP(devolucion.total)}
 
 =================================
 DAMABELLA - Moda Femenina
@@ -257,16 +397,29 @@ DAMABELLA - Moda Femenina
     a.click();
   };
 
-  const anularDevolucion = (id: number) => {
-    const updated = devoluciones.map(d => 
-      d.id === id ? { ...d, estadoGestion: 'Anulado' as const, fechaAnulacion: new Date().toISOString() } : d
-    );
-    setDevoluciones(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    setShowConfirmModal(false);
-    setShowNotificationModal(true);
-    setNotificationMessage('Devolución anulada correctamente');
-    setNotificationType('success');
+  const anularDevolucion = async (id: number) => {
+    // Necesitamos saber si es de tipo DEV o CAM para llamar al endpoint correcto
+    const item = devoluciones.find(d => d.id === id);
+    if (!item) return;
+
+    let success = false;
+    if (item.numeroDevolucion.startsWith('DEV')) {
+      success = await deleteReturn(id);
+    } else {
+      success = await deleteChange(id);
+    }
+
+    if (success) {
+      loadData();
+      setShowConfirmModal(false);
+      setShowNotificationModal(true);
+      setNotificationMessage('Registro anulado correctamente en el servidor');
+      setNotificationType('success');
+    } else {
+      setShowNotificationModal(true);
+      setNotificationMessage('Error al intentar anular el registro en el servidor');
+      setNotificationType('error');
+    }
   };
 
   const normalize = (s: any) =>
@@ -326,218 +479,101 @@ DAMABELLA - Moda Femenina
   });
 
 
-  const descargarExcel = () => {
-    if (filteredDevoluciones.length === 0) {
+  const descargarExcel = async () => {
+    setLoading(true);
+    try {
+      await exportAllReturns();
       setShowNotificationModal(true);
-      setNotificationMessage('No hay devoluciones para descargar');
-      setNotificationType('info');
-      return;
+      setNotificationMessage('Reporte de devoluciones descargado correctamente');
+      setNotificationType('success');
+    } catch (error) {
+      console.error('Export error:', error);
+    } finally {
+      setLoading(false);
     }
-
-    const datosExcel = filteredDevoluciones.map(d => ({
-      'Número Devolución': d.numeroDevolucion,
-      'Venta Original': d.numeroVenta,
-      'Cliente': d.clienteNombre,
-      'Motivo': d.motivo,
-      'Estado': d.estadoGestion,
-      'Producto Cambio': d.productoNuevo ? d.productoNuevo.nombre : '—',
-      'Saldo a Favor': d.saldoAFavor ? `$${d.saldoAFavor}` : '—',
-      'Diferencia a Pagar': d.diferenciaPagar ? `$${d.diferenciaPagar}` : '—',
-      'Fecha': new Date(d.fechaDevolucion).toLocaleDateString(),
-      'Total': `$${d.total.toLocaleString()}`,
-      'Medio Pago Excedente': d.medioPagoExcedente || '—'
-
-    }));
-
-    const headers = Object.keys(datosExcel[0] || {});
-    const csvContent = [
-      headers.join(','),
-      ...datosExcel.map(row => 
-        headers.map(header => {
-          const value = row[header as keyof typeof row];
-          const stringValue = String(value || '');
-          return stringValue.includes(',') ? `"${stringValue}"` : stringValue;
-        }).join(',')
-      )
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `devoluciones_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    
-    setShowNotificationModal(true);
-    setNotificationMessage('Reporte de devoluciones descargado correctamente');
-    setNotificationType('success');
   };
 
 
-  const generarNumeroDevolucion = () => {
-    // 1) Si ya existe contador, úsalo
-    const storedCounter = parseInt(localStorage.getItem(DEVOLUCION_COUNTER_KEY) || '', 10);
-    if (!isNaN(storedCounter) && storedCounter > 0) {
-      const numero = `DEV-${String(storedCounter).padStart(3, '0')}`;
-      localStorage.setItem(DEVOLUCION_COUNTER_KEY, String(storedCounter + 1));
-      return numero;
-    }
-
-    // 2) Si NO hay contador, inicialízalo basado SOLO en DEV-XXX (3 dígitos)
-    const maxBonito = (devoluciones || []).reduce((max, d) => {
-      const num = d?.numeroDevolucion;
-      if (!num) return max;
-
-      // SOLO acepta DEV-001, DEV-002... (3 dígitos)
-      const match = num.match(/^DEV-(\d{3})$/);
-      if (!match) return max;
-
-      const n = parseInt(match[1], 10);
-      return isNaN(n) ? max : Math.max(max, n);
-    }, 0);
-
-    // 3) Si no hay “bonitos”, usa un arranque seguro (por cantidad)
-    const inicioSeguro = maxBonito > 0 ? maxBonito + 1 : (devoluciones?.length || 0) + 1;
-
-    localStorage.setItem(DEVOLUCION_COUNTER_KEY, String(inicioSeguro + 1));
-    return `DEV-${String(inicioSeguro).padStart(3, '0')}`;
-  };
+  // El número de devolución ahora lo genera el backend automáticamente
 
 
-  const crearDevolucion = () => {
+  const crearDevolucion = async () => {
     if (!selectedVenta || itemsDevueltos.length === 0) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar una venta y al menos un producto con cantidad > 0');
+      setNotificationMessage('Debes seleccionar una venta y al menos un producto');
       setNotificationType('error');
+      setShowNotificationModal(true);
       return;
     }
 
-    if (!productoNuevoId) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar la referencia (producto nuevo) por la que se hará el cambio');
-      setNotificationType('error');
-      return;
-    }
+    setLoading(true);
+    try {
+      let result;
+      if (productoNuevoId) {
+        // Es un CAMBIO
+        const variantNueva = variants.find(v => 
+          v.product === Number(productoNuevoId) &&
+          v.size_name === productoNuevoTalla &&
+          v.color_name === productoNuevoColor
+        );
+        if (!variantNueva) {
+          setNotificationMessage('No se encontró la variante seleccionada del producto nuevo');
+          setNotificationType('error');
+          setShowNotificationModal(true);
+          setLoading(false);
+          return;
+        }
 
-    if (!productoNuevoTalla || !productoNuevoColor) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
-      setNotificationType('error');
-      return;
-    }
-
-    // Calcular número de devolución
-    const nuevoNumero = generarNumeroDevolucion();
-
-    
-    // Obtener items seleccionados de la venta
-    const itemsDevolucion = itemsDevueltos
-      .map((sel) => {
-        const item = selectedVenta.items.find((i: any) => String(i.id) === String(sel.itemId));
-        if (!item) return null;
-
-        const cantidadVendida = Number(item.cantidad || 0);
-        const cantidad = Math.max(0, Math.min(cantidadVendida, Number(sel.cantidad || 0)));
-        if (cantidad <= 0) return null;
-
-        const precioUnitario = Number(item.precioUnitario ?? 0);
-        const subtotal = cantidad * precioUnitario;
-
-        return {
-          id: String(item.id),
-          productoNombre: item.productoNombre,
-          talla: item.talla,
-          color: item.color,
-          cantidad,
-          precioUnitario,
-          subtotal,
+        const dto: CreateChangeDTO = {
+          sale: selectedVenta.id,
+          reason_of_change: formMotivo,
+          state: 2, // Pendiente por defecto
+          details: itemsDevueltos.map(i => {
+            const itemOriginal = selectedVenta.items.find((item: any) => String(item.id) === String(i.itemId));
+            return {
+              variant_returned: itemOriginal ? Number(itemOriginal.variantId) : 0,
+              variant_delivered: variantNueva.id_variant
+            };
+          }).filter(d => d.variant_returned > 0)
         };
-      })
-      .filter(Boolean) as any[];
+        result = await createChange(dto);
+      } else {
+        // Es una DEVOLUCIÓN
+        const dto: CreateReturnDTO = {
+          sale: selectedVenta.id,
+          reason: formMotivo,
+          state: 2, // Pendiente por defecto
+          details: itemsDevueltos.map(i => {
+            const itemOriginal = selectedVenta.items.find((item: any) => String(item.id) === String(i.itemId));
+            return {
+              variant: itemOriginal ? Number(itemOriginal.variantId) : 0,
+              quantity: i.cantidad
+            };
+          }).filter(d => d.variant > 0)
+        };
+        result = await createReturn(dto);
+      }
 
-    if (itemsDevolucion.length === 0) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes ingresar una cantidad mayor a 0 en al menos un producto');
-      setNotificationType('error');
-      return;
+      if (result) {
+        await loadData();
+        setShowCreateModal(false);
+        setNotificationMessage('Operación realizada con éxito en el servidor');
+        setNotificationType('success');
+        setShowNotificationModal(true);
+        
+        // Reset form
+        setSelectedVenta(null);
+        setItemsDevueltos([]);
+        setProductoNuevoId('');
+      } else {
+        setNotificationMessage('El servidor rechazó la operación');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+      }
+    } catch (error) {
+      console.error('Error in creation flow:', error);
+    } finally {
+      setLoading(false);
     }
-
-
-    // Calcular total
-    const totalDevolucion = itemsDevolucion.reduce(
-      (sum: number, item: any) => sum + Number(item.subtotal ?? 0),
-      0
-    );
-
-    const productoNuevo = productos.find((p: any) => p.id?.toString() === productoNuevoId?.toString());
-    if (!productoNuevo) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Producto de cambio no encontrado');
-      setNotificationType('error');
-      return;
-    }
-
-    const precioProductoNuevo = Number(productoNuevo.precioVenta || 0);
-    const diferencia = precioProductoNuevo - totalDevolucion;
-
-    const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
-    const diferenciaPagar = diferencia > 0 ? diferencia : 0;
-
-    if (diferenciaPagar > 0 && !medioPagoExcedente) {
-      setShowNotificationModal(true);
-      setNotificationMessage('Debes seleccionar el medio de pago del excedente');
-      setNotificationType('error');
-      return;
-    }
-
-
-    // Crear nueva devolución
-    const nuevaDevolucion: Devolucion = {
-      id: Date.now(),
-      numeroDevolucion: nuevoNumero,
-      ventaId: selectedVenta.id,
-      numeroVenta: selectedVenta.numeroVenta ?? selectedVenta.numero,
-      clienteNombre: selectedVenta.clienteNombre,
-      fechaDevolucion: formFecha,
-      motivo: formMotivo,
-      items: itemsDevolucion,
-      total: totalDevolucion,
-      createdAt: new Date().toISOString(),
-      estadoGestion: 'Cambiado',
-      productoNuevo: {
-        id: productoNuevo.id,
-        nombre: productoNuevo.nombre,
-        precio: precioProductoNuevo,
-      },
-      productoNuevoTalla,
-      productoNuevoColor,
-      saldoAFavor,
-      diferenciaPagar,
-      medioPagoExcedente: diferenciaPagar > 0 ? medioPagoExcedente : undefined,
-
-      fechaAnulacion: undefined
-    };
-
-    // Guardar en localStorage
-    const updated = [...devoluciones, nuevaDevolucion];
-    setDevoluciones(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-    // Cerrar modal y mostrar notificación
-    setShowCreateModal(false);
-    setSelectedVenta(null);
-    setItemsDevueltos([]);
-    setFormMotivo('Defectuoso');
-    setFormFecha(new Date().toISOString().split('T')[0]);
-    setProductoNuevoId('');
-    setProductoNuevoTalla('');
-    setProductoNuevoColor('');
-    setMedioPagoExcedente('Efectivo');
-
-    
-    setShowNotificationModal(true);
-    setNotificationMessage(`Devolución ${nuevoNumero} creada correctamente`);
-    setNotificationType('success');
   };
 
 
@@ -594,18 +630,44 @@ DAMABELLA - Moda Femenina
         </div>
       </div>
 
+      {/* Info Cards - Dinámicas del Backend */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+          <div className="text-gray-500 text-sm mb-1">Total Movimientos</div>
+          <div className="text-2xl font-bold text-gray-900">{metrics.totalCount}</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+          <div className="text-gray-500 text-sm mb-1">Total Devoluciones</div>
+          <div className="text-2xl font-bold text-gray-900">{formatCOP(metrics.totalAmount)}</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+          <div className="text-gray-500 text-sm mb-1">Pendientes</div>
+          <div className="text-2xl font-bold text-yellow-600">{metrics.pending}</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+          <div className="text-gray-500 text-sm mb-1">Completados</div>
+          <div className="text-2xl font-bold text-green-600">{metrics.completed}</div>
+        </div>
+      </div>
+
       {/* Info Card */}
-      {devoluciones.length === 0 && (
+      {devoluciones.length === 0 && !loading && (
         <div className="bg-purple-50 border border-purple-200 rounded-xl p-6">
           <div className="flex items-start gap-3">
             <RotateCcw className="text-purple-600 mt-1" size={24} />
             <div>
               <h3 className="text-purple-900 mb-1">Sin devoluciones registradas</h3>
               <p className="text-purple-700 text-sm">
-                No hay devoluciones creadas todavía. Este módulo solo muestra el historial existente.
+                No se encontraron registros en el servidor. Empieza creando una desde el botón de "+" en Ventas o aquí mismo.
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex justify-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
         </div>
       )}
 
@@ -669,17 +731,23 @@ DAMABELLA - Moda Femenina
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
-                        {devolucion.productoNuevo ? (
-                          <span className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-200">
-                            ✓ {devolucion.productoNuevo.nombre}
-                          </span>
-                        ) : (
+                        {devolucion.productoNuevo ? (() => {
+                          const details = getVariantDetails(devolucion.productoNuevo.id);
+                          const dispName = details.talla && details.color
+                            ? `${details.nombre} (Talla: ${details.talla}, Color: ${details.color})`
+                            : details.nombre;
+                          return (
+                            <span className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-200">
+                              ✓ {dispName}
+                            </span>
+                          );
+                        })() : (
                           <span className="text-gray-400 text-xs">—</span>
                         )}
                       </div>
                     </td>
                     <td className="py-4 px-6 text-right text-gray-900">
-                      ${devolucion.total.toLocaleString()}
+                      {formatCOP(devolucion.total)}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex gap-2 justify-end">
@@ -754,7 +822,7 @@ DAMABELLA - Moda Femenina
           onClose={() => setShowDetailModal(false)}
           title={`Detalle Devolución ${viewingDevolucion.numeroDevolucion}`}
         >
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
             <div className="grid grid-cols-2 gap-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
               <div>
                 <div className="text-sm text-purple-600 mb-1">Número de Devolución</div>
@@ -806,27 +874,36 @@ DAMABELLA - Moda Femenina
             <div>
               <h4 className="text-gray-900 font-medium mb-3">Productos Devueltos</h4>
               <div className="space-y-2">
-                {viewingDevolucion.items.map((item, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-3 bg-white">
-                    <div className="flex justify-between mb-1">
-                      <div className="text-gray-900 font-medium">{item.productoNombre}</div>
-                      <div className="text-gray-900 font-medium">${item.subtotal.toLocaleString()}</div>
+                {viewingDevolucion.items.map((item, index) => {
+                  const details = getVariantDetails(item.variantId || 0);
+                  return (
+                    <div key={index} className="border border-gray-200 rounded-lg p-3 bg-white">
+                      <div className="flex justify-between mb-1">
+                        <div className="text-gray-900 font-medium">{details.nombre || item.productoNombre}</div>
+                        <div className="text-gray-900 font-medium">{formatCOP(item.subtotal)}</div>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Talla: {details.talla || item.talla} | Color: {details.color || item.color} | Cantidad: {item.cantidad} x {formatCOP(item.precioUnitario)}
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      Talla: {item.talla} | Color: {item.color} | Cantidad: {item.cantidad} x ${item.precioUnitario.toLocaleString()}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
-            {viewingDevolucion.productoNuevo && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="text-sm text-green-600 mb-2 font-medium">Producto de Cambio</div>
-                <div className="text-green-900 font-medium mb-2">{viewingDevolucion.productoNuevo.nombre}</div>
-                <div className="text-sm text-green-700">Precio: ${viewingDevolucion.productoNuevo.precio.toLocaleString()}</div>
-              </div>
-            )}
+            {viewingDevolucion.productoNuevo && (() => {
+              const details = getVariantDetails(viewingDevolucion.productoNuevo.id);
+              const dispName = details.talla && details.color
+                ? `${details.nombre} (Talla: ${details.talla}, Color: ${details.color})`
+                : details.nombre;
+              return (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="text-sm text-green-600 mb-2 font-medium">Producto de Cambio</div>
+                  <div className="text-green-900 font-medium mb-2">{dispName}</div>
+                  <div className="text-sm text-green-700">Precio: {formatCOP(viewingDevolucion.productoNuevo.precio)}</div>
+                </div>
+              );
+            })()}
 
             {(() => {
             const saldoAFavorNum = Number(viewingDevolucion.saldoAFavor ?? 0);
@@ -842,7 +919,7 @@ DAMABELLA - Moda Femenina
                   <div className="flex justify-between text-sm text-blue-700">
                     <span>Saldo a Favor:</span>
                     <span className="font-medium text-green-600">
-                      ${saldoAFavorNum.toLocaleString()}
+                      {formatCOP(saldoAFavorNum)}
                     </span>
                   </div>
                 )}
@@ -851,7 +928,7 @@ DAMABELLA - Moda Femenina
                   <div className="flex justify-between text-sm text-blue-700">
                     <span>Diferencia a Pagar:</span>
                     <span className="font-medium text-red-600">
-                      ${diferenciaPagarNum.toLocaleString()}
+                      {formatCOP(diferenciaPagarNum)}
                     </span>
                   </div>
                 )}
@@ -870,7 +947,7 @@ DAMABELLA - Moda Femenina
             <div className="border-t pt-4 bg-purple-50 rounded-lg p-4">
               <div className="flex justify-between text-purple-900 font-medium">
                 <span>Total a Devolver:</span>
-                <span>${viewingDevolucion.total.toLocaleString()}</span>
+                <span>{formatCOP(viewingDevolucion.total)}</span>
               </div>
             </div>
 
@@ -995,7 +1072,7 @@ DAMABELLA - Moda Femenina
                 <option value="">-- Selecciona una venta --</option>
                 {ventas.map((venta: any) => (
                   <option key={venta.id} value={venta.id}>
-                    {venta.numeroVenta ?? venta.numero} - {venta.clienteNombre} - ${venta.total.toLocaleString()}
+                    {venta.numeroVenta ?? venta.numero} - {venta.clienteNombre} - {formatCOP(venta.total)}
                   </option>
                 ))}
               </select>
@@ -1024,12 +1101,12 @@ DAMABELLA - Moda Femenina
                                 Talla: {item.talla} | Color: {item.color}
                               </div>
                               <div className="text-xs text-gray-600">
-                                Precio: ${Number(item.precioUnitario || 0).toLocaleString()}
+                                Precio: {formatCOP(Number(item.precioUnitario || 0))}
                               </div>
                             </div>
 
                             <div className="text-sm font-semibold text-gray-900">
-                              ${Number(item.subtotal || (item.cantidad * item.precioUnitario)).toLocaleString()}
+                              {formatCOP(Number(item.subtotal || (item.cantidad * item.precioUnitario)))}
                             </div>
                           </div>
 
@@ -1054,8 +1131,7 @@ DAMABELLA - Moda Femenina
 
                             {cantidadDevuelta > 0 && (
                               <span className="ml-auto text-xs text-green-700 font-medium">
-                                Devolución: $
-                                {(cantidadDevuelta * Number(item.precioUnitario || 0)).toLocaleString()}
+                                Devolución: {formatCOP(cantidadDevuelta * Number(item.precioUnitario || 0))}
                               </span>
                             )}
                           </div>
@@ -1089,7 +1165,7 @@ DAMABELLA - Moda Femenina
                       <option value="">-- Selecciona el producto nuevo --</option>
                       {productos.filter((p: any) => p.activo).map((p: any) => (
                         <option key={p.id} value={p.id}>
-                          {p.nombre} - ${(p.precioVenta || 0).toLocaleString()}
+                          {p.nombre} - {formatCOP(p.precioVenta || 0)}
                         </option>
                       ))}
                     </select>
@@ -1157,19 +1233,19 @@ DAMABELLA - Moda Femenina
 
                       <div className="flex justify-between text-sm text-blue-800">
                         <span>Total devuelto:</span>
-                        <span className="font-medium">${totalDevuelto.toLocaleString()}</span>
+                        <span className="font-medium">{formatCOP(totalDevuelto)}</span>
                       </div>
 
                       <div className="flex justify-between text-sm text-blue-800">
                         <span>Producto nuevo:</span>
-                        <span className="font-medium">${precioProductoNuevo.toLocaleString()}</span>
+                        <span className="font-medium">{formatCOP(precioProductoNuevo)}</span>
                       </div>
 
                       {saldoAFavorCalc > 0 && (
                         <div className="flex justify-between text-sm">
                           <span className="text-green-700">Saldo a favor:</span>
                           <span className="font-semibold text-green-700">
-                            ${saldoAFavorCalc.toLocaleString()}
+                            {formatCOP(saldoAFavorCalc)}
                           </span>
                         </div>
                       )}
@@ -1179,7 +1255,7 @@ DAMABELLA - Moda Femenina
                           <div className="flex justify-between text-sm">
                             <span className="text-red-700">Excedente por pagar:</span>
                             <span className="font-semibold text-red-700">
-                              ${excedenteCalc.toLocaleString()}
+                              {formatCOP(excedenteCalc)}
                             </span>
                           </div>
 

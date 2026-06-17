@@ -24,7 +24,7 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
 
   const banners = [
     { id: 1, title: '✨ Nueva Colección', subtitle: 'Descubre los últimos diseños', bgColor: 'from-pink-300 to-purple-300'},
-    { id: 2, title: '🎁 Envío Gratis', subtitle: 'En compras mayores a $150.000', bgColor: 'from-blue-300 to-pink-300' },
+    { id: 2, title: '🎁 Envío Gratis', subtitle: 'En compras mayores a 150.000 COP', bgColor: 'from-blue-300 to-pink-300' },
     { id: 3, title: '💎 Descuentos Especiales', subtitle: 'Hasta 30% OFF en productos seleccionados', bgColor: 'from-purple-300 to-pink-400' },
   ];
 
@@ -250,7 +250,7 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                     {product.name}
                   </h4>
                   <p className="text-2xl text-gray-900 mb-3">
-                    ${product.price.toLocaleString()}
+                    {product.price.toLocaleString()} COP
                   </p>
                   <div className="flex gap-1.5 mb-3">
                     {product.variants.slice(0, 4).map((variant, idx) => (
@@ -312,7 +312,7 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                     {product.name}
                   </h4>
                   <p className="text-2xl text-gray-900 mb-3">
-                    ${product.price.toLocaleString()}
+                    {product.price.toLocaleString()} COP
                   </p>
                   <button
                     onClick={() => handleAddToCart(product)}
@@ -347,7 +347,7 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                       {product.name}
                     </h4>
                     <p className="text-xl text-gray-900">
-                      ${product.price.toLocaleString()}
+                      {product.price.toLocaleString()} COP
                     </p>
                   </div>
                 </div>

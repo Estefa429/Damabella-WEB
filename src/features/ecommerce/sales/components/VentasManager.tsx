@@ -13,15 +13,20 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
+import { usePermissions } from '@/shared/hooks/usePermissions';
 import { jsPDF } from 'jspdf';
 import { getAllSales, createSale, patchSaleState, exportSales, CreateSaleDTO, Sale } from '../services/SalesServices';
 import { getAllClients, createClients, CreateClientsDTO, Clients } from '../../customers/services/clientsServices';
-import { getAllProducts, Product, getAllColors, getAllSizes, Color, Size } from '../../products/services/productsService';
+import { getAllProducts, Product, getAllColors, getAllSizes, Color, Size, getAllInventory } from '../../products/services/productsService';
+import { getAllVariants, VariantProduct } from '@/features/purchases/services/PurchasesService';
+import { getAllIvas, Iva } from '@/features/purchases/services/ivaService';
+import { createReturn, CreateReturnDTO, getAllReturns } from '@/features/returns/services/ReturnServices';
+import { createChange, CreateChangeDTO, getAllChanges } from '@/features/returns/services/ChangeServices';
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
 const CLIENTES_KEY = 'damabella_clientes';
 const PRODUCTOS_KEY = 'damabella_productos';
 const DEVOLUCIONES_KEY = 'damabella_devoluciones';
-const IVA_RATE = 0.19; // Cambiar aquí si se requiere otra tasa de IVA
 
 type MedioPago = 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
 
@@ -77,14 +82,32 @@ interface Venta {
   motivoAnulacion?: string;
   createdAt: string;
   pedido_id?: string | null;
+  number_pedido?: string;
+  pedido?: {
+    client?: {
+      name?: string;
+    };
+    user?: {
+      username?: string;
+      email?: string;
+    };
+  };
+  user?: {
+    username?: string;
+    email?: string;
+  };
 }
 
 export default function VentasManager() {
+  const { hasPermission } = usePermissions();
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
+  const [variants, setVariants] = useState<VariantProduct[]>([]);
   const [tallas, setTallas] = useState<Size[]>([]);
   const [colores, setColores] = useState<Color[]>([]);
+  const [ivas, setIvas] = useState<Iva[]>([]);
+  const [inventarios, setInventarios] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
@@ -112,7 +135,8 @@ export default function VentasManager() {
     fechaVenta: new Date().toISOString().split('T')[0],
     metodoPago: 'Efectivo',
     observaciones: '',
-    items: [] as ItemVenta[]
+    items: [] as ItemVenta[],
+    pedidoId: null as number | null
   });
 
   const [usarSaldoAFavor, setUsarSaldoAFavor] = useState(false);
@@ -134,11 +158,34 @@ export default function VentasManager() {
 
   const [nuevoItem, setNuevoItem] = useState({
     productoId: '',
-    talla: '',
-    color: '',
+    variantId: '',
     cantidad: '1',
     precioUnitario: ''
   });
+
+  const [variantSearch, setVariantSearch] = useState('');
+  const [showVariantDrop, setShowVariantDrop] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  
+  const [itemTalla, setItemTalla] = useState('');
+  const [itemColor, setItemColor] = useState('');
+  const [itemCantidad, setItemCantidad] = useState('1');
+  const [itemPrecioUnitario, setItemPrecioUnitario] = useState('');
+
+  const getVariantIvaRate = (variantId: string | number) => {
+    const variantIdStr = String(variantId);
+    const variant = variants.find(v => String(v.id_variant) === variantIdStr);
+    if (!variant) return 0.19; // Default Damabella IVA
+
+    const product = productos.find(p => Number(p.id) === variant.product);
+    if (!product) return 0.19;
+
+    const ivaId = Number(product.iva ?? 0);
+    const ivaItem = ivas.find(i => i.id_iva === ivaId);
+    if (ivaItem) return ivaItem.value;
+
+    return 0.19;
+  };
 
   const [devolucionData, setDevolucionData] = useState<DevolucionData>({
   motivo: 'Defectuoso',
@@ -152,41 +199,76 @@ export default function VentasManager() {
 
 
   // Cargar datos desde API al montar el componente
+  const loadVentas = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ventasAPI, returnsAPI, changesAPI] = await Promise.all([
+        getAllSales(),
+        getAllReturns(),
+        getAllChanges()
+      ]);
+      console.log('Ventas cargadas de API:', ventasAPI?.length);
+      
+      const returnedSaleIds = new Set<number>();
+      if (returnsAPI) {
+        returnsAPI.forEach((r) => { if (r.sale) returnedSaleIds.add(r.sale); });
+      }
+      if (changesAPI) {
+        changesAPI.forEach((c) => { if (c.sale) returnedSaleIds.add(c.sale); });
+      }
+
+      if (ventasAPI) {
+        const ventasMapeadas = ventasAPI.map((sale: Sale): Venta => ({
+          id: sale.id_sale,
+          numeroVenta: sale.number_sale,
+          clienteId: sale.client.toString(),
+          clienteNombre: sale.client_name ||
+                         (sale as any).pedido?.client?.name ||
+                         (sale as any).pedido?.user?.username ||
+                         (sale as any).pedido?.user?.email ||
+                         (sale as any).user?.username ||
+                         (sale as any).user?.email ||
+                         'Consumidor Final',
+          fechaVenta: sale.date_sale,
+          estado: (sale.void ? 'Anulada' : (returnedSaleIds.has(sale.id_sale) ? 'Devolución' : 'Completada')) as 'Completada' | 'Anulada' | 'Devolución',
+          items: (sale.details || []).map(detail => ({
+            id: detail.id_detail?.toString() || '',
+            productoId: detail.variant.toString(),
+            productoNombre: '',
+            talla: '',
+            color: '',
+            cantidad: detail.quantity,
+            precioUnitario: parseFloat(detail.unit_price || '0'),
+            subtotal: parseFloat(detail.subtotal || '0')
+          })),
+          subtotal: parseFloat(sale.subtotal),
+          iva: parseFloat(sale.iva),
+          total: parseFloat(sale.total),
+          metodoPago: sale.payment_method_name || 'Efectivo',
+          observaciones: sale.observations || '',
+          anulada: sale.void || false,
+          motivoAnulacion: sale.void_reason || '',
+          createdAt: sale.created_at || new Date().toISOString(),
+          number_pedido: (sale as any).number_pedido || '',
+          pedido: (sale as any).pedido,
+          user: (sale as any).user,
+        }));
+        setVentas(ventasMapeadas);
+      }
+    } catch (error) {
+      console.error('Error refreshing sales:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Cargar datos desde API al montar el componente
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        // Cargar ventas
-        const ventasAPI = await getAllSales();
-        if (ventasAPI) {
-          const ventasMapeadas = ventasAPI.map((sale: Sale): Venta => ({
-            id: sale.id_sale,
-            numeroVenta: sale.number_sale,
-            clienteId: sale.client.toString(),
-            clienteNombre: sale.client_name || '',
-            fechaVenta: sale.date_sale,
-            estado: (sale.void ? 'Anulada' : 'Completada') as 'Completada' | 'Anulada' | 'Devolución',
-            items: (sale.details || []).map(detail => ({
-              id: detail.id_detail?.toString() || '',
-              productoId: detail.variant.toString(),
-              productoNombre: '',
-              talla: '',
-              color: '',
-              cantidad: detail.quantity,
-              precioUnitario: parseFloat(detail.unit_price || '0'),
-              subtotal: parseFloat(detail.subtotal || '0')
-            })),
-            subtotal: parseFloat(sale.subtotal),
-            iva: parseFloat(sale.iva),
-            total: parseFloat(sale.total),
-            metodoPago: sale.payment_method_name || 'Efectivo',
-            observaciones: sale.observations || '',
-            anulada: sale.void || false,
-            motivoAnulacion: sale.void_reason || '',
-            createdAt: sale.created_at || new Date().toISOString()
-          }));
-          setVentas(ventasMapeadas);
-        }
+        // Cargar ventas (usando la función ya definida)
+        await loadVentas();
 
         // Cargar clientes
         const clientesAPI = await getAllClients();
@@ -201,7 +283,7 @@ export default function VentasManager() {
             direccion: client.address,
             ciudad: client.city,
             activo: client.state,
-            saldoAFavor: 0 // Ajustar si tu API retorna este campo
+            saldoAFavor: client.saldoAFavor ?? (client as any).saldo_a_favor ?? 0
           }));
           setClientes(clientesMapeados);
         }
@@ -216,16 +298,25 @@ export default function VentasManager() {
             categoriaNombre: product.category_name,
             precioVenta: product.price,
             precioCompra: product.purchase_price,
-            activo: product.is_active
+            activo: product.is_active,
+            iva: product.iva,
           }));
           setProductos(productosMapeados);
         }
 
-        // Cargar tallas y colores
-        const tallasAPI = await getAllSizes();
-        const coloresAPI = await getAllColors();
+        // Cargar tallas, colores, variantes, IVAs e inventarios
+        const [tallasAPI, coloresAPI, variantesAPI, ivasAPI, inventariosAPI] = await Promise.all([
+          getAllSizes(),
+          getAllColors(),
+          getAllVariants(),
+          getAllIvas(),
+          getAllInventory()
+        ]);
         if (tallasAPI) setTallas(tallasAPI);
         if (coloresAPI) setColores(coloresAPI);
+        if (variantesAPI) setVariants(variantesAPI);
+        if (ivasAPI) setIvas(ivasAPI);
+        if (inventariosAPI) setInventarios(inventariosAPI);
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -234,87 +325,63 @@ export default function VentasManager() {
     };
 
     loadData();
-  }, []);
+  }, [loadVentas]);
+
+  const refreshInventarios = async () => {
+    try {
+      const invAPI = await getAllInventory();
+      if (invAPI) {
+        setInventarios(invAPI);
+        return invAPI;
+      }
+    } catch (error) {
+      console.error('Error refreshing inventory:', error);
+    }
+    return null;
+  };
+
+  const getVariantStock = (variantId: number): number => {
+    const inv = inventarios.find((i: any) => Number(i.variant ?? i.id_variant) === Number(variantId));
+    if (inv) return Number(inv.stock ?? 0);
+    return 0;
+  };
+
+  const getVariantDetails = useCallback((variantId: string | number) => {
+    const vId = Number(variantId);
+    const variant = variants.find(v => v.id_variant === vId);
+    return {
+      nombre: variant?.product_name || `Ref: ${variant?.sku || variantId}`,
+      talla: variant?.size_name || '',
+      color: variant?.color_name || ''
+    };
+  }, [variants]);
 
   useEffect(() => {
-  const handleStorageChange = () => {
-    // Ahora los datos se cargan desde API, no desde localStorage
-  };
+    const handleStorageChange = () => {
+      loadVentas();
+    };
 
-  const handlePedidoConvertidoAVenta = (event: any) => {
-    const { pedido } = event.detail;
-    if (!pedido?.numeroPedido) return;
+    window.addEventListener('salesUpdated', handleStorageChange);
+    window.addEventListener('pedidoConvertidoAVenta', handleStorageChange);
 
-    const cliente = clientes.find((c: any) => c.id.toString() === pedido.clienteId?.toString());
-    if (!cliente) return;
-
-    setVentas((prevVentas) => {
-      const yaExiste = prevVentas.some(v => v.pedido_id === pedido.numeroPedido);
-      if (yaExiste) return prevVentas;
-
-      const nuevaVentaBase = {
-        id: Date.now(),
-        clienteId: pedido.clienteId,
-        clienteNombre: pedido.clienteNombre,
-        fechaVenta: pedido.fechaPedido,
-        estado: 'Completada' as const,
-        items: pedido.items.map((item: any) => ({
-          id: item.id,
-          productoId: item.productoId,
-          productoNombre: item.productoNombre,
-          talla: item.talla,
-          color: item.color,
-          cantidad: item.cantidad,
-          precioUnitario: item.precioUnitario,
-          subtotal: item.subtotal
-        })),
-        subtotal: pedido.subtotal,
-        iva: pedido.iva,
-        total: pedido.total,
-        metodoPago: pedido.metodoPago || 'Efectivo',
-        observaciones: pedido.observaciones || '',
-        anulada: false,
-        createdAt: new Date().toISOString(),
-        pedido_id: pedido.numeroPedido
-      };
-
-      const numeroVenta = `VEN-${(prevVentas.length + 1).toString().padStart(3, '0')}`;
-
-      const nuevaVenta: Venta = {
-        ...nuevaVentaBase,
-        numeroVenta
-      };
-
-      return [...prevVentas, nuevaVenta];
-    });
-
-    window.dispatchEvent(new Event('salesUpdated'));
-  };
-
-  window.addEventListener('salesUpdated', handleStorageChange);
-  window.addEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
-
-  return () => {
-    window.removeEventListener('salesUpdated', handleStorageChange);
-    window.removeEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
-  };
-}, [clientes]);
+    return () => {
+      window.removeEventListener('salesUpdated', handleStorageChange);
+      window.removeEventListener('pedidoConvertidoAVenta', handleStorageChange);
+    };
+  }, [loadVentas]);
 
 
   const generarNumeroVenta = () => `VEN-${(ventas.length + 1).toString().padStart(3, '0')}`;
 
-  const calcularTotales = (items: ItemVenta[]) => {
-    const subtotal = items.reduce((sum, item) => {
-      const cantidad = Number(item.cantidad);
-      const precioUnitario = Number(item.precioUnitario);
-      const cantidadSegura = Number.isFinite(cantidad) && cantidad >= 1 ? cantidad : 1;
-      const precioSeguro = Number.isFinite(precioUnitario) && precioUnitario >= 0 ? precioUnitario : 0;
-      return sum + (cantidadSegura * precioSeguro);
+  const totals = useMemo(() => {
+    const subtotal = formData.items.reduce((sum, item) => sum + (item.cantidad * item.precioUnitario), 0);
+    const iva = formData.items.reduce((sum, item) => {
+      const rate = getVariantIvaRate(item.productoId);
+      return sum + (item.subtotal * rate);
     }, 0);
-    const iva = subtotal * IVA_RATE;
     const total = subtotal + iva;
     return { subtotal, iva, total };
-  };
+  }, [formData.items, variants, productos, ivas]);
 
   const validateField = (field: string, value: any) => {
     const errors: any = {};
@@ -374,24 +441,20 @@ export default function VentasManager() {
   };
 
   const handleCreate = () => {
+    refreshInventarios();
     setFormData({
       clienteId: '',
       fechaVenta: new Date().toISOString().split('T')[0],
       metodoPago: 'Efectivo',
       observaciones: '',
-      items: []
+      items: [],
+      pedidoId: null
     });
     setUsarSaldoAFavor(false);
     setMetodoPagoRestante('Efectivo');
-
-    setNuevoItem({
-      productoId: '',
-      talla: '',
-      color: '',
-      cantidad: '1',
-      precioUnitario: ''
-    });
+    resetItemSelection();
     setClienteSearchTerm('');
+    setSelectedClienteNombre('');
     setFormErrors({});
     setShowModal(true);
   };
@@ -421,25 +484,72 @@ export default function VentasManager() {
     );
   }, [clientes, clienteSearchTerm]);
 
-  const getProductoSeleccionado = () => productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
+  const getTallasDisponibles = (): string[] =>
+    tallas.map(t => t.name).filter(Boolean);
 
-  const getTallasDisponibles = () => {
-    return tallas.map(t => t.name).filter(Boolean);
+  const getColoresDisponibles = (): string[] =>
+    colores.map(c => c.name).filter(Boolean);
+
+  const getTallasDisponiblesCambio = (): string[] => {
+    const prodId = Number(devolucionData.productoNuevoId);
+    if (!prodId) return [];
+    const productVariants = variants.filter(v => Number(v.product) === prodId);
+    const sizesWithStock = productVariants
+      .filter(v => getVariantStock(v.id_variant) > 0)
+      .map(v => v.size_name);
+    return Array.from(new Set(sizesWithStock)).filter(Boolean);
   };
 
-  const getColoresDisponibles = () => {
-    return colores.map(c => c.name).filter(Boolean);
+  const getColoresDisponiblesCambio = (): string[] => {
+    const prodId = Number(devolucionData.productoNuevoId);
+    const tallaSel = devolucionData.productoNuevoTalla;
+    if (!prodId || !tallaSel) return [];
+    const productVariants = variants.filter(v => 
+      Number(v.product) === prodId && 
+      v.size_name === tallaSel
+    );
+    const colorsWithStock = productVariants
+      .filter(v => getVariantStock(v.id_variant) > 0)
+      .map(v => v.color_name);
+    return Array.from(new Set(colorsWithStock)).filter(Boolean);
   };
 
-  const getProductoNuevoSeleccionado = () =>
-    productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
-
-  const getTallasDisponiblesCambio = () => {
-    return tallas.map(t => t.name).filter(Boolean);
+  const getStockDisponibleCambio = (tallaValue: string, colorValue: string): number => {
+    const prodId = Number(devolucionData.productoNuevoId);
+    if (!prodId || !tallaValue || !colorValue) return 0;
+    const variant = variants.find(v => 
+      Number(v.product) === prodId && 
+      v.size_name === tallaValue && 
+      v.color_name === colorValue
+    );
+    return variant ? getVariantStock(variant.id_variant) : 0;
   };
 
-  const getColoresDisponiblesCambio = () => {
-    return colores.map(c => c.name).filter(Boolean);
+  const resetItemSelection = () => {
+    setSelectedProduct(null);
+    setVariantSearch('');
+    setItemTalla('');
+    setItemColor('');
+    setItemCantidad('1');
+    setItemPrecioUnitario('');
+  };
+
+  const handleSelectProduct = async (product: any) => {
+    const variantsData = variants.filter(v => Number(v.product) === Number(product.id));
+    
+    const primeraVariante = variantsData[0];
+    const firstTalla = primeraVariante ? String(primeraVariante.size_name || '') : '';
+    const firstColor = primeraVariante ? String(primeraVariante.color_name || '') : '';
+
+    setSelectedProduct({
+      ...product,
+      variants: variantsData
+    });
+    setVariantSearch(product.nombre);
+    setItemTalla(firstTalla);
+    setItemColor(firstColor);
+    setItemPrecioUnitario(String(product.precioVenta || 0));
+    setShowVariantDrop(false);
   };
 
   // Helper: obtener stock actual para un item de venta (por talla/color si aplica)
@@ -470,42 +580,61 @@ export default function VentasManager() {
 
 
   const agregarItem = () => {
-    if (!nuevoItem.productoId || !nuevoItem.talla || !nuevoItem.color || !nuevoItem.cantidad) {
+    if (!selectedProduct || !itemTalla || !itemColor || !itemCantidad) {
       setNotificationMessage('Completa todos los campos del producto');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
 
-    const producto = productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
-    if (!producto) return;
+    const vt = itemTalla.trim().toLowerCase();
+    const vc = itemColor.trim().toLowerCase();
 
-    const cantidadParsed = parseInt(nuevoItem.cantidad, 10);
-    const cantidad = Number.isFinite(cantidadParsed) && cantidadParsed >= 1 ? cantidadParsed : 1;
-    const precioBase = Number(producto.precioVenta || 0);
-    const precioUnitario = Number.isFinite(precioBase) && precioBase >= 0 ? precioBase : 0;
+    const variant = selectedProduct.variants.find((v: any) => 
+      String(v.size_name || '').trim().toLowerCase() === vt &&
+      String(v.color_name || '').trim().toLowerCase() === vc
+    );
+
+    if (!variant) {
+      setNotificationMessage('No se encontró la variante seleccionada');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
+
+    const cantidad = parseInt(itemCantidad, 10);
+    const precioUnitario = parseFloat(itemPrecioUnitario);
     const subtotal = cantidad * precioUnitario;
+
+    const variantId = Number(variant.id_variant);
+    const stockDisponible = getVariantStock(variantId);
+
+    const cantidadPrevia = formData.items
+      .filter(it => Number(it.productoId) === variantId)
+      .reduce((sum, it) => sum + it.cantidad, 0);
+
+    const cantidadTotalSolicitada = cantidadPrevia + cantidad;
+
+    if (cantidadTotalSolicitada > stockDisponible) {
+      setNotificationMessage(`No hay suficiente stock disponible para "${selectedProduct.nombre}" (Talla: ${itemTalla}, Color: ${itemColor}). Stock actual: ${stockDisponible} unidad(es). Ya has solicitado: ${cantidadPrevia} unidad(es).`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
 
     const item: ItemVenta = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      productoId: nuevoItem.productoId,
-      productoNombre: producto.nombre,
-      talla: nuevoItem.talla,
-      color: nuevoItem.color,
+      productoId: String(variant.id_variant),
+      productoNombre: selectedProduct.nombre,
+      talla: itemTalla,
+      color: itemColor,
       cantidad,
       precioUnitario,
       subtotal
     };
 
     setFormData({ ...formData, items: [...formData.items, item] });
-
-    setNuevoItem({
-      productoId: '',
-      talla: '',
-      color: '',
-      cantidad: '1',
-      precioUnitario: ''
-    });
+    resetItemSelection();
   };
 
   const eliminarItem = (itemId: string) => {
@@ -515,6 +644,26 @@ export default function VentasManager() {
   const actualizarCantidadItem = (itemId: string, value: string) => {
     const parsed = parseInt(value, 10);
     const cantidad = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+
+    const itemToUpdate = formData.items.find(it => it.id === itemId);
+    if (!itemToUpdate) return;
+
+    const variantId = Number(itemToUpdate.productoId);
+    const stockDisponible = getVariantStock(variantId);
+
+    // Sumar cantidad total de esta misma variante en otros ítems
+    const cantidadOtrosItems = formData.items
+      .filter(it => it.id !== itemId && Number(it.productoId) === variantId)
+      .reduce((sum, it) => sum + it.cantidad, 0);
+
+    const cantidadTotalSolicitada = cantidadOtrosItems + cantidad;
+
+    if (cantidadTotalSolicitada > stockDisponible) {
+      setNotificationMessage(`No hay suficiente stock disponible para "${itemToUpdate.productoNombre}" (Talla: ${itemToUpdate.talla}, Color: ${itemToUpdate.color}). Stock actual: ${stockDisponible} unidad(es).`);
+      setNotificationType('error');
+      setShowNotificationModal(true);
+      return;
+    }
 
     setFormData((prev) => ({
       ...prev,
@@ -565,6 +714,31 @@ export default function VentasManager() {
       return;
     }
 
+    // Validar Stock disponible antes de guardar (refrescar inventario primero)
+    const latestInventory = await refreshInventarios();
+    const inventoryToUse = latestInventory || inventarios;
+
+    const getVariantStockHelper = (variantId: number, invs: any[]): number => {
+      const inv = invs.find((i: any) => Number(i.variant ?? i.id_variant) === Number(variantId));
+      if (inv) return Number(inv.stock ?? 0);
+      return 0;
+    };
+
+    for (const item of formData.items) {
+      const variantId = Number(item.productoId);
+      const stockDisponible = getVariantStockHelper(variantId, inventoryToUse);
+      const cantidadTotalSolicitada = formData.items
+        .filter(it => Number(it.productoId) === variantId)
+        .reduce((sum, it) => sum + it.cantidad, 0);
+
+      if (cantidadTotalSolicitada > stockDisponible) {
+        setNotificationMessage(`Stock insuficiente para el producto "${item.productoNombre}" (Talla: ${item.talla}, Color: ${item.color}). Stock disponible: ${stockDisponible} unidad(es).`);
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
+    }
+
     const cliente = clientes.find((c: any) => c.id.toString() === formData.clienteId);
     if (!cliente) {
       setNotificationMessage('Cliente no encontrado');
@@ -574,9 +748,15 @@ export default function VentasManager() {
     }
 
     const clienteSel = cliente;
-    const totales = calcularTotales(formData.items);
+    // Recalcular totales con el IVA real de cada producto
+    const subtotal = formData.items.reduce((acc, current) => acc + (current.precioUnitario * current.cantidad), 0);
+    const iva = formData.items.reduce((acc, current) => {
+      const rate = getVariantIvaRate(current.productoId);
+      return acc + (current.subtotal * rate);
+    }, 0);
+    const total = subtotal + iva;
+
     const saldoDisp = Number(clienteSel?.saldoAFavor || 0);
-    const total = Number(totales.total || 0);
     const saldoUsado = usarSaldoAFavor ? Math.min(saldoDisp, total) : 0;
     const restante = Math.max(total - saldoUsado, 0);
 
@@ -595,6 +775,7 @@ export default function VentasManager() {
         client: parseInt(formData.clienteId, 10),
         payment_method: 1, // ID del método de pago (ajustar según tu API)
         date_sale: formData.fechaVenta,
+        order: formData.pedidoId ? Number(formData.pedidoId) : null,
         state: 1, // Estado: Completada
         observations: formData.observaciones,
         details: formData.items.map(item => ({
@@ -609,36 +790,7 @@ export default function VentasManager() {
       
       if (resultado) {
         // Recargar ventas desde el API
-        const ventasActualizadas = await getAllSales();
-        if (ventasActualizadas) {
-          const ventasMapeadas = ventasActualizadas.map((sale: Sale): Venta => ({
-            id: sale.id_sale,
-            numeroVenta: sale.number_sale,
-            clienteId: sale.client.toString(),
-            clienteNombre: sale.client_name || '',
-            fechaVenta: sale.date_sale,
-            estado: (sale.void ? 'Anulada' : 'Completada') as 'Completada' | 'Anulada' | 'Devolución',
-            items: (sale.details || []).map(detail => ({
-              id: detail.id_detail?.toString() || '',
-              productoId: detail.variant.toString(),
-              productoNombre: '',
-              talla: '',
-              color: '',
-              cantidad: detail.quantity,
-              precioUnitario: parseFloat(detail.unit_price || '0'),
-              subtotal: parseFloat(detail.subtotal || '0')
-            })),
-            subtotal: parseFloat(sale.subtotal),
-            iva: parseFloat(sale.iva),
-            total: parseFloat(sale.total),
-            metodoPago: sale.payment_method_name || 'Efectivo',
-            observaciones: sale.observations || '',
-            anulada: sale.void || false,
-            motivoAnulacion: sale.void_reason || '',
-            createdAt: sale.created_at || new Date().toISOString()
-          }));
-          setVentas(ventasMapeadas);
-        }
+        await loadVentas();
 
         // Actualizar saldo del cliente si se utilizó (actualización local)
         if (saldoUsado > 0) {
@@ -658,7 +810,8 @@ export default function VentasManager() {
           fechaVenta: new Date().toISOString().split('T')[0],
           metodoPago: 'Efectivo',
           observaciones: '',
-          items: []
+          items: [],
+          pedidoId: null
         });
 
         setNotificationMessage('Venta creada exitosamente');
@@ -695,36 +848,7 @@ export default function VentasManager() {
       
       if (resultado) {
         // Recargar ventas desde la API
-        const ventasActualizadas = await getAllSales();
-        if (ventasActualizadas) {
-          const ventasMapeadas = ventasActualizadas.map((sale: Sale): Venta => ({
-            id: sale.id_sale,
-            numeroVenta: sale.number_sale,
-            clienteId: sale.client.toString(),
-            clienteNombre: sale.client_name || '',
-            fechaVenta: sale.date_sale,
-            estado: (sale.void ? 'Anulada' : 'Completada') as 'Completada' | 'Anulada' | 'Devolución',
-            items: (sale.details || []).map(detail => ({
-              id: detail.id_detail?.toString() || '',
-              productoId: detail.variant.toString(),
-              productoNombre: '',
-              talla: '',
-              color: '',
-              cantidad: detail.quantity,
-              precioUnitario: parseFloat(detail.unit_price || '0'),
-              subtotal: parseFloat(detail.subtotal || '0')
-            })),
-            subtotal: parseFloat(sale.subtotal),
-            iva: parseFloat(sale.iva),
-            total: parseFloat(sale.total),
-            metodoPago: sale.payment_method_name || 'Efectivo',
-            observaciones: sale.observations || '',
-            anulada: sale.void || false,
-            motivoAnulacion: sale.void_reason || '',
-            createdAt: sale.created_at || new Date().toISOString()
-          }));
-          setVentas(ventasMapeadas);
-        }
+        await loadVentas();
 
         setShowAnularModal(false);
         setVentaToAnular(null);
@@ -782,7 +906,7 @@ export default function VentasManager() {
           direccion: clienteCreado.address,
           ciudad: clienteCreado.city,
           activo: clienteCreado.state,
-          saldoAFavor: 0
+          saldoAFavor: clienteCreado.saldoAFavor ?? (clienteCreado as any).saldo_a_favor ?? 0
         };
 
         setClientes([...clientes, clienteMapeado]);
@@ -817,24 +941,13 @@ export default function VentasManager() {
     }
   };
 
-  const handleCrearDevolucion = () => {
-    // Prevención: si ya existe una devolución para esta venta, no permitir crear otra
-    const existingDevoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
-    const alreadyHas = ventaToDevolver ? existingDevoluciones.some((d: any) => String(d.ventaId) === String(ventaToDevolver.id) || String(d.numeroVenta) === String(ventaToDevolver.numeroVenta)) : false;
-    if (alreadyHas) {
-      setNotificationMessage('Ya existe una devolución para esta venta. No se puede generar otra.');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
+  const handleCrearDevolucion = async () => {
     if (!ventaToDevolver || !devolucionData.motivo) {
       setNotificationMessage('Debes seleccionar un motivo de devolución');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
-
 
     if (devolucionData.itemsDevueltos.length === 0) {
       setNotificationMessage('Debes seleccionar al menos un producto para devolver');
@@ -843,7 +956,7 @@ export default function VentasManager() {
       return;
     }
 
-    // Validación adicional: cada cantidad a devolver no puede ser mayor a lo vendido en la venta
+    // Validación de cantidades
     for (const it of devolucionData.itemsDevueltos) {
       const itemOriginal = ventaToDevolver.items.find(i => i.id === it.itemId);
       if (!itemOriginal) continue;
@@ -854,152 +967,183 @@ export default function VentasManager() {
         setShowNotificationModal(true);
         return;
       }
-      if (it.cantidad < 0) {
-        setNotificationMessage('La cantidad a devolver debe ser un número válido.');
+      if (it.cantidad <= 0) {
+        setNotificationMessage('La cantidad a devolver debe ser un número válido mayor a 0.');
         setNotificationType('error');
         setShowNotificationModal(true);
         return;
       }
     }
 
-    if (!devolucionData.productoNuevoId) {
-      setNotificationMessage('Debes seleccionar el producto por el que se hará el cambio');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-    if (!devolucionData.productoNuevoTalla || !devolucionData.productoNuevoColor) {
-      setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
+    const isChange = !!devolucionData.productoNuevoId;
+
+    if (isChange) {
+      if (!devolucionData.productoNuevoTalla || !devolucionData.productoNuevoColor) {
+        setNotificationMessage('Debes seleccionar talla y color del producto nuevo');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
     }
 
-
-    const devoluciones = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
-    const numeroDevolucion = `DEV-${(devoluciones.length + 1).toString().padStart(3, '0')}`;
-
-    const itemsDevueltos = devolucionData.itemsDevueltos.map(itemDev => {
+    // Mapear detalles de la devolución (los items que se devuelven)
+    const itemsMapeados = devolucionData.itemsDevueltos.map(itemDev => {
       const itemOriginal = ventaToDevolver.items.find(i => i.id === itemDev.itemId);
       if (!itemOriginal) return null;
 
       return {
-        id: Date.now().toString() + Math.random(),
-        productoNombre: itemOriginal.productoNombre,
-        talla: itemOriginal.talla,
-        color: itemOriginal.color,
-        cantidad: itemDev.cantidad,
-        precioUnitario: itemOriginal.precioUnitario,
+        variant: parseInt(itemOriginal.productoId, 10),
+        quantity: itemDev.cantidad,
         subtotal: itemDev.cantidad * itemOriginal.precioUnitario
       };
-    }).filter(Boolean);
+    }).filter(Boolean) as { variant: number; quantity: number; subtotal: number }[];
 
-    const totalDevolucion = (itemsDevueltos as any[]).reduce((sum: number, item: any) => sum + item.subtotal, 0);
-    const productoNuevo = productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId);
-    if (!productoNuevo) {
-      setNotificationMessage('Producto de cambio no encontrado');
-      setNotificationType('error');
-      setShowNotificationModal(true);
-      return;
-    }
-
-    const precioProductoNuevo = productoNuevo.precioVenta || 0;
+    const totalDevolucion = itemsMapeados.reduce((sum, item) => sum + item.subtotal, 0);
+    const productoNuevo = isChange ? productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId) : null;
+    const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) : 0;
     const diferencia = precioProductoNuevo - totalDevolucion;
 
     const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
     const diferenciaPagar = diferencia > 0 ? diferencia : 0;
 
-    if (diferenciaPagar > 0 && !devolucionData.medioPagoExcedente) {
+    if (isChange && diferenciaPagar > 0 && !devolucionData.medioPagoExcedente) {
       setNotificationMessage('Debes seleccionar el medio de pago del excedente');
       setNotificationType('error');
       setShowNotificationModal(true);
       return;
     }
 
+    try {
+      setLoading(true);
+      let result;
 
-    const nuevaDevolucion = {
-      id: Date.now(),
-      numeroDevolucion,
-      ventaId: ventaToDevolver.id,
-      numeroVenta: ventaToDevolver.numeroVenta,
-      clienteId: ventaToDevolver.clienteId,
-      clienteNombre: ventaToDevolver.clienteNombre,
-      fechaDevolucion: new Date().toISOString().split('T')[0],
-      motivo: devolucionData.motivo,
-      items: itemsDevueltos,
-      total: totalDevolucion,
-      createdAt: new Date().toISOString(),
+      if (isChange) {
+        // Buscar variant ID del producto nuevo para cambio
+        const variantNueva = variants.find(v => 
+          v.product === Number(devolucionData.productoNuevoId) &&
+          v.size_name === devolucionData.productoNuevoTalla &&
+          v.color_name === devolucionData.productoNuevoColor
+        );
+        if (!variantNueva) {
+          setNotificationMessage('No se encontró la variante seleccionada del producto nuevo');
+          setNotificationType('error');
+          setShowNotificationModal(true);
+          setLoading(false);
+          return;
+        }
 
-      // NUEVO: estado y datos del cambio
-      estadoGestion: 'Cambiado',
-      productoNuevo: {
-        id: productoNuevo.id,
-        nombre: productoNuevo.nombre,
-        precio: precioProductoNuevo,
-      },
-      productoNuevoTalla: devolucionData.productoNuevoTalla,
-      productoNuevoColor: devolucionData.productoNuevoColor,
+        const stockDisponible = getVariantStock(variantNueva.id_variant);
+        if (stockDisponible <= 0) {
+          setNotificationMessage('El producto nuevo seleccionado no tiene stock disponible');
+          setNotificationType('error');
+          setShowNotificationModal(true);
+          setLoading(false);
+          return;
+        }
 
-      // NUEVO: balance
-      saldoAFavor,
-      diferenciaPagar,
-      medioPagoExcedente: diferenciaPagar > 0 ? devolucionData.medioPagoExcedente : undefined,
-    };
-
-
-    localStorage.setItem(DEVOLUCIONES_KEY, JSON.stringify([...devoluciones, nuevaDevolucion]));
-
-    // Actualizar saldo a favor del cliente (actualización local)
-    const clientesActualizados = clientes.map((c: any) => {
-      if (c.id.toString() === ventaToDevolver.clienteId.toString()) {
-        return {
-          ...c,
-          saldoAFavor: Number(c.saldoAFavor || 0) + Number(saldoAFavor || 0),
+        // Estructurar el DTO de cambio
+        const dto: CreateChangeDTO = {
+          sale: ventaToDevolver.id,
+          reason_of_change: devolucionData.motivo,
+          state: 2, // Pendiente
+          details: itemsMapeados.map(i => ({
+            variant_returned: i.variant,
+            variant_delivered: variantNueva.id_variant
+          }))
         };
+
+        result = await createChange(dto);
+      } else {
+        // Estructurar el DTO de devolución
+        const dto: CreateReturnDTO = {
+          sale: ventaToDevolver.id,
+          reason: devolucionData.motivo,
+          state: 2, // Pendiente
+          details: itemsMapeados.map(i => ({
+            variant: i.variant,
+            quantity: i.quantity
+          }))
+        };
+
+        result = await createReturn(dto);
       }
-      return c;
-    });
 
-    setClientes(clientesActualizados);
+      if (result) {
+        // Recargar ventas de la API
+        await loadVentas();
 
-    // ✅ CAMBIO CLAVE: Marcar la venta como "Devolución"
-    setVentas(prev =>
-      prev.map(v =>
-        v.id === ventaToDevolver.id
-          ? { ...v, estado: 'Devolución' }
-          : v
-      )
-    );
+        // Recargar clientes de la API para traer saldos actualizados
+        const clientesAPI = await getAllClients();
+        if (clientesAPI) {
+          const clientesMapeados = clientesAPI.map((client: Clients) => ({
+            id: client.id_client,
+            nombre: client.name,
+            tipoDoc: client.type_doc,
+            numeroDoc: client.doc,
+            telefono: client.phone,
+            email: client.email,
+            direccion: client.address,
+            ciudad: client.city,
+            activo: client.state,
+            saldoAFavor: client.saldoAFavor ?? (client as any).saldo_a_favor ?? 0
+          }));
+          setClientes(clientesMapeados);
+        }
 
-    // (Opcional) Notificar para sincronizar otras pestañas/listeners
-    window.dispatchEvent(new Event('salesUpdated'));
+        // Recargar inventarios de la API
+        await refreshInventarios();
 
-    setShowDevolucionModal(false);
-    setVentaToDevolver(null);
-    setDevolucionData({
-      motivo: 'Defectuoso',
-      itemsDevueltos: [],
-      productoNuevoId: '',
-      productoNuevoTalla: '',
-      productoNuevoColor: '',
-      medioPagoExcedente: 'Efectivo'
-    });
+        // Notificar eventos de sincronización para otros paneles
+        window.dispatchEvent(new Event('salesUpdated'));
+        if (isChange) {
+          window.dispatchEvent(new Event('cambioProcessed'));
+        } else {
+          window.dispatchEvent(new Event('devolucionProcessed'));
+        }
 
+        setShowDevolucionModal(false);
+        setVentaToDevolver(null);
+        setDevolucionData({
+          motivo: 'Defectuoso',
+          itemsDevueltos: [],
+          productoNuevoId: '',
+          productoNuevoTalla: '',
+          productoNuevoColor: '',
+          medioPagoExcedente: 'Efectivo'
+        });
 
-    let msg = `Devolución ${numeroDevolucion} creada exitosamente. `;
+        let msg = isChange
+          ? `Cambio registrado exitosamente en el servidor. `
+          : `Devolución registrada exitosamente en el servidor. `;
 
-    if (saldoAFavor > 0) {
-      msg += `Saldo a favor: $${saldoAFavor.toLocaleString()}.`;
-    } else if (diferenciaPagar > 0) {
-      msg += `Excedente pagado: $${diferenciaPagar.toLocaleString()} (${devolucionData.medioPagoExcedente}).`;
-    } else {
-      msg += `Cambio exacto (sin saldo ni excedente).`;
+        if (isChange) {
+          if (saldoAFavor > 0) {
+            msg += `Saldo a favor generado para el cliente: ${formatCOP(saldoAFavor)}.`;
+          } else if (diferenciaPagar > 0) {
+            msg += `Excedente pagado: ${formatCOP(diferenciaPagar)} (${devolucionData.medioPagoExcedente}).`;
+          } else {
+            msg += `Cambio exacto (sin saldo ni excedente).`;
+          }
+        } else {
+          msg += `Saldo a favor generado para el cliente: ${formatCOP(totalDevolucion)}.`;
+        }
+
+        setNotificationMessage(msg);
+        setNotificationType('success');
+        setShowNotificationModal(true);
+      } else {
+        setNotificationMessage('El servidor rechazó el registro de la operación. Revisa los datos.');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+      }
+    } catch (error: any) {
+      console.error('Error al registrar devolución/cambio:', error);
+      setNotificationMessage('Error al intentar registrar la operación en el servidor.');
+      setNotificationType('error');
+      setShowNotificationModal(true);
+    } finally {
+      setLoading(false);
     }
-
-    setNotificationMessage(msg);
-
-    setNotificationType('success');
-    setShowNotificationModal(true);
   };
 
   const handleToggleItemDevolucion = (itemId: string, cantidad: number) => {
@@ -1049,14 +1193,14 @@ export default function VentasManager() {
     venta.items.forEach((item) => {
       push(`${item.productoNombre}`);
       push(`Talla: ${item.talla} | Color: ${item.color}`);
-      push(`Cantidad: ${item.cantidad} x $${item.precioUnitario.toLocaleString()}  Subtotal: $${item.subtotal.toLocaleString()}`);
+      push(`Cantidad: ${item.cantidad} x ${formatCOP(item.precioUnitario)}  Subtotal: ${formatCOP(item.subtotal)}`);
       y += 2;
     });
     y += 2;
     push('TOTALES:');
-    push(`Subtotal: $${venta.subtotal.toLocaleString()}`);
-    push(`IVA (19%): $${venta.iva.toLocaleString()}`);
-    push(`TOTAL: $${venta.total.toLocaleString()}`);
+    push(`Subtotal: ${formatCOP(venta.subtotal)}`);
+    push(`IVA: ${formatCOP(venta.iva)}`);
+    push(`TOTAL: ${formatCOP(venta.total)}`);
     y += 2;
     push(`Método de Pago: ${venta.metodoPago}`);
     if (venta.observaciones) push(`Observaciones: ${venta.observaciones}`);
@@ -1116,14 +1260,14 @@ export default function VentasManager() {
   // Leer devoluciones para saber qué ventas ya tienen una devolución
   const devolucionesStored = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
 
-  const totales = calcularTotales(formData.items);
+  // Totales calculados vía useMemo (totals)
 
   const clienteSeleccionado = clientes.find(
     (c: any) => c.id?.toString() === formData.clienteId?.toString()
   );
 
   const saldoDisponible = Number(clienteSeleccionado?.saldoAFavor || 0);
-  const totalVenta = Number(totales.total || 0);
+  const totalVenta = Number(totals.total || 0);
 
   const saldoAplicado = usarSaldoAFavor ? Math.min(saldoDisponible, totalVenta) : 0;
   const restantePorPagar = Math.max(totalVenta - saldoAplicado, 0);
@@ -1154,10 +1298,12 @@ const paginatedVentas = useMemo(() => {
             <Download size={20} />
             Descargar Excel
           </Button>
-          <Button onClick={handleCreate} variant="primary">
-            <Plus size={20} />
-             Registrar Venta
-          </Button>
+          {hasPermission('ventas', 'create') && (
+            <Button onClick={handleCreate} variant="primary">
+              <Plus size={20} />
+               Registrar Venta
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1180,7 +1326,7 @@ const paginatedVentas = useMemo(() => {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left py-4 px-6 text-gray-600">Número</th>
-                <th className="text-left py-4 px-6 text-gray-600">Pedido</th>
+                <th className="text-left py-4 px-6 text-gray-600">Pedido de Origen</th>
                 <th className="text-left py-4 px-6 text-gray-600">Cliente</th>
                 <th className="text-left py-4 px-6 text-gray-600">Fecha</th>
                 <th className="text-right py-4 px-6 text-gray-600">Total</th>
@@ -1210,20 +1356,28 @@ const paginatedVentas = useMemo(() => {
                       <div className="text-gray-900 font-medium">{venta.numeroVenta}</div>
                     </td>
                     <td className="py-4 px-6 text-gray-600">
-                      {venta.pedido_id ? (
+                      {venta.number_pedido && venta.number_pedido.trim() ? (
                         <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-sm font-medium">
-                          {venta.pedido_id}
+                          {venta.number_pedido}
                         </span>
                       ) : (
-                        <span className="text-gray-400">N/A</span>
+                        <span className="text-gray-600">Venta Directa</span>
                       )}
                     </td>
-                    <td className="py-4 px-6 text-gray-600">{venta.clienteNombre}</td>
+                    <td className="py-4 px-6 text-gray-600">
+                      {venta.pedido?.client?.name
+                        || venta.pedido?.user?.username
+                        || venta.pedido?.user?.email
+                        || venta.user?.username
+                        || venta.user?.email
+                        || venta.clienteNombre
+                        || 'Consumidor Final'}
+                    </td>
                     <td className="py-4 px-6 text-gray-600">
                       {new Date(venta.fechaVenta).toLocaleDateString()}
                     </td>
                     <td className="py-4 px-6 text-right text-gray-900 font-semibold">
-                      ${venta.total.toLocaleString()}
+                      {formatCOP(venta.total)}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
@@ -1262,7 +1416,7 @@ const paginatedVentas = useMemo(() => {
                           }}
                           className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600 disabled:text-gray-300 disabled:cursor-not-allowed"
                           title="Anular"
-                          disabled={venta.estado === 'Anulada'}
+                          disabled={venta.estado === 'Anulada' || !hasPermission('ventas', 'delete')}
                         >
                           <Ban size={18} />
                         </button>
@@ -1281,7 +1435,7 @@ const paginatedVentas = useMemo(() => {
                           }}
                           className="p-2 hover:bg-purple-50 rounded-lg transition-colors text-purple-600 disabled:text-gray-300 disabled:cursor-not-allowed"
                           title="Generar devolución"
-                          disabled={hasDevolucion || venta.estado === 'Anulada'}
+                          disabled={hasDevolucion || venta.estado === 'Anulada' || !hasPermission('devoluciones', 'create')}
                         >
                           <RotateCcw size={18} />
                         </button>
@@ -1483,7 +1637,7 @@ const paginatedVentas = useMemo(() => {
               {/* Fila 2: Saldo a favor */}
               {saldoDisponible > 0 && formData.clienteId && (
                 <div className="mb-2 rounded-md border border-green-300 bg-green-50 p-2">
-                  <div className="text-green-800 text-[10px] font-semibold">✅ Este cliente tiene saldo a favor: ${saldoDisponible.toLocaleString()}</div>
+                  <div className="text-green-800 text-[10px] font-semibold">✅ Este cliente tiene saldo a favor: {formatCOP(saldoDisponible)}</div>
                   <label className="mt-2 flex items-center gap-2 text-[10px] text-green-900">
                     <input
                       type="checkbox"
@@ -1498,69 +1652,110 @@ const paginatedVentas = useMemo(() => {
                   </label>
                   {usarSaldoAFavor && (
                     <div className="mt-2 text-[10px] text-green-900 space-y-0.5">
-                      <div>Saldo aplicado: <b>${saldoAplicado.toLocaleString()}</b></div>
-                      <div>Restante por pagar: <b>${restantePorPagar.toLocaleString()}</b></div>
+                      <div>Saldo aplicado: <b>{formatCOP(saldoAplicado)}</b></div>
+                      <div>Restante por pagar: <b>{formatCOP(restantePorPagar)}</b></div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Fila 3: Agregar Productos - TODO EN UNA FILA, MEJOR DISTRIBUÍDO */}
-              <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
-                <div className="flex gap-2 items-center">
-                  <div className="flex-1">
+              {/* Fila 3: Agregar Productos - Diseño de PedidosManager */}
+              <div className="bg-gray-50 rounded-md p-3 mb-2 border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Selector de Producto (Buscable) */}
+                  <div className="relative">
+                    <label className="block text-[10px] text-gray-500 mb-1">Producto</label>
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
+                      <Input
+                        placeholder="Buscar producto..."
+                        value={variantSearch}
+                        onChange={(e) => {
+                          setVariantSearch(e.target.value);
+                          setShowVariantDrop(true);
+                          setSelectedProduct(null);
+                        }}
+                        onFocus={() => setShowVariantDrop(true)}
+                        className="h-7 pl-7 text-[10px]"
+                      />
+                    </div>
+                    {showVariantDrop && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        {productos
+                          .filter(p => !variantSearch || p.nombre.toLowerCase().includes(variantSearch.toLowerCase()))
+                          .map(p => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => handleSelectProduct(p)}
+                              className="w-full text-left px-2 py-1.5 hover:bg-gray-50 text-[10px] border-b border-gray-100 last:border-0"
+                            >
+                              <div className="font-medium text-gray-900">{p.nombre}</div>
+                              <div className="text-gray-500">{formatCOP(Number(p.precioVenta))}</div>
+                            </button>
+                          ))
+                        }
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Talla */}
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">Talla</label>
                     <select
-                      value={nuevoItem.productoId}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, productoId: e.target.value, talla: '', color: '' })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      value={itemTalla}
+                      onChange={(e) => setItemTalla(e.target.value)}
+                      className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px] focus:outline-none focus:ring-1 focus:ring-gray-400"
                     >
-                      <option value="">Producto</option>
-                      {productos.filter((p: any) => p.activo).map((producto: any) => (
-                        <option key={producto.id} value={producto.id}>
-                          {producto.nombre}
-                        </option>
-                      ))}
+                      <option value="">Seleccionar Talla</option>
+                      {getTallasDisponibles().map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
-                  <div className="w-24">
+
+                  {/* Color */}
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">Color</label>
                     <select
-                      value={nuevoItem.talla}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, talla: e.target.value, color: '' })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
+                      value={itemColor}
+                      onChange={(e) => setItemColor(e.target.value)}
+                      className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px] focus:outline-none focus:ring-1 focus:ring-gray-400"
                     >
-                      <option value="">Talla</option>
-                      {getTallasDisponibles().map((talla: string) => (
-                        <option key={talla} value={talla}>{talla}</option>
-                      ))}
+                      <option value="">Seleccionar Color</option>
+                      {getColoresDisponibles().map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
-                  <div className="w-24">
-                    <select
-                      value={nuevoItem.color}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, color: e.target.value })}
-                      className="w-full h-7 px-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 text-[10px]"
-                      disabled={!nuevoItem.talla}
-                    >
-                      <option value="">Color</option>
-                      {getColoresDisponibles().map((color: string) => (
-                        <option key={color} value={color}>{color}</option>
-                      ))}
-                    </select>
+
+                  {/* Cantidad y Agregar */}
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <label className="block text-[10px] text-gray-500 mb-1">Cant.</label>
+                      <div className="flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => setItemCantidad(prev => String(Math.max(1, parseInt(prev) - 1)))}
+                          className="h-7 px-2 border border-r-0 border-gray-300 rounded-l-md hover:bg-gray-50"
+                        >
+                          -
+                        </button>
+                        <Input
+                          type="number"
+                          value={itemCantidad}
+                          onChange={(e) => setItemCantidad(e.target.value)}
+                          className="h-7 px-2 text-[10px] text-center border-gray-300 rounded-none w-full"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setItemCantidad(prev => String(parseInt(prev) + 1))}
+                          className="h-7 px-2 border border-l-0 border-gray-300 rounded-r-md hover:bg-gray-50"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    <Button onClick={agregarItem} variant="secondary" className="h-7 px-3 text-[10px]">
+                      <Plus size={14} />
+                    </Button>
                   </div>
-                  <div className="w-20">
-                    <Input
-                      type="number"
-                      min="1"
-                      placeholder="Cant."
-                      value={nuevoItem.cantidad}
-                      onChange={(e) => setNuevoItem({ ...nuevoItem, cantidad: e.target.value })}
-                      className="w-full h-7 px-2 text-[10px]"
-                    />
-                  </div>
-                  <Button onClick={agregarItem} variant="secondary" className="h-7 px-3 text-[10px] whitespace-nowrap">
-                    <Plus size={14} />
-                    Agregar
-                  </Button>
                 </div>
               </div>
 
@@ -1616,7 +1811,7 @@ const paginatedVentas = useMemo(() => {
                             />
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap">
-                            ${((Number(item.precioUnitario) >= 0 ? Number(item.precioUnitario) : 0) * (Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1)).toLocaleString()}
+                            {formatCOP(((Number(item.precioUnitario) >= 0 ? Number(item.precioUnitario) : 0) * (Number(item.cantidad) >= 1 ? Number(item.cantidad) : 1)))}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <button
@@ -1644,18 +1839,18 @@ const paginatedVentas = useMemo(() => {
             {/* Contenedor centrado con max-width */}
             <div className="max-w-5xl mx-auto">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 items-end">
-                <div className="lg:col-span-2 rounded-md bg-gray-50 border border-gray-200 p-2">
+                 <div className="lg:col-span-2 rounded-md bg-gray-50 border border-gray-200 p-2">
                   <div className="flex justify-between text-gray-600 text-[10px]">
                     <span>Subtotal</span>
-                    <span className="tabular-nums font-medium">${totales.subtotal.toLocaleString()}</span>
+                    <span className="tabular-nums font-medium">{formatCOP(totals.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-gray-600 text-[10px] mt-1">
-                    <span>IVA ({Math.round(IVA_RATE * 100)}%)</span>
-                    <span className="tabular-nums font-medium">${totales.iva.toLocaleString()}</span>
+                    <span>IVA (19%)</span>
+                    <span className="tabular-nums font-medium">{formatCOP(totals.iva)}</span>
                   </div>
                   <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-2 pt-2 border-t border-gray-200">
                     <span>Total a pagar</span>
-                    <span className="tabular-nums">${totales.total.toLocaleString()}</span>
+                    <span className="tabular-nums">{formatCOP(totals.total)}</span>
                   </div>
                 </div>
                 <div className="lg:col-span-2 flex gap-2 justify-end">
@@ -1675,7 +1870,7 @@ const paginatedVentas = useMemo(() => {
         title={`Detalle de Venta ${viewingVenta?.numeroVenta}`}
       >
         {viewingVenta && (
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-2">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <div className="text-gray-600 mb-1">Cliente</div>
@@ -1694,7 +1889,7 @@ const paginatedVentas = useMemo(() => {
                   <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-3">
                     <div className="text-green-700 font-semibold">Saldo a favor</div>
                     <div className="text-green-800 text-lg font-bold">
-                      ${saldo.toLocaleString()}
+                      {formatCOP(saldo)}
                     </div>
                   </div>
                 );
@@ -1740,37 +1935,40 @@ const paginatedVentas = useMemo(() => {
             <div className="border-t pt-4">
               <h4 className="text-gray-900 font-semibold mb-3">Productos</h4>
               <div className="space-y-2">
-                {viewingVenta.items.map((item) => (
-                  <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="text-gray-900 font-medium">{item.productoNombre}</div>
-                        <div className="text-sm text-gray-600">
-                          Talla: {item.talla} | Color: {item.color}
+                {viewingVenta.items.map((item) => {
+                  const details = getVariantDetails(item.productoId);
+                  return (
+                    <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="text-gray-900 font-medium">{details.nombre || item.productoNombre}</div>
+                          <div className="text-sm text-gray-600">
+                            Talla: {details.talla || item.talla} | Color: {details.color || item.color}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {item.cantidad} x {formatCOP(item.precioUnitario)}
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-600">
-                          {item.cantidad} x ${item.precioUnitario.toLocaleString()}
-                        </div>
+                        <div className="text-gray-900 font-semibold">{formatCOP(item.subtotal)}</div>
                       </div>
-                      <div className="text-gray-900 font-semibold">${item.subtotal.toLocaleString()}</div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
             <div className="bg-gray-50 rounded-lg p-4 space-y-2">
               <div className="flex justify-between text-gray-700">
                 <span>Subtotal:</span>
-                <span>${viewingVenta.subtotal.toLocaleString()}</span>
+                <span>{formatCOP(viewingVenta.subtotal)}</span>
               </div>
               <div className="flex justify-between text-gray-700">
-                <span>IVA (19%):</span>
-                <span>${viewingVenta.iva.toLocaleString()}</span>
+                <span>IVA:</span>
+                <span>{formatCOP(viewingVenta.iva)}</span>
               </div>
               <div className="flex justify-between text-gray-900 text-lg font-semibold pt-2 border-t border-gray-300">
                 <span>Total:</span>
-                <span>${viewingVenta.total.toLocaleString()}</span>
+                <span>{formatCOP(viewingVenta.total)}</span>
               </div>
             </div>
           </div>
@@ -1840,7 +2038,13 @@ const paginatedVentas = useMemo(() => {
                   <div className="text-sm text-gray-600 mb-2">
                     Cliente:{' '}
                     <span className="text-gray-900 font-medium">
-                      {ventaToDevolver.clienteNombre}
+                      {ventaToDevolver.pedido?.client?.name ||
+                       ventaToDevolver.pedido?.user?.username ||
+                       ventaToDevolver.pedido?.user?.email ||
+                       ventaToDevolver.user?.username ||
+                       ventaToDevolver.user?.email ||
+                       ventaToDevolver.clienteNombre ||
+                       'Consumidor Final'}
                     </span>
                   </div>
                   <div className="text-sm text-gray-600">
@@ -1883,45 +2087,44 @@ const paginatedVentas = useMemo(() => {
                         (i) => i.itemId === item.id
                       );
                       const cantidadDevuelta = itemDevuelto?.cantidad || 0;
+                      const details = getVariantDetails(item.productoId);
 
                       return (
                         <div key={item.id} className="border border-gray-200 rounded-lg p-3 bg-white">
                           <div className="flex justify-between items-start mb-2">
                             <div className="flex-1">
-                              <div className="text-gray-900 font-medium">{item.productoNombre}</div>
+                              <div className="text-gray-900 font-medium">{details.nombre || item.productoNombre}</div>
                               <div className="text-sm text-gray-600">
-                                Talla: {item.talla} | Color: {item.color}
+                                Talla: {details.talla || item.talla} | Color: {details.color || item.color}
                               </div>
                               <div className="text-sm text-gray-600">
-                                Precio: ${item.precioUnitario.toLocaleString()}
+                                Precio: {formatCOP(item.precioUnitario)}
                               </div>
                             </div>
                             <div className="text-gray-900 font-semibold">
-                              ${item.subtotal.toLocaleString()}
+                              {formatCOP(item.subtotal)}
                             </div>
                           </div>
 
                           <div className="flex items-center gap-3 mt-2">
                             <label className="text-sm text-gray-700">Cantidad a devolver:</label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      // Permitir devolver hasta la cantidad comprada en la venta
-                                      max={Math.max(0, Number(item.cantidad || 0))}
-                                      value={cantidadDevuelta}
-                                      onChange={(e) => {
-                                        const parsed = parseInt(e.target.value, 10) || 0;
-                                        const maxAllowed = Math.max(0, Number(item.cantidad || 0));
-                                        const clamped = Math.min(parsed, maxAllowed);
-                                        handleToggleItemDevolucion(item.id, clamped);
-                                      }}
-                                      className="w-16 h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
-                                    />
+                            <input
+                              type="number"
+                              min="0"
+                              max={Math.max(0, Number(item.cantidad || 0))}
+                              value={cantidadDevuelta}
+                              onChange={(e) => {
+                                const parsed = parseInt(e.target.value, 10) || 0;
+                                const maxAllowed = Math.max(0, Number(item.cantidad || 0));
+                                const clamped = Math.min(parsed, maxAllowed);
+                                handleToggleItemDevolucion(item.id, clamped);
+                              }}
+                              className="w-16 h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
+                            />
                             <span className="text-sm text-gray-600">de {item.cantidad}</span>
                             {cantidadDevuelta > 0 && (
                               <span className="ml-auto text-sm text-green-600 font-medium">
-                                Devolución: $
-                                {(cantidadDevuelta * item.precioUnitario).toLocaleString()}
+                                Devolución: {formatCOP(cantidadDevuelta * item.precioUnitario)}
                               </span>
                             )}
                           </div>
@@ -1933,7 +2136,7 @@ const paginatedVentas = useMemo(() => {
 
                 <div className="border-t pt-4">
                   <h4 className="text-gray-900 font-semibold mb-3">
-                    Producto por el que se cambia *
+                    Producto por el que se cambia (Opcional - Dejar vacío para devolución pura)
                   </h4>
 
                   <div className="space-y-3">
@@ -1956,57 +2159,74 @@ const paginatedVentas = useMemo(() => {
                         {productos
                           .filter((p: any) => p.activo)
                           .map((p: any) => (
-                            <option key={p.id} value={p.id}>
-                              {p.nombre} - ${(p.precioVenta || 0).toLocaleString()}
-                            </option>
+                             <option key={p.id} value={p.id}>
+                               {p.nombre} - {formatCOP(p.precioVenta || 0)}
+                             </option>
                           ))}
                       </select>
                     </div>
 
                     {productoNuevo && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-gray-700 mb-1 text-sm">Talla</label>
-                          <select
-                            value={devolucionData.productoNuevoTalla}
-                            onChange={(e) =>
-                              setDevolucionData({
-                                ...devolucionData,
-                                productoNuevoTalla: e.target.value,
-                                productoNuevoColor: '',
-                              })
-                            }
-                            className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
-                          >
-                            <option value="">Seleccionar...</option>
-                            {getTallasDisponiblesCambio().map((t: string) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
+                      <>
+                        {getTallasDisponiblesCambio().length === 0 && (
+                          <div className="text-red-600 text-xs">
+                            ⚠️ Este producto no tiene variantes con stock disponible
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-gray-700 mb-1 text-sm">Talla</label>
+                            <select
+                              value={devolucionData.productoNuevoTalla}
+                              onChange={(e) =>
+                                setDevolucionData({
+                                  ...devolucionData,
+                                  productoNuevoTalla: e.target.value,
+                                  productoNuevoColor: '',
+                                })
+                              }
+                              disabled={getTallasDisponiblesCambio().length === 0}
+                              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs disabled:bg-gray-100 disabled:cursor-not-allowed"
+                            >
+                              <option value="">Seleccionar...</option>
+                              {getTallasDisponiblesCambio().map((t: string) => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </div>
 
-                          </select>
+                          <div>
+                            <label className="block text-gray-700 mb-1 text-sm">Color</label>
+                            <select
+                              value={devolucionData.productoNuevoColor}
+                              onChange={(e) =>
+                                setDevolucionData({
+                                  ...devolucionData,
+                                  productoNuevoColor: e.target.value,
+                                })
+                              }
+                              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs disabled:bg-gray-100 disabled:cursor-not-allowed"
+                              disabled={!devolucionData.productoNuevoTalla || getColoresDisponiblesCambio().length === 0}
+                            >
+                              <option value="">Seleccionar...</option>
+                              {getColoresDisponiblesCambio().map((c: string) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
 
-                        <div>
-                          <label className="block text-gray-700 mb-1 text-sm">Color</label>
-                          <select
-                            value={devolucionData.productoNuevoColor}
-                            onChange={(e) =>
-                              setDevolucionData({
-                                ...devolucionData,
-                                productoNuevoColor: e.target.value,
-                              })
-                            }
-                            className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
-                            disabled={!devolucionData.productoNuevoTalla}
-                          >
-                            <option value="">Seleccionar...</option>
-                            {getColoresDisponiblesCambio().map((c: string) => (
-                              <option key={c} value={c}>{c}</option>
-                            ))}
-
-                          </select>
-                        </div>
-                      </div>
+                        {devolucionData.productoNuevoTalla && devolucionData.productoNuevoColor && (
+                          (() => {
+                            const stockVal = getStockDisponibleCambio(devolucionData.productoNuevoTalla, devolucionData.productoNuevoColor);
+                            return (
+                              <div className={`text-xs font-medium ${stockVal > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {stockVal > 0 ? `✓ Stock disponible: ${stockVal} unidades` : '⚠️ Sin stock disponible'}
+                              </div>
+                            );
+                          })()
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -2017,19 +2237,19 @@ const paginatedVentas = useMemo(() => {
 
                     <div className="flex justify-between text-sm text-blue-800">
                       <span>Total devuelto:</span>
-                      <span className="font-medium">${totalDevuelto.toLocaleString()}</span>
+                      <span className="font-medium">{formatCOP(totalDevuelto)}</span>
                     </div>
 
                     <div className="flex justify-between text-sm text-blue-800">
                       <span>Producto nuevo:</span>
-                      <span className="font-medium">${precioProductoNuevo.toLocaleString()}</span>
+                      <span className="font-medium">{formatCOP(precioProductoNuevo)}</span>
                     </div>
 
                     {saldoAFavorCalc > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-green-700">Saldo a favor:</span>
                         <span className="font-semibold text-green-700">
-                          ${saldoAFavorCalc.toLocaleString()}
+                          {formatCOP(saldoAFavorCalc)}
                         </span>
                       </div>
                     )}
@@ -2039,7 +2259,7 @@ const paginatedVentas = useMemo(() => {
                         <div className="flex justify-between text-sm">
                           <span className="text-red-700">Excedente por pagar:</span>
                           <span className="font-semibold text-red-700">
-                            ${excedenteCalc.toLocaleString()}
+                            {formatCOP(excedenteCalc)}
                           </span>
                         </div>
 
@@ -2081,18 +2301,18 @@ const paginatedVentas = useMemo(() => {
                     Cancelar
                   </Button>
                   {
-                    // Verificar si ya existe una devolución para esta venta y deshabilitar el botón
                     (() => {
-                      const existing = JSON.parse(localStorage.getItem(DEVOLUCIONES_KEY) || '[]');
-                      const exists = ventaToDevolver ? existing.some((d: any) => String(d.ventaId) === String(ventaToDevolver.id) || String(d.numeroVenta) === String(ventaToDevolver.numeroVenta)) : false;
+                      const isChange = !!devolucionData.productoNuevoId;
+                      const isFormInvalid = isChange && (!devolucionData.productoNuevoTalla || !devolucionData.productoNuevoColor);
+                      const isAlreadyReturned = ventaToDevolver ? (ventaToDevolver.estado === 'Devolución' || ventaToDevolver.estado === 'Anulada') : false;
                       return (
                         <Button
                           onClick={handleCrearDevolucion}
                           variant="primary"
-                          className="bg-purple-600 hover:bg-purple-700"
-                          disabled={exists}
+                          className={isChange ? "bg-blue-600 hover:bg-blue-700" : "bg-purple-600 hover:bg-purple-700"}
+                          disabled={isAlreadyReturned || isFormInvalid}
                         >
-                          Generar Devolución
+                          {isChange ? "Generar Cambio" : "Generar Devolución"}
                         </Button>
                       );
                     })()

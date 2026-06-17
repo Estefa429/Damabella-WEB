@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../../shared/contexts/AuthContext';
@@ -46,16 +46,22 @@ export function LoginPage() {
 
       if (result.success) {
         showToast('¡Bienvenido!', 'success');
-        navigate('/');
-      } else {
-        setErrors({ form: result.message || 'Correo o contraseña incorrectos' });
+        const rolName = (result.user?.rol_name ?? result.user?.role ?? result.user?.rol ?? '').toString().toLowerCase().trim();
+        const roleId = Number(result.user?.rol);
+        // Clientes van a la tienda, cualquier otro rol va al admin
+        if (rolName === 'cliente' || rolName === 'clientes' || rolName === 'client' || rolName === 'clients' || roleId === 2) {
+          navigate('/');
+        } else {
+          navigate('/admin');
+        } 
       }
     } catch (error) {
-      setErrors({ form: 'Error al iniciar sesión' });
+      console.error('Error en el login:', error);
+      showToast('Credenciales incorrectas o error en el servidor', 'error');
     } finally {
-      setLoading(false);
+      setLoading(false); // 🎯 Apaga el estado de carga siempre al terminar
     }
-  };
+  }; // 🎯 Cierre corregido sin el punto y coma que rompía el componente
 
   return (
     <div className="h-screen flex overflow-hidden">
@@ -73,6 +79,7 @@ export function LoginPage() {
         <div className="w-full max-w-sm">
           {/* BOTÓN VOLVER HOME */}
           <button
+            type="button"
             onClick={() => navigate('/')}
             className="mb-6 text-sm text-gray-600 hover:text-black transition"
           >

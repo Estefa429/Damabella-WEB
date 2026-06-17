@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Edit2, Eye, Search, Phone, Mail, Trash2, Users, Loader } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
+import { usePermissions } from '@/shared/hooks/usePermissions';
 import {
   getAllClients,
-  getClientsByRol,
   createClients,
   updateClients,
   deleteClients,
@@ -24,6 +24,7 @@ import ClienteDetallePage from '../pages/ClienteDetallePage';
 const VENTAS_KEY = 'damabella_ventas';
 
 export default function ClientesManager() {
+  const { hasPermission } = usePermissions();
   // ─── Datos ──────────────────────────────────────────────────────────────────
   const [clientes, setClientes] = useState<Clients[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +83,7 @@ export default function ClientesManager() {
   // ─── Carga inicial ────────────────────────────────────────────────────────────
   const fetchClientes = useCallback(async () => {
     setLoading(true);
-    const data = await getClientsByRol();
+    const data = await getAllClients();
     setClientes(data ?? []);
     setLoading(false);
   }, []);
@@ -403,10 +404,12 @@ export default function ClientesManager() {
           <h2 className="text-gray-900 mb-2">Gestión de Clientes</h2>
           <p className="text-gray-600">Administra la información de tus clientes</p>
         </div>
-        <Button onClick={handleCreate} variant="primary" disabled={actionLoading}>
-          <Plus size={20} />
-          Nuevo Cliente
-        </Button>
+        {hasPermission('clientes', 'create') && (
+          <Button onClick={handleCreate} variant="primary" disabled={actionLoading}>
+            <Plus size={20} />
+            Nuevo Cliente
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -493,9 +496,15 @@ export default function ClientesManager() {
                         <button
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => handleToggleState(cliente)}
-                          disabled={actionLoading}
+                          disabled={actionLoading || !hasPermission('clientes', 'edit')}
                           aria-pressed={cliente.state}
-                          title={cliente.state ? 'Inactivar cliente' : 'Activar cliente'}
+                          title={
+                            !hasPermission('clientes', 'edit')
+                              ? 'Sin permiso de edición'
+                              : cliente.state
+                                ? 'Inactivar cliente'
+                                : 'Activar cliente'
+                          }
                           className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 ${
                             cliente.state ? 'bg-green-500' : 'bg-gray-400'
                           }`}
@@ -518,24 +527,28 @@ export default function ClientesManager() {
                         </button>
 
                         {/* Editar */}
-                        <button
-                          onClick={() => handleEdit(cliente)}
-                          disabled={actionLoading}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600 disabled:opacity-50"
-                          title="Editar"
-                        >
-                          <Edit2 size={18} />
-                        </button>
+                        {hasPermission('clientes', 'edit') && (
+                          <button
+                            onClick={() => handleEdit(cliente)}
+                            disabled={actionLoading}
+                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600 disabled:opacity-50"
+                            title="Editar"
+                          >
+                            <Edit2 size={18} />
+                          </button>
+                        )}
 
                         {/* Eliminar */}
-                        <button
-                          onClick={() => handleDeleteCliente(cliente)}
-                          disabled={actionLoading}
-                          className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600 disabled:opacity-50"
-                          title="Eliminar cliente"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        {hasPermission('clientes', 'delete') && (
+                          <button
+                            onClick={() => handleDeleteCliente(cliente)}
+                            disabled={actionLoading}
+                            className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600 disabled:opacity-50"
+                            title="Eliminar cliente"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

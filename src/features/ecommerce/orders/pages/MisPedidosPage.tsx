@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Search, Eye, Clock, Truck, RotateCcw } from 'lucide-react';
 import { Input, Modal } from '../../../../shared/components/native';
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
 const PEDIDOS_KEY = 'damabella_pedidos';
 
@@ -98,7 +99,7 @@ export default function MisPedidosPage({ currentUser }: MisPedidosPageProps) {
                       <span className="text-gray-500">Items:</span> {pedido.items?.length || 0}
                     </div>
                     <div>
-                      <span className="text-gray-500">Total:</span> ${pedido.total?.toLocaleString() || 0}
+                      <span className="text-gray-500">Total:</span> {formatCOP(pedido.total)}
                     </div>
                   </div>
                 </div>
@@ -176,8 +177,8 @@ export default function MisPedidosPage({ currentUser }: MisPedidosPageProps) {
                         <td className="py-2 px-3 text-center text-gray-700">{item.talla}</td>
                         <td className="py-2 px-3 text-center text-gray-700">{item.color}</td>
                         <td className="py-2 px-3 text-right text-gray-700">{item.cantidad}</td>
-                        <td className="py-2 px-3 text-right text-gray-700">${item.precioUnitario?.toLocaleString() || 0}</td>
-                        <td className="py-2 px-3 text-right text-gray-900">${item.subtotal?.toLocaleString() || 0}</td>
+                        <td className="py-2 px-3 text-right text-gray-700">{formatCOP(item.precioUnitario)}</td>
+                        <td className="py-2 px-3 text-right text-gray-900">{formatCOP(item.subtotal)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -188,7 +189,7 @@ export default function MisPedidosPage({ currentUser }: MisPedidosPageProps) {
             <div className="bg-gray-50 rounded-lg p-4">
               <div className="flex justify-between text-gray-900 text-lg">
                 <span>Total:</span>
-                <span>${selectedPedido.total?.toLocaleString() || 0}</span>
+                <span>{formatCOP(selectedPedido.total)}</span>
               </div>
             </div>
           </div>

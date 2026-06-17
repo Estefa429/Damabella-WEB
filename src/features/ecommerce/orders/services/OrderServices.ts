@@ -1,4 +1,4 @@
-// src/features/orders/services/ordersService.ts
+// src/features/services/OrderServices.ts
 import { API } from "@/services/ApiConfigure";
 
 // ============================================
@@ -36,7 +36,9 @@ export interface Order {
   iva: string;
   total: string;
   observations?: string;
-  state: number;
+  // El backend expone el estado como objeto anidado de la tabla States.
+  state: OrderState;
+  // Compat: algunos serializers planos aún incluyen el nombre suelto.
   state_name?: string;
   created_at?: string;
   updated_at?: string;
@@ -49,8 +51,12 @@ export interface CreateOrderDTO {
   address_shipment: string;
   person_receives: string;
   observations?: string;
+  // Al crear/actualizar se envía únicamente el ID del estado.
   state: number;
-  detail: OrderDetailNested[]; // ✅ Detalles anidados en creación
+  subtotal?: string;
+  iva?: string;
+  total?: string;
+  detail: OrderDetailNested[]; // Detalles anidados en creación
 }
 
 export interface OrderDetail {
@@ -86,6 +92,11 @@ export const getAllOrders = async (): Promise<Order[] | null> => {
   }
 };
 
+export const getMyOrders = async (): Promise<Order[] | null> => {
+  const res = await API.get('/orders/get_my_orders/');
+  return res.data.success ? res.data.results : null;
+};
+
 export const getOrderById = async (id: number): Promise<Order | null> => {
   try {
     const res = await API.get(`/orders/${id}/get_orders_by_id/`);
@@ -119,10 +130,12 @@ export const updateOrder = async (id: number, data: Partial<CreateOrderDTO>): Pr
 
 export const patchOrderState = async (id: number, state: number): Promise<Order | null> => {
   try {
+    console.debug('[patchOrderState] Payload:', { id, state });
     const res = await API.patch(`/orders/${id}/patch_state/`, { state });
+    console.debug('[patchOrderState] Response:', res.data);
     return res.data.success ? res.data.object : null;
-  } catch (error) {
-    console.error('patchOrderState error:', error);
+  } catch (error: any) {
+    console.error('patchOrderState error:', error.response?.data || error.message);
     return null;
   }
 };

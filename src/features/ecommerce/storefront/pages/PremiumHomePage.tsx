@@ -73,6 +73,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
       colorHex: variant.colorHex,
       size: size.size,
       quantity: 1,
+      variantId: size.variantId
     });
   };
 
@@ -254,16 +255,21 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {bestSellers.slice(0, 10).map((product) => (
-              <div key={product.id} className="bg-white rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group">
+              <div key={product.id} className="bg-white rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group flex flex-col">
                 {/* Product Image */}
                 <div
-                  className="aspect-[3/4] overflow-hidden cursor-pointer bg-gray-100 relative"
+                  className="aspect-[4/5] overflow-hidden cursor-pointer bg-gray-100 relative"
                   onClick={() => onNavigate('detail', product.id)}
                 >
                   <img
                     src={product.image}
                     alt={product.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.onerror = null;
+                      target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1125" viewBox="0 0 900 1125"><rect width="900" height="1125" fill="%23f3f4f6"/><text x="450" y="540" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" fill="%239ca3af">DAMABELLA</text><text x="450" y="592" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="%23b6bcc6">Imagen no disponible</text></svg>';
+                    }}
                   />
                   
                   {/* Badge */}
@@ -295,19 +301,29 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                 </div>
 
                 {/* Product Info */}
-                <div className="p-4">
+                <div className="p-4 flex flex-col flex-1">
                   <p className="text-xs font-medium text-gray-600 mb-1 uppercase">DAMABELLA</p>
                   <p className="text-sm font-semibold text-gray-900 line-clamp-2 mb-2">
                     {product.name}
                   </p>
-                  <p className="text-lg font-bold text-gray-900 mb-4">
+                  <p className="text-lg font-bold text-gray-900 mb-3">
                     ${product.price.toLocaleString()}
                   </p>
+
+                  <div className="flex items-center gap-1.5 mb-4 min-h-6">
+                    {Array.from(new Set(product.variants.map((variant) => variant.colorHex))).slice(0, 5).map((colorHex, index) => (
+                      <span
+                        key={`${product.id}-${colorHex}-${index}`}
+                        className="h-5 w-5 rounded-full border border-gray-300 shadow-sm"
+                        style={{ backgroundColor: colorHex }}
+                      />
+                    ))}
+                  </div>
 
                   {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="w-full bg-amber-700 text-white py-2.5 font-semibold text-sm hover:bg-amber-800 transition-colors rounded cursor-pointer"
+                    className="mt-auto w-full bg-amber-700 text-white py-2.5 font-semibold text-sm hover:bg-amber-800 transition-colors rounded cursor-pointer"
                   >
                     COMPRAR
                   </button>

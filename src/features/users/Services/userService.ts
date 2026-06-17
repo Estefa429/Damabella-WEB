@@ -40,6 +40,11 @@ export interface CreateUserDTO {
   id_rol:       number;
 }
 
+const getResponseUser = (data: any): User | null => {
+  if (!data) return null;
+  return data.object ?? data.User ?? data.user ?? data.results ?? data.result ?? data.data ?? null;
+};
+
 export const getAllUsers = async (): Promise<User[] | null> => {
   try {
     const res = await API.get('/users/get_users/');
@@ -64,7 +69,9 @@ export const getAllTypeDocs = async (): Promise<TypeDoc[] | null> => {
 export const createUser = async (data: CreateUserDTO): Promise<User | null> => {
   try {
     const res = await API.post('/users/create_users/', data);
-    return res.data.success ? res.data.object : null;
+    const user = getResponseUser(res.data);
+    if (res.data?.success === false) return null;
+    return user ?? (res.status >= 200 && res.status < 300 ? (res.data as User) : null);
   } catch(error:any) {
     console.error('createUser error:', JSON.stringify(error.response?.data));
     console.error('payload enviado:', data);
@@ -74,7 +81,9 @@ export const createUser = async (data: CreateUserDTO): Promise<User | null> => {
 export const updateUser = async (id: number, data: Partial<CreateUserDTO>): Promise<User | null> => {
   try {
     const res = await API.put(`/users/${id}/update_users/`, data);
-    return res.data.success ? res.data.User : null;
+    const user = getResponseUser(res.data);
+    if (res.data?.success === false) return null;
+    return user ?? (res.status >= 200 && res.status < 300 ? (res.data as User) : null);
   } catch { return null; }
 };
 

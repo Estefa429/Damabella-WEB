@@ -2,14 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Truck, Eye, X, Trash2, AlertTriangle, PackagePlus, Ban } from 'lucide-react';
 import { Button, Input, Modal } from '../../../shared/components/native';
 import { useToast } from '../../../shared/components/native';
+import { usePermissions } from '@/shared/hooks/usePermissions';
 import { ProveedoresManager } from '../../suppliers/components/ProveedoresManager';
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 import { getAllProviders, Providers }       from '@/features/suppliers/services/providersService';
 import { getAllCategories, Categories }     from '@/features/ecommerce/categories/services/categoriesService';
+import { getAllIvas, Iva, createIva } from '@/features/purchases/services/ivaService';
 import { getAllVariants, getAllPurchases, createPurchase, deletePurchase, patchPurchaseState, Purchase, VariantProduct, CreatePurchaseDetailDTO } from '@/features/purchases/services/PurchasesService';
 import { getAllStates, State }              from '@/features/purchases/services/statesService';
-import { getAllProducts, getAllColors, getAllSizes, createProduct, createVariant, createColor, createSize, Product, Color, Size } from '@/features/ecommerce/products/services/productsService';
+import { getAllProducts, getAllColors, getAllSizes, createProduct, createProductWithVariant, createVariant, createColor, createSize, Product, Color, Size } from '@/features/ecommerce/products/services/productsService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ItemCompra {
@@ -22,7 +24,11 @@ interface ItemCompra {
   precioCompra:   number;
   precioVenta:    number;
   subtotal:       number;
+  ivaRate:        number;
+  ivaPercent:     number;
 }
+
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
 interface FormData {
   providerId:   number | null;
@@ -30,15 +36,12 @@ interface FormData {
   stateId:      number | null;
   observations: string;
   items:        ItemCompra[];
+  envio?:        number;
 }
-
-const IVA = 0.19;
-
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
 
 export function ComprasManager() {
   const { showToast } = useToast();
+  const { hasPermission } = usePermissions();
 
   // ─── Data from API ───────────────────────────────────────────────────────────
   const [providers,  setProviders]  = useState<Providers[]>([]);
@@ -49,6 +52,7 @@ export function ComprasManager() {
   const [products,   setProducts]   = useState<Product[]>([]);
   const [colors,     setColors]     = useState<Color[]>([]);
   const [sizes,      setSizes]      = useState<Size[]>([]);
+  const [ivas,       setIvas]       = useState<Iva[]>([]);
   const [loading,    setLoading]    = useState(true);
 
   // ─── UI State ────────────────────────────────────────────────────────────────
@@ -65,7 +69,7 @@ export function ComprasManager() {
   const itemsPerPage = 10;
 
   // ─── Form State ──────────────────────────────────────────────────────────────
-  const [formData,   setFormData]   = useState<FormData>({ providerId: null, purchaseDate: new Date().toISOString().split('T')[0], stateId: null, observations: '', items: [] });
+  const [formData,   setFormData]   = useState<FormData>({ providerId: null, purchaseDate: new Date().toISOString().split('T')[0], stateId: null, observations: '', items: [], envio: 0 });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [itemsError, setItemsError] = useState('');
 
@@ -91,6 +95,10 @@ export function ComprasManager() {
   const [newProductPurchasePrice, setNewProductPurchasePrice] = useState('');
   const [newProductCategory, setNewProductCategory] = useState<number | null>(null);
   const [creatingNewProduct, setCreatingNewProduct] = useState(false);
+  const [newProductIvaId, setNewProductIvaId] = useState<number | null>(null);
+  const [showExpressIvaForm, setShowExpressIvaForm] = useState(false);
+  const [expressIvaPercentage, setExpressIvaPercentage] = useState('');
+  const [isCreatingExpressIva, setIsCreatingExpressIva] = useState(false);
 
   // Paso 2: talla, color, SKU
   const [variantSizeId,  setVariantSizeId]  = useState<number | null>(null);
@@ -107,7 +115,7 @@ export function ComprasManager() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [prov, cats, vars, sts, purch, prods, cols, szs] = await Promise.all([
+      const [prov, cats, vars, sts, purch, prods, cols, szs, ivaList] = await Promise.all([
         getAllProviders(),
         getAllCategories(),
         getAllVariants(),
@@ -116,15 +124,31 @@ export function ComprasManager() {
         getAllProducts(),
         getAllColors(),
         getAllSizes(),
+        getAllIvas(),
       ]);
       if (prov)  setProviders(prov);
       if (cats)  setCategories(cats);
-      if (vars)  setVariants(vars);
+      // Normalizar variantes: si la variante no trae `purchase_price`, buscar en el product asociado
+      if (vars && prods) {
+        const normalized = vars.map(v => {
+          try {
+            const prod = (prods as any[]).find(p => Number(p.id_product ?? p.id) === Number(v.product));
+            const purchasePriceFromProd = prod ? (prod.purchase_price ?? prod.purchasePrice ?? prod.purchasePriceRaw ?? prod.price) : undefined;
+            return { ...v, purchase_price: v.purchase_price ?? purchasePriceFromProd };
+          } catch (e) {
+            return v;
+          }
+        });
+        setVariants(normalized as VariantProduct[]);
+      } else if (vars) {
+        setVariants(vars);
+      }
       if (sts)   setStates(sts);
       if (purch) setPurchases(purch);
       if (prods) setProducts(prods);
       if (cols)  setColors(cols);
       if (szs)   setSizes(szs);
+      if (ivaList) setIvas(ivaList);
     } catch {
       showToast('Error cargando datos', 'error');
     } finally {
@@ -137,7 +161,7 @@ export function ComprasManager() {
 
   // ─── Reset form ───────────────────────────────────────────────────────────────
   const resetForm = () => {
-    setFormData({ providerId: null, purchaseDate: new Date().toISOString().split('T')[0], stateId: null, observations: '', items: [] });
+    setFormData({ providerId: null, purchaseDate: new Date().toISOString().split('T')[0], stateId: null, observations: '', items: [], envio: 0 });
     setFormErrors({});
     setItemsError('');
     setVariantSearch('');
@@ -155,6 +179,9 @@ export function ComprasManager() {
     setNewProductPrice('');
     setNewProductPurchasePrice('');
     setNewProductCategory(null);
+    setNewProductIvaId(null);
+    setShowExpressIvaForm(false);
+    setExpressIvaPercentage('');
     setCreatingNewProduct(false);
     setVariantSizeId(null);
     setVariantColorId(null);
@@ -182,10 +209,20 @@ export function ComprasManager() {
     v.color_name.toLowerCase().includes(variantSearch.toLowerCase())
   );
 
+  const findProductById = (productId: number) => products.find(p => p.id_product === productId);
+
+  const formatVariantDisplay = (variant: VariantProduct) => {
+    const product = findProductById(variant.product);
+    return `${variant.product_name} — ${variant.size_name} / ${variant.color_name}` +
+      (product ? ` · ${product.category_name}` : '');
+  };
+
   // ─── Productos filtrados (para buscar en modal crear variante) ────────────────
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(variantProductSearch.toLowerCase())
   );
+
+  const selectedProvider = providers.find(p => p.id_provider === formData.providerId);
 
   // ─── Generar SKU automático ───────────────────────────────────────────────────
   const autoSku = () => {
@@ -199,10 +236,30 @@ export function ComprasManager() {
   };
 
   // ─── Seleccionar variante existente ──────────────────────────────────────────
+  const getProductIvaRate = (productId: number) => {
+    const product = findProductById(productId);
+    if (!product) return 0;
+
+    const ivaId = Number(product.iva ?? 0);
+    const ivaItem = ivas.find(i => i.id_iva === ivaId);
+    if (ivaItem) return ivaItem.value;
+
+    const rawIva = Number(product.iva ?? 0);
+    if (!Number.isFinite(rawIva) || rawIva <= 0) return 0;
+    return rawIva > 1 ? rawIva / 100 : rawIva;
+  };
+
   const handleSelectVariant = (variant: VariantProduct) => {
+    const product = findProductById(variant.product);
     setSelectedVariant(variant);
     setVariantSearch(`${variant.product_name} — ${variant.size_name} / ${variant.color_name}`);
-    setItemPrecioVenta(String(variant.price));
+
+    const v: any = variant as any;
+    const purchasePrice = v.purchase_price ?? v.purchasePrice ?? v.purchase_price_raw ?? v.purchase ?? product?.purchase_price ?? product?.price ?? null;
+    const salePrice = v.price ?? v.sale_price ?? v.sales_price ?? v.price_unit ?? product?.price ?? null;
+
+    setItemPrecioVenta(String(salePrice ?? ''));
+    setItemPrecioCompra(String(purchasePrice ?? salePrice ?? ''));
     setShowVariantDrop(false);
   };
 
@@ -216,6 +273,9 @@ export function ComprasManager() {
     if (cantidad <= 0 || precioCompra <= 0 || precioVenta <= 0) { showToast('Cantidad y precios deben ser > 0', 'error'); return; }
     if (formData.items.find(i => i.variantId === selectedVariant.id_variant)) { showToast('Esta variante ya está en la lista', 'error'); return; }
 
+    const ivaRate = getProductIvaRate(selectedVariant.product);
+    const ivaPercent = Math.round(ivaRate * 100);
+
     setFormData(prev => ({
       ...prev,
       items: [...prev.items, {
@@ -228,6 +288,8 @@ export function ComprasManager() {
         precioCompra,
         precioVenta,
         subtotal: cantidad * precioCompra,
+        ivaRate,
+        ivaPercent,
       }],
     }));
     setItemsError('');
@@ -243,14 +305,22 @@ export function ComprasManager() {
 
   // ─── Cálculos ─────────────────────────────────────────────────────────────────
   const calcSubtotal = () => formData.items.reduce((s, i) => s + i.subtotal, 0);
-  const calcIva      = () => calcSubtotal() * IVA;
-  const calcTotal    = () => calcSubtotal() + calcIva();
+  const calcTotalIva = () => formData.items.reduce((s, i) => s + i.subtotal * i.ivaRate, 0);
+  const calcTotal    = () => calcSubtotal() + (formData.envio || 0) + calcTotalIva();
+  const calcItemTotalWithIva = (item: ItemCompra) => item.subtotal * (1 + item.ivaRate);
 
   // ─── Validar form ─────────────────────────────────────────────────────────────
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
     if (!formData.providerId) errors.providerId = 'Selecciona un proveedor';
-    if (!formData.purchaseDate) errors.purchaseDate = 'Ingresa la fecha de compra';
+    if (!formData.purchaseDate) {
+      errors.purchaseDate = 'Ingresa la fecha de compra';
+    } else {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (formData.purchaseDate > todayStr) {
+        errors.purchaseDate = 'La fecha no puede ser posterior a la actual';
+      }
+    }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -267,9 +337,18 @@ export function ComprasManager() {
         quantity:       item.cantidad,
         purchase_price: item.precioCompra,
         sales_price:    item.precioVenta,
+        subtotal:       item.subtotal,
         purchase:       null,
-      }));
-      const result = await createPurchase({ provider: formData.providerId!, state: formData.stateId!, observations: formData.observations || undefined, details });
+      } as any));
+      const obsWithEnvio = formData.envio && formData.envio > 0
+        ? `${formData.observations || ''} [Costo Envío: ${formatCOP(formData.envio)}]`.trim()
+        : formData.observations;
+      const payload: any = {
+        provider: formData.providerId!,
+        observations: obsWithEnvio || undefined,
+        details,
+      };
+      const result = await createPurchase(payload);
       if (result) {
         showToast('¡Compra creada exitosamente!', 'success');
         await loadData();
@@ -289,27 +368,37 @@ export function ComprasManager() {
   };
 
   // ─── Cambiar estado ───────────────────────────────────────────────────────────
-  const handlePatchState = async (purchase: Purchase, stateId: number) => {
-    const result = await patchPurchaseState(purchase.id_purchase, stateId);
+  const isPurchaseCanceled = (purchase: Purchase) => {
+    const canceledValue = purchase.canceled as unknown;
+    const canceledText = String(canceledValue).toLowerCase();
+    const canceledBool = canceledValue === true || canceledText === 'true' || canceledText === '1';
+    return canceledBool;
+  };
+
+  const handlePatchState = async (purchase: Purchase, stateId: number, canceled?: boolean) => {
+    const result = await patchPurchaseState(purchase.id_purchase, stateId, canceled);
     if (result) { showToast('Estado actualizado', 'success'); await loadData(); }
     else          showToast('No se pudo cambiar el estado', 'error');
   };
 
   // ─── Anular compra ────────────────────────────────────────────────────────────
   const handleCancelPurchase = async (purchase: Purchase) => {
-    const anuladoState = states.find(s => s.name_state?.toLowerCase() === 'anulado');
-    if (!anuladoState) {
-      showToast('No se encontró el estado Anulado', 'error');
-      return;
+    // Marca la compra como cancelada usando el flag `canceled`.
+    // El backend espera un `state` en el body; reusamos el valor actual de `purchase.state`.
+    const stateValue = typeof purchase.state !== 'undefined' ? purchase.state : 0;
+    const result = await patchPurchaseState(purchase.id_purchase, stateValue, true);
+    if (result) {
+      showToast('Compra anulada correctamente', 'success');
+      await loadData();
+    } else {
+      showToast('No se pudo anular la compra', 'error');
     }
-    await handlePatchState(purchase, anuladoState.id_state);
   };
 
   // ─── Eliminar compra ──────────────────────────────────────────────────────────
   const handleDelete = (purchase: Purchase) => {
-  const isAnulado = states.find(s => s.id_state === purchase.state)?.name_state?.toLowerCase() === 'anulado';
-    if (!isAnulado) {
-      showToast('Solo se pueden eliminar compras con estado Anulado', 'error');
+    if (!isPurchaseCanceled(purchase)) {
+      showToast('Solo se pueden eliminar compras anuladas', 'error');
       return;
     }
     setDeletingPurchase(purchase);
@@ -319,6 +408,7 @@ export function ComprasManager() {
   const confirmDelete = async () => {
     if (!deletingPurchase) return;
     setIsSubmitting(true);
+    console.debug('[ComprasManager] confirmDelete deletingPurchase', { deletingPurchase });
     const ok = await deletePurchase(deletingPurchase.id_purchase);
     if (ok) {
       showToast('Compra eliminada', 'success');
@@ -329,6 +419,41 @@ export function ComprasManager() {
     setIsSubmitting(false);
     setShowDeleteModal(false);
     setDeletingPurchase(null);
+  };
+
+  // ─── Crear IVA Express ────────────────────────────────────────────────────────
+  const handleCreateExpressIva = async () => {
+    if (!expressIvaPercentage) {
+      showToast('Ingresa un porcentaje de IVA', 'error');
+      return;
+    }
+    const percent = parseFloat(expressIvaPercentage);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      showToast('El IVA debe ser un número entre 0 y 100', 'error');
+      return;
+    }
+
+    setIsCreatingExpressIva(true);
+    try {
+      const created = await createIva({ percentage: percent });
+      if (created) {
+        showToast(`IVA ${percent}% creado exitosamente`, 'success');
+        const refreshedIvas = await getAllIvas();
+        if (refreshedIvas) {
+          setIvas(refreshedIvas);
+          setNewProductIvaId(created.id_iva);
+        }
+        setShowExpressIvaForm(false);
+        setExpressIvaPercentage('');
+      } else {
+        showToast('Error al crear el IVA', 'error');
+      }
+    } catch (error) {
+      console.error('Error creating express IVA:', error);
+      showToast('Error al crear el IVA', 'error');
+    } finally {
+      setIsCreatingExpressIva(false);
+    }
   };
 
   // ─── Crear variante ───────────────────────────────────────────────────────────
@@ -342,6 +467,7 @@ export function ComprasManager() {
       if (!newProductPrice || Number(newProductPrice) <= 0) errors.productPrice = 'Precio debe ser > 0';
       if (!newProductPurchasePrice || Number(newProductPurchasePrice) <= 0) errors.productPurchasePrice = 'Precio de compra debe ser > 0';
       if (!newProductCategory)                           errors.productCategory = 'Categoría requerida';
+      if (!newProductIvaId)                              errors.iva             = 'IVA requerido';
     }
     // Validar talla
     if (variantSizeMode === 'select' && !variantSizeId) errors.size = 'Selecciona una talla';
@@ -356,19 +482,12 @@ export function ComprasManager() {
 
     setIsCreatingVariant(true);
     try {
-      let productId = selectedProduct?.id_product ?? null;
+      let productId = selectedProduct ? Number(selectedProduct.id_product ?? (selectedProduct as any).id ?? 0) || null : null;
+      let createdVariant: VariantProduct | null = null;
 
-      // Crear producto si es nuevo
-      if (creatingNewProduct) {
-        const newProd = await createProduct({
-          name:     newProductName.trim(),
-          price:    Number(newProductPrice),
-          purchase_price: Number(newProductPurchasePrice),
-          category: newProductCategory!,
-        });
-        if (!newProd) { showToast('Error al crear el producto', 'error'); return; }
-        productId = newProd.id_product;
-        showToast(`Producto "${newProd.name}" creado`, 'success');
+      if (!creatingNewProduct && !productId) {
+        showToast('Error: no se recibió un producto válido', 'error');
+        return;
       }
 
       // Obtener o crear talla
@@ -392,20 +511,45 @@ export function ComprasManager() {
         const newColor = await createColor(variantCustomColor.trim());
         if (!newColor) { showToast('Error al crear el color', 'error'); return; }
         colorId = newColor.id_color;
-        showToast(`Color "${newColor.name}" creado`, 'success');
+        showToast(`Color "${newColor.name}" creada`, 'success');
       }
 
-      // Crear variante
-      const newVariant = await createVariant({
-        product: productId!,
-        size:    sizeId,
-        color:   colorId,
-        sku:     variantSku.trim(),
-      });
+      if (creatingNewProduct) {
+        const newProdWithVariant = await createProductWithVariant({
+          name:           newProductName.trim(),
+          category:       newProductCategory!,
+          price:          Number(newProductPrice),
+          purchase_price: Number(newProductPurchasePrice),
+          iva:            newProductIvaId!,
+          sku:            variantSku.trim(),
+          size:           sizeId,
+          color:          colorId,
+          stock:          0,
+        });
 
-      if (!newVariant) { showToast('Error al crear la variante', 'error'); return; }
+        if (!newProdWithVariant) {
+          showToast('Error al crear el producto y la variante', 'error');
+          return;
+        }
 
-      showToast('¡Variante creada exitosamente!', 'success');
+        productId = newProdWithVariant.id_product;
+        showToast(`Producto "${newProdWithVariant.name}" y variante creados`, 'success');
+      } else {
+        // Solo crear variante para producto existente
+        createdVariant = await createVariant({
+          product: productId!,
+          size:    sizeId,
+          color:   colorId,
+          sku:     variantSku.trim(),
+        });
+
+        if (!createdVariant) {
+          showToast('Error al crear la variante', 'error');
+          return;
+        }
+
+        showToast('¡Variante creada exitosamente!', 'success');
+      }
 
       // Recargar variantes, productos, colores y tallas
       const [vars, prods, cols, szs] = await Promise.all([getAllVariants(), getAllProducts(), getAllColors(), getAllSizes()]);
@@ -414,9 +558,19 @@ export function ComprasManager() {
       if (cols)  setColors(cols);
       if (szs)   setSizes(szs);
 
-      // Auto-seleccionar la variante recién creada
-      handleSelectVariant(newVariant);
-      setItemPrecioVenta(String(newVariant.price ?? ''));
+      if (creatingNewProduct) {
+        const foundVariant = vars?.find(v => v.sku === variantSku.trim() && v.product === productId);
+        if (foundVariant) {
+          createdVariant = foundVariant;
+        }
+      }
+
+      if (!createdVariant) {
+        showToast('Producto creado, pero no se pudo seleccionar automáticamente la variante', 'warning');
+      } else {
+        handleSelectVariant(createdVariant);
+        setItemPrecioVenta(String(createdVariant.price ?? ''));
+      }
 
       setShowVariantModal(false);
       resetVariantModal();
@@ -456,9 +610,11 @@ export function ComprasManager() {
           <h2 className="text-gray-900 font-bold text-lg mb-1">Gestión de Compras</h2>
           <p className="text-gray-500 text-xs">Administra las compras a proveedores</p>
         </div>
-        <Button onClick={handleCreate} variant="primary">
-          <Plus size={20} /> Registrar Compra
-        </Button>
+        {hasPermission('compras', 'create') && (
+          <Button onClick={handleCreate} variant="primary">
+            <Plus size={20} /> Registrar Compra
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -497,15 +653,24 @@ export function ComprasManager() {
                   </td>
                 </tr>
               ) : (
-                paginated.map(purchase => (
-                  <tr key={purchase.id_purchase} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <Truck size={14} className="text-gray-400" />
-                        <span className="font-medium text-gray-900">{purchase.purchase_number}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-gray-700">{purchase.provider_name ?? purchase.provider}</td>
+                paginated.map(purchase => {
+                  const isCanceled = isPurchaseCanceled(purchase);
+                  return (
+                    <tr key={purchase.id_purchase} className={`${isCanceled ? 'bg-red-50 text-red-900' : 'hover:bg-gray-50'} transition-colors`}>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <Truck size={14} className={isCanceled ? 'text-red-500' : 'text-gray-400'} />
+                            <span className={`font-medium ${isCanceled ? 'text-red-900' : 'text-gray-900'}`}>{purchase.purchase_number}</span>
+                          </div>
+                          {isCanceled && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-red-100 text-red-700 w-max">
+                              Anulada
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-gray-700">{purchase.provider_name ?? purchase.provider}</td>
                     <td className="py-3 px-4 text-gray-500">
                       {new Date(purchase.purchase_date).toLocaleDateString('es-CO')}
                     </td>
@@ -530,21 +695,25 @@ export function ComprasManager() {
                         </button>
                         <button
                           onClick={() => handleCancelPurchase(purchase)}
-                          className="p-1.5 hover:bg-yellow-50 rounded-lg text-yellow-600 transition-colors"
+                          className="p-1.5 hover:bg-yellow-50 rounded-lg text-yellow-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Anular compra"
+                          disabled={isPurchaseCanceled(purchase) || !hasPermission('compras', 'delete')}
                         >
                           <Ban size={16} />
                         </button>
                         <button
                           onClick={() => handleDelete(purchase)}
-                          className="p-1.5 hover:bg-red-50 rounded-lg text-red-500 transition-colors"
+                          className="p-1.5 hover:bg-red-50 rounded-lg text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          disabled={!hasPermission('compras', 'delete')}
+                          title={!hasPermission('compras', 'delete') ? "Sin permiso para eliminar" : "Eliminar compra"}
                         >
                           <Trash2 size={16} />
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))
+                );
+              })
               )}
             </tbody>
           </table>
@@ -591,9 +760,8 @@ export function ComprasManager() {
         }}
         title="Nueva Compra"
         size="xxl"
-        noScroll
       >
-        <div className="w-[95vw] max-w-[1200px] max-h-[90vh] mx-auto flex flex-col text-xs">
+        <div className="w-full text-xs">
 
           {/* ─── SECCIÓN 1: Datos Básicos ─────────────────────────────────── */}
           <div className="border border-gray-200 rounded-lg bg-white p-3 shrink-0 mb-2">
@@ -609,11 +777,16 @@ export function ComprasManager() {
                   className={`w-full h-8 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.providerId ? 'border-red-400' : 'border-gray-300'}`}
                 >
                   <option value="">Seleccionar...</option>
-                  {providers.filter(p => p.is_active).map(p => (
-                    <option key={p.id_provider} value={p.id_provider}>{p.name}</option>
+                    {providers.filter(p => p.is_active).map(p => (
+                      <option key={p.id_provider} value={p.id_provider}>
+                        {p.name} {p.number_doc ? `- NIT ${p.number_doc}` : ''}
+                      </option>
                   ))}
                 </select>
                 {formErrors.providerId && <p className="text-red-500 text-xs mt-1">{formErrors.providerId}</p>}
+                  {selectedProvider && (
+                    <p className="text-gray-500 text-xs mt-1">NIT: {selectedProvider.number_doc || 'No disponible'}</p>
+                  )}
                 <button
                   type="button"
                   onClick={() => { setShowProveedorModal(true); setProveedorModalKey(k => k + 1); }}
@@ -640,179 +813,238 @@ export function ComprasManager() {
                 <input
                   type="date"
                   value={formData.purchaseDate}
+                  max={new Date().toISOString().split('T')[0]}
                   onChange={(e) => { setFormData(prev => ({ ...prev, purchaseDate: e.target.value })); setFormErrors(prev => ({ ...prev, purchaseDate: '' })); }}
                   className={`w-full h-8 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${formErrors.purchaseDate ? 'border-red-400' : 'border-gray-300'}`}
                 />
                 {formErrors.purchaseDate && <p className="text-red-500 text-xs mt-1">{formErrors.purchaseDate}</p>}
               </div>
 
-              {/* IVA informativo */}
+            </div>
+          </div>
+
+          {/* ─── SECCIÓN 2: Observaciones y Envío ─────────────────────────── */}
+          <div className="border border-gray-200 rounded-lg bg-white p-3 shrink-0 mb-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-2">
+                <label className="block text-gray-700 font-medium mb-1 text-xs">Observaciones (Opcional)</label>
+                <input
+                  type="text"
+                  value={formData.observations}
+                  onChange={(e) => setFormData(prev => ({ ...prev, observations: e.target.value }))}
+                  placeholder="Notas sobre esta compra..."
+                  className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
+                />
+              </div>
               <div>
-                <label className="block text-gray-700 font-medium mb-1 text-xs">IVA Aplicado</label>
-                <div className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs flex items-center font-medium text-gray-900 bg-gray-50">
-                  19%
-                </div>
+                <label className="block text-gray-700 font-medium mb-1 text-xs">Costo de Envío (Opcional)</label>
+                <input
+                  type="number"
+                  value={formData.envio || ''}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setFormData(prev => ({ ...prev, envio: isNaN(val) ? 0 : val }));
+                  }}
+                  placeholder="0"
+                  className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  min="0"
+                />
               </div>
             </div>
           </div>
 
-          {/* ─── SECCIÓN 2: Observaciones ─────────────────────────────────── */}
-          <div className="border border-gray-200 rounded-lg bg-white p-3 shrink-0 mb-2">
-            <label className="block text-gray-700 font-medium mb-2 text-xs">Observaciones (Opcional)</label>
-            <input
-              type="text"
-              value={formData.observations}
-              onChange={(e) => setFormData(prev => ({ ...prev, observations: e.target.value }))}
-              placeholder="Notas sobre esta compra..."
-              className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
-            />
-          </div>
-
           {/* ─── SECCIÓN 3: Agregar Productos ────────────────────────────── */}
+          <div className="border border-gray-200 rounded-lg bg-white p-3 mb-2">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-semibold text-gray-900">Agregar productos</h4>
+              <button
+                type="button"
+                onClick={() => { resetVariantModal(); setShowVariantModal(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs hover:bg-gray-700 transition-colors"
+              >
+                <PackagePlus size={13} />
+                Nueva variante
+              </button>
+            </div>
 
-          {/* Body scrolleable */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <div className="border border-gray-200 rounded-lg bg-white p-3">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold text-gray-900">Agregar productos</h4>
-                <button
-                  type="button"
-                  onClick={() => { resetVariantModal(); setShowVariantModal(true); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs hover:bg-gray-700 transition-colors"
-                >
-                  <PackagePlus size={13} />
-                  Nueva variante
-                </button>
+            {itemsError && (
+              <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 flex items-center gap-2">
+                <AlertTriangle size={14} /> {itemsError}
               </div>
+            )}
 
-              {itemsError && (
-                <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 flex items-center gap-2">
-                  <AlertTriangle size={14} /> {itemsError}
-                </div>
-              )}
+            {/* Fila agregar item */}
+            <div className="bg-gray-50 rounded-lg p-2 mb-3 border border-gray-200">
+              <div className="flex gap-2 items-end flex-wrap">
 
-              {/* Fila agregar item */}
-              <div className="bg-gray-50 rounded-lg p-2 mb-3 border border-gray-200">
-                <div className="flex gap-2 items-end flex-wrap">
-
-                  {/* Búsqueda variante */}
-                  <div className="flex-1 min-w-[200px] relative">
-                    <label className="block text-gray-600 mb-1">Variante (producto / talla / color)</label>
-                    <input
-                      type="text"
-                      placeholder="Buscar variante..."
-                      value={variantSearch}
-                      onChange={(e) => { setVariantSearch(e.target.value); setSelectedVariant(null); setShowVariantDrop(true); }}
-                      onFocus={() => setShowVariantDrop(true)}
-                      onBlur={() => setTimeout(() => setShowVariantDrop(false), 200)}
-                      className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
-                    />
-                    {showVariantDrop && (
-                      <div className="absolute z-50 mt-1 w-full max-h-48 bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto">
-                        {filteredVariants.length === 0 ? (
-                          <div className="px-3 py-3 text-center">
-                            <p className="text-gray-400 text-xs mb-2">Sin resultados</p>
-                            <button
-                              type="button"
-                              onMouseDown={(e) => { e.preventDefault(); setShowVariantDrop(false); resetVariantModal(); setNewProductName(variantSearch); setCreatingNewProduct(true); setShowVariantModal(true); }}
-                              className="text-xs text-blue-600 hover:underline flex items-center gap-1 mx-auto"
-                            >
-                              <PackagePlus size={12} /> Crear nueva variante
-                            </button>
-                          </div>
-                        ) : (
-                          filteredVariants.map(v => (
+                {/* Búsqueda variante */}
+                <div className="flex-1 min-w-[200px] relative">
+                  <label className="block text-gray-600 mb-1">Variante (producto / talla / color)</label>
+                  <input
+                    type="text"
+                    placeholder="Buscar variante..."
+                    value={variantSearch}
+                    onChange={(e) => { setVariantSearch(e.target.value); setSelectedVariant(null); setShowVariantDrop(true); }}
+                    onFocus={() => setShowVariantDrop(true)}
+                    onBlur={() => setTimeout(() => setShowVariantDrop(false), 200)}
+                    className="w-full h-8 px-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  />
+                  {selectedVariant && (
+                    <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-700">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="font-semibold">Producto</p>
+                          <p className="text-gray-600 truncate">{selectedVariant.product_name}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold">Cantidad</p>
+                          <p className="text-gray-600">{itemCantidad || '0'}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold">Talla</p>
+                          <p className="text-gray-600">{selectedVariant.size_name}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold">Color</p>
+                          <p className="text-gray-600">{selectedVariant.color_name}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {showVariantDrop && (
+                    <div className="absolute z-50 mt-1 w-full max-h-72 bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto text-xs">
+                      {filteredVariants.length === 0 ? (
+                        <div className="px-3 py-3 text-center">
+                          <p className="text-gray-400 text-xs mb-2">Sin resultados</p>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); setShowVariantDrop(false); resetVariantModal(); setNewProductName(variantSearch); setCreatingNewProduct(true); setShowVariantModal(true); }}
+                            className="text-xs text-blue-600 hover:underline flex items-center gap-1 mx-auto"
+                          >
+                            <PackagePlus size={12} /> Crear nueva variante
+                          </button>
+                        </div>
+                      ) : (
+                        filteredVariants.map(v => {
+                          const product = findProductById(v.product);
+                          return (
                             <button
                               key={v.id_variant}
                               type="button"
                               onMouseDown={(e) => { e.preventDefault(); handleSelectVariant(v); }}
-                              className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                              className="w-full text-left px-3 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
                             >
-                              <p className="font-medium text-gray-900 text-xs">{v.product_name}</p>
-                              <p className="text-gray-500 text-xs">{v.size_name} / {v.color_name} — SKU: {v.sku}</p>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-gray-900">{v.product_name}</p>
+                                  <p className="text-gray-500">{product?.category_name ?? 'Sin categoría'}</p>
+                                </div>
+                                <div className="text-right text-gray-500">
+                                  <p className="text-xs">{formatCOP(v.price)}</p>
+                                  <p className="text-xs">Compra {formatCOP(v.purchase_price ?? product?.purchase_price ?? v.price)}</p>
+                                </div>
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-600">
+                                <div className="rounded-lg bg-gray-50 p-2">
+                                  <span className="block text-[11px] text-gray-500 uppercase">Talla</span>
+                                  <span>{v.size_name}</span>
+                                </div>
+                                <div className="rounded-lg bg-gray-50 p-2">
+                                  <span className="block text-[11px] text-gray-500 uppercase">Color</span>
+                                  <span>{v.color_name}</span>
+                                </div>
+                              </div>
+                              <div className="mt-2 rounded-lg bg-gray-50 p-2 text-gray-600 text-[11px]">
+                                <span className="font-medium">SKU:</span> {v.sku}
+                              </div>
                             </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Cantidad */}
-                  <div className="w-24">
-                    <label className="block text-gray-600 mb-1">Cantidad</label>
-                    <Input type="number" value={itemCantidad} onChange={(e) => setItemCantidad(e.target.value)} placeholder="0" className="h-8 text-xs px-2" />
-                  </div>
-
-                  {/* P. Compra */}
-                  <div className="w-32">
-                    <label className="block text-gray-600 mb-1">P. Compra</label>
-                    <Input type="number" value={itemPrecioCompra} onChange={(e) => setItemPrecioCompra(e.target.value)} placeholder="0" className="h-8 text-xs px-2" />
-                  </div>
-
-                  {/* P. Venta */}
-                  <div className="w-32">
-                    <label className="block text-gray-600 mb-1">P. Venta</label>
-                    <Input type="number" value={itemPrecioVenta} onChange={(e) => setItemPrecioVenta(e.target.value)} placeholder="0" className="h-8 text-xs px-2" />
-                  </div>
-
-                  <Button onClick={agregarItem} variant="secondary" className="h-8 px-3 text-xs whitespace-nowrap">
-                    <Plus size={14} /> Agregar
-                  </Button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
+
+                {/* Cantidad */}
+                <div className="w-24">
+                  <label className="block text-gray-600 mb-1">Cantidad</label>
+                  <Input type="number" value={itemCantidad} onChange={(e) => setItemCantidad(e.target.value)} placeholder="0" className="h-8 text-xs px-2" />
+                </div>
+
+                {/* P. Compra */}
+                <div className="w-32">
+                  <label className="block text-gray-600 mb-1">P. Compra</label>
+                  <Input type="number" value={itemPrecioCompra} readOnly placeholder="0" className="h-8 text-xs px-2 bg-gray-100 cursor-not-allowed" />
+                </div>
+
+                {/* P. Venta */}
+                <div className="w-32">
+                  <label className="block text-gray-600 mb-1">P. Venta</label>
+                  <Input type="number" value={itemPrecioVenta} readOnly placeholder="0" className="h-8 text-xs px-2 bg-gray-100 cursor-not-allowed" />
+                </div>
+
+                <Button onClick={agregarItem} variant="secondary" className="h-8 px-3 text-xs whitespace-nowrap">
+                  <Plus size={14} /> Agregar
+                </Button>
               </div>
-
-              {/* Tabla items */}
-              {formData.items.length > 0 && (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                      <tr>
-                        <th className="text-left py-2 px-3 text-gray-600">Producto</th>
-                        <th className="text-left py-2 px-3 text-gray-600">Talla</th>
-                        <th className="text-left py-2 px-3 text-gray-600">Color</th>
-                        <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
-                        <th className="text-right py-2 px-3 text-gray-600">P. Compra</th>
-                        <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
-                        <th className="text-right py-2 px-3 text-gray-600">Subtotal</th>
-                        <th className="py-2 px-3"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {formData.items.map(item => (
-                        <tr key={item.id}>
-                          <td className="py-2 px-3 text-gray-900 font-medium">{item.productoNombre}</td>
-                          <td className="py-2 px-3 text-gray-700">{item.size_name}</td>
-                          <td className="py-2 px-3 text-gray-700">{item.color_name}</td>
-                          <td className="py-2 px-3 text-right tabular-nums">{item.cantidad}</td>
-                          <td className="py-2 px-3 text-right tabular-nums">{formatCOP(item.precioCompra)}</td>
-                          <td className="py-2 px-3 text-right tabular-nums">{formatCOP(item.precioVenta)}</td>
-                          <td className="py-2 px-3 text-right tabular-nums font-medium">{formatCOP(item.subtotal)}</td>
-                          <td className="py-2 px-3">
-                            <button onClick={() => eliminarItem(item.id)} className="text-red-500 hover:bg-red-50 p-1 rounded">
-                              <X size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
+
+            {/* Tabla items */}
+            {formData.items.length > 0 && (
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left py-2 px-3 text-gray-600">Producto</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Talla</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Color</th>
+                      <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
+                      <th className="text-right py-2 px-3 text-gray-600">P. Compra</th>
+                      <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
+                      <th className="text-right py-2 px-3 text-gray-600">IVA</th>
+                      <th className="text-right py-2 px-3 text-gray-600">Total parcial</th>
+                      <th className="py-2 px-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {formData.items.map(item => (
+                      <tr key={item.id}>
+                        <td className="py-2 px-3 text-gray-900 font-medium">{item.productoNombre}</td>
+                        <td className="py-2 px-3 text-gray-700">{item.size_name}</td>
+                        <td className="py-2 px-3 text-gray-700">{item.color_name}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{item.cantidad}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{formatCOP(item.precioCompra)}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{formatCOP(item.precioVenta)}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{item.ivaPercent}% ({formatCOP(item.subtotal * item.ivaRate)})</td>
+                        <td className="py-2 px-3 text-right tabular-nums font-medium">{formatCOP(calcItemTotalWithIva(item))}</td>
+                        <td className="py-2 px-3">
+                          <button onClick={() => eliminarItem(item.id)} className="text-red-500 hover:bg-red-50 p-1 rounded">
+                            <X size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
-          {/* Totales sticky */}
-          <div className="sticky bottom-0 bg-white border-t border-gray-200 pt-3 mt-2 shrink-0">
+          {/* Totales */}
+          <div className="bg-white border-t border-gray-200 pt-3 mt-4 shrink-0">
             <div className="flex items-end justify-between gap-4">
               <div className="bg-gray-50 rounded-lg border border-gray-200 p-3 min-w-[240px]">
                 <div className="flex justify-between text-gray-600 text-xs">
                   <span>Subtotal:</span><span className="tabular-nums font-medium">{formatCOP(calcSubtotal())}</span>
                 </div>
-                <div className="flex justify-between text-gray-600 text-xs mt-1">
-                  <span>IVA (19%):</span><span className="tabular-nums font-medium">{formatCOP(calcIva())}</span>
+                <div className="flex justify-between text-gray-600 text-xs mt-2">
+                  <span>Envío:</span><span className="tabular-nums font-medium">{formatCOP(formData.envio || 0)}</span>
+                </div>
+                <div className="flex justify-between text-gray-600 text-xs mt-2">
+                  <span>Total IVA:</span><span className="tabular-nums font-medium">{formatCOP(calcTotalIva())}</span>
                 </div>
                 <div className="flex justify-between text-gray-900 text-sm font-bold mt-2 pt-2 border-t border-gray-200">
-                  <span>Total:</span><span className="tabular-nums">{formatCOP(calcTotal())}</span>
+                  <span>Total General:</span><span className="tabular-nums">{formatCOP(calcTotal())}</span>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -843,7 +1075,7 @@ export function ComprasManager() {
         isOpen={showVariantModal}
         onClose={() => { setShowVariantModal(false); resetVariantModal(); }}
         title="Nueva Variante de Producto"
-        size="md"
+        size="xl"
       >
         <div className="space-y-4 text-sm">
 
@@ -909,7 +1141,7 @@ export function ComprasManager() {
                 {/* Crear nuevo producto */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-xs text-blue-700 flex items-center justify-between">
                   <span>Creando nuevo producto</span>
-                  <button onClick={() => { setCreatingNewProduct(false); setNewProductName(''); setNewProductPrice(''); setNewProductCategory(null); }}
+                  <button onClick={() => { setCreatingNewProduct(false); setNewProductName(''); setNewProductPrice(''); setNewProductPurchasePrice(''); setNewProductCategory(null); setNewProductIvaId(null); setShowExpressIvaForm(false); setExpressIvaPercentage(''); }}
                     className="text-blue-500 hover:text-blue-700 text-xs underline">
                     Cancelar, buscar existente
                   </button>
@@ -926,8 +1158,8 @@ export function ComprasManager() {
                   {variantErrors.productName && <p className="text-red-500 text-xs mt-1">{variantErrors.productName}</p>}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-2 gap-3 min-w-0">
+                  <div className="min-w-0">
                     <label className="block text-gray-700 font-medium mb-1 text-xs">Precio compra *</label>
                     <Input
                       type="number"
@@ -938,7 +1170,7 @@ export function ComprasManager() {
                     />
                     {variantErrors.productPurchasePrice && <p className="text-red-500 text-xs mt-1">{variantErrors.productPurchasePrice}</p>}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-gray-700 font-medium mb-1 text-xs">Precio venta *</label>
                     <Input
                       type="number"
@@ -949,7 +1181,7 @@ export function ComprasManager() {
                     />
                     {variantErrors.productPrice && <p className="text-red-500 text-xs mt-1">{variantErrors.productPrice}</p>}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-gray-700 font-medium mb-1 text-xs">Categoría *</label>
                     <select
                       value={newProductCategory ?? ''}
@@ -962,6 +1194,63 @@ export function ComprasManager() {
                       ))}
                     </select>
                     {variantErrors.productCategory && <p className="text-red-500 text-xs mt-1">{variantErrors.productCategory}</p>}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-gray-700 font-medium text-xs">IVA *</label>
+                      <button
+                        type="button"
+                        onClick={() => setShowExpressIvaForm(!showExpressIvaForm)}
+                        className="text-[10px] text-blue-600 hover:underline hover:text-blue-800 font-medium"
+                      >
+                        + Crear nuevo IVA
+                      </button>
+                    </div>
+
+                    {showExpressIvaForm ? (
+                      <div className="flex gap-1 items-center">
+                        <input
+                          type="number"
+                          value={expressIvaPercentage}
+                          onChange={(e) => setExpressIvaPercentage(e.target.value)}
+                          placeholder="Ej: 19"
+                          className="w-16 h-8 px-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400"
+                          min="0"
+                          max="100"
+                        />
+                        <span className="text-xs text-gray-500">%</span>
+                        <button
+                          type="button"
+                          onClick={handleCreateExpressIva}
+                          disabled={isCreatingExpressIva}
+                          className="h-8 px-2 bg-blue-600 text-white rounded-lg text-[10px] hover:bg-blue-700 font-medium"
+                        >
+                          {isCreatingExpressIva ? '...' : 'OK'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setShowExpressIvaForm(false); setExpressIvaPercentage(''); }}
+                          className="h-8 px-1.5 bg-gray-100 text-gray-600 rounded-lg text-[10px] hover:bg-gray-200"
+                        >
+                          X
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        value={newProductIvaId ?? ''}
+                        onChange={(e) => {
+                          setNewProductIvaId(Number(e.target.value) || null);
+                          setVariantErrors(prev => ({ ...prev, iva: '' }));
+                        }}
+                        className={`w-full h-8 px-2 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 ${variantErrors.iva ? 'border-red-400' : 'border-gray-300'}`}
+                      >
+                        <option value="">Seleccionar IVA...</option>
+                        {ivas.map(iva => (
+                          <option key={iva.id_iva} value={iva.id_iva}>{iva.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    {variantErrors.iva && <p className="text-red-500 text-[10px] mt-1">{variantErrors.iva}</p>}
                   </div>
                 </div>
               </>
@@ -1123,7 +1412,7 @@ export function ComprasManager() {
         title={`Detalles — ${viewingPurchase?.purchase_number}`}
       >
         {viewingPurchase && (
-          <div className="space-y-4 text-sm">
+          <div className="space-y-4 text-sm max-h-[85vh] overflow-y-auto pr-2">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="text-gray-500 text-xs mb-1">Proveedor</p>
@@ -1160,12 +1449,18 @@ export function ComprasManager() {
                     <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
                     <th className="text-right py-2 px-3 text-gray-600">P. Compra</th>
                     <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
-                    <th className="text-right py-2 px-3 text-gray-600">Subtotal</th>
+                    <th className="text-right py-2 px-3 text-gray-600">IVA</th>
+                    <th className="text-right py-2 px-3 text-gray-600">Subtotal con IVA</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {(viewingPurchase.details ?? []).map(detail => {
                     const variant = variants.find(v => v.id_variant === detail.variant);
+                    const product = variant ? findProductById(variant.product) : null;
+                    const ivaRate = product ? getProductIvaRate(product.id_product) : 0;
+                    const ivaPercent = Math.round(ivaRate * 100);
+                    const ivaValue = detail.subtotal * ivaRate;
+                    const totalWithIva = detail.subtotal + ivaValue;
                     return (
                       <tr key={detail.id_detail}>
                         <td className="py-2 px-3">
@@ -1174,7 +1469,10 @@ export function ComprasManager() {
                         <td className="py-2 px-3 text-right tabular-nums">{detail.quantity}</td>
                         <td className="py-2 px-3 text-right tabular-nums">{formatCOP(detail.purchase_price)}</td>
                         <td className="py-2 px-3 text-right tabular-nums">{formatCOP(detail.sales_price)}</td>
-                        <td className="py-2 px-3 text-right tabular-nums font-medium">{formatCOP(detail.subtotal)}</td>
+                        <td className="py-2 px-3 text-right tabular-nums text-gray-600">
+                          {ivaPercent}% ({formatCOP(ivaValue)})
+                        </td>
+                        <td className="py-2 px-3 text-right tabular-nums font-medium">{formatCOP(totalWithIva)}</td>
                       </tr>
                     );
                   })}
@@ -1187,10 +1485,10 @@ export function ComprasManager() {
                 <span>Subtotal</span><span className="tabular-nums">{formatCOP(viewingPurchase.subtotal)}</span>
               </div>
               <div className="flex justify-between text-gray-600 text-xs">
-                <span>IVA</span><span className="tabular-nums">{formatCOP(viewingPurchase.iva)}</span>
+                <span>Total IVA</span><span className="tabular-nums">{formatCOP(viewingPurchase.iva)}</span>
               </div>
               <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-200">
-                <span>Total</span><span className="tabular-nums">{formatCOP(viewingPurchase.total)}</span>
+                <span>Total General</span><span className="tabular-nums">{formatCOP(viewingPurchase.total)}</span>
               </div>
             </div>
           </div>

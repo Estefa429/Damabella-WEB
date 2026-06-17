@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { EcommerceProvider } from '../../../../shared/contexts';
+import { EcommerceProvider } from '@/shared/contexts';
 import { ToastProvider } from '../../../../shared/components/native';
 import { PremiumHomePage } from '../pages/PremiumHomePage';
 import { SearchPage } from '../pages/SearchPage';
@@ -26,6 +26,15 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogout }: C
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchCategory, setSearchCategory] = useState<string | undefined>(undefined);
   const [isOrdersOpen, setIsOrdersOpen] = useState<boolean>(false);
+
+  // Si la sesión expira o el usuario cierra sesión, redirigir fuera de las vistas protegidas
+  useEffect(() => {
+    const protectedViews = ['checkout', 'profile', 'orders'];
+    if (protectedViews.includes(currentView) && !isAuthenticated) {
+      setCurrentView('home');
+      navigate('/');
+    }
+  }, [isAuthenticated, currentView, navigate]);
 
   const handleNavigate = (view: string, param?: string) => {
     // Vistas que requieren autenticación
@@ -136,13 +145,9 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogout }: C
         );
       
       case 'orders':
-        return isAuthenticated ? (
-          <Modal isOpen={isOrdersOpen} onClose={() => { setIsOrdersOpen(false); setCurrentView('profile'); }} title="Mis Pedidos" size="lg">
-            <OrdersPage onNavigate={handleNavigate} currentUser={currentUser} />
-          </Modal>
-        ) : (
-          <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />
-        );
+        return isAuthenticated
+          ? <ProfilePage onNavigate={handleNavigate} currentUser={currentUser} onLogout={onLogout} onLogin={() => {}} />
+          : <PremiumHomePage onNavigate={handleNavigate} onLoginRequired={() => navigate('/login')} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
       
       case 'contact':
         return <ContactPage onNavigate={handleNavigate} isAuthenticated={isAuthenticated} currentUser={currentUser} />;
@@ -156,6 +161,19 @@ export default function ClienteApp({ currentUser, isAuthenticated, onLogout }: C
     <ToastProvider>
       <EcommerceProvider>
         {renderView()}
+        {currentView === 'orders' && isAuthenticated && (
+        <Modal
+          isOpen={isOrdersOpen}
+          onClose={() => { setIsOrdersOpen(false); setCurrentView('profile'); }}
+          title="Mis Pedidos"
+          size="lg"
+          closePosition="left"
+          brandText="Brand A"
+          panelClassName="max-h-[85vh]"
+        >
+          <OrdersPage onNavigate={handleNavigate} currentUser={currentUser} />
+        </Modal>
+      )}
       </EcommerceProvider>
     </ToastProvider>
   );

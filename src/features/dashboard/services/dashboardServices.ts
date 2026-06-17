@@ -79,6 +79,7 @@ export interface DashboardSummary {
   dineroVentasMes: number;
   productosMasVendidos?: ProductoMasVendido[];
   distribucionCategorias?: DistribucionCategoria[];
+  cantidadDevoluciones?: number;
   error?: string;
 }
 
@@ -159,8 +160,7 @@ export const getDineroVentasMes = async (): Promise<number | null> => {
  */
 export const getProductosMasVendidos = async (): Promise<ProductoMasVendido[] | null> => {
   try {
-    const response = await API.get<ProductosMasVendidosResponse>('/dashboard/productos_mas_vendidos/');
-    if (response.data.success === true) {
+    const response = await API.get<ProductosMasVendidosResponse>('/dashboard/productos_mas_vendidos/');    console.log('👉 TOP:', response.data);    if (response.data.success === true) {
       return response.data.results;
     }
     console.warn('getProductosMasVendidos warning:', response.data.message);
@@ -271,6 +271,19 @@ export const getDashboardSummary = async (): Promise<DashboardSummary> => {
     } catch (error) {
       // Si los gráficos fallan, no es crítico — devolvemos el resumen sin ellos
       console.warn('Error cargando gráficos del dashboard:', error);
+    }
+
+    // Intentar obtener la métrica de devoluciones desde el endpoint correspondiente
+    try {
+      const resp = await API.get<any>('/returns/get_metrics/');
+      if (resp?.data?.success && resp.data.metrics && typeof resp.data.metrics.cantidad_devoluciones !== 'undefined') {
+        summary.cantidadDevoluciones = resp.data.metrics.cantidad_devoluciones;
+      } else {
+        summary.cantidadDevoluciones = 0;
+      }
+    } catch (err) {
+      console.warn('Error cargando métrica de devoluciones:', err);
+      summary.cantidadDevoluciones = 0;
     }
 
     console.log('🔴 [SERVICE] getDashboardSummary retornando:', summary);

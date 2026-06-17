@@ -74,6 +74,7 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
         colorHex: firstVariant.colorHex || '#000000',
         size: firstSize.size,
         quantity: 1,
+        variantId: firstSize.variantId
       });
       try { showToast('Producto agregado al carrito', 'success'); } catch(e){ console.warn('[FavoritesPage] showToast failed', e); }
     } catch (error) {

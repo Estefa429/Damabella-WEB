@@ -1,0 +1,315 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Plus,
+  Search,
+  Eye,
+  Ban,
+  RotateCcw,
+  X,
+  UserPlus,
+  Download,
+  ShoppingBag,
+  AlertCircle,
+  CheckCircle
+} from 'lucide-react';
+import { Button, Input, Modal } from '../../../../shared/components/native';
+import { jsPDF } from 'jspdf';
+import { getAllSales, createSale, patchSaleState, exportSales, CreateSaleDTO, Sale } from '../services/SalesServices';
+import { getAllClients, createClients, CreateClientsDTO, Clients } from '../../customers/services/clientsServices';
+import { getAllProducts, Product, getAllColors, getAllSizes, Color, Size } from '../../products/services/productsService';
+import { getAllVariants, VariantProduct } from '@/features/purchases/services/PurchasesService';
+import { getAllIvas, Iva } from '@/features/purchases/services/ivaService';
+
+const CLIENTES_KEY = 'damabella_clientes';
+const PRODUCTOS_KEY = 'damabella_productos';
+const DEVOLUCIONES_KEY = 'damabella_devoluciones';
+
+const formatCOP = (value: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+
+type MedioPago = 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Nequi' | 'Daviplata';
+
+type DevolucionData = {
+  motivo: MotivoDevolucion;
+  itemsDevueltos: { itemId: string; cantidad: number }[];
+  productoNuevoId: string;
+  productoNuevoTalla: string;
+  productoNuevoColor: string;
+  medioPagoExcedente: MedioPago;
+};
+
+type MotivoDevolucion =
+  | 'Defectuoso'
+  | 'Talla incorrecta'
+  | 'Color incorrecto'
+  | 'Producto equivocado'
+  | 'Otro';
+
+const MOTIVOS_DEVOLUCION: MotivoDevolucion[] = [
+  'Defectuoso',
+  'Talla incorrecta',
+  'Color incorrecto',
+  'Producto equivocado',
+  'Otro',
+];
+
+interface ItemVenta {
+  id: string;
+  productoId: string;
+  productoNombre: string;
+  talla: string;
+  color: string;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+}
+
+interface Venta {
+  id: number;
+  numeroVenta: string;
+  clienteId: string;
+  clienteNombre: string;
+  fechaVenta: string;
+  estado: 'Completada' | 'Anulada' | 'Devolución';
+  items: ItemVenta[];
+  subtotal: number;
+  iva: number;
+  total: number;
+  metodoPago: string;
+  observaciones: string;
+  anulada: boolean;
+  motivoAnulacion?: string;
+  createdAt: string;
+  pedido_id?: string | null;
+  number_pedido?: string;
+  pedido?: {
+    client?: {
+      name?: string;
+    };
+    user?: {
+      username?: string;
+      email?: string;
+    };
+  };
+  user?: {
+    username?: string;
+    email?: string;
+  };
+}
+
+export default function VentasManager() {
+  const [ventas, setVentas] = useState<Venta[]>([]);
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [productos, setProductos] = useState<any[]>([]);
+  const [variants, setVariants] = useState<VariantProduct[]>([]);
+  const [tallas, setTallas] = useState<Size[]>([]);
+  const [colores, setColores] = useState<Color[]>([]);
+  const [ivas, setIvas] = useState<Iva[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showClienteModal, setShowClienteModal] = useState(false);
+  const [showAnularModal, setShowAnularModal] = useState(false);
+  const [showDevolucionModal, setShowDevolucionModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationType, setNotificationType] = useState<'success' | 'error' | 'info'>('info');
+
+  const [viewingVenta, setViewingVenta] = useState<Venta | null>(null);
+  const [ventaToAnular, setVentaToAnular] = useState<Venta | null>(null);
+  const [ventaToDevolver, setVentaToDevolver] = useState<Venta | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [clienteSearchTerm, setClienteSearchTerm] = useState('');
+  const [selectedClienteNombre, setSelectedClienteNombre] = useState('');
+  const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+  const [motivoAnulacion, setMotivoAnulacion] = useState('');
+
+  const [formData, setFormData] = useState({
+    clienteId: '',
+    fechaVenta: new Date().toISOString().split('T')[0],
+    metodoPago: 'Efectivo',
+    observaciones: '',
+    items: [] as ItemVenta[]
+  });
+
+  const [usarSaldoAFavor, setUsarSaldoAFavor] = useState(false);
+  const [metodoPagoRestante, setMetodoPagoRestante] = useState<MedioPago>('Efectivo');
+
+  const [formErrors, setFormErrors] = useState<any>({});
+
+  const [nuevoCliente, setNuevoCliente] = useState({
+    nombre: '',
+    tipoDoc: 'CC',
+    numeroDoc: '',
+    telefono: '',
+    email: '',
+    direccion: ''
+  });
+
+  const [clienteErrors, setClienteErrors] = useState<any>({});
+
+  const [nuevoItem, setNuevoItem] = useState({
+    productoId: '',
+    variantId: '',
+    cantidad: '1',
+    precioUnitario: ''
+  });
+
+  const [variantSearch, setVariantSearch] = useState('');
+  const [showVariantDrop, setShowVariantDrop] = useState(false);
+  const [selectedVariant, setSelectedVariant] = useState<any>(null);
+
+  const getVariantIvaRate = (variantId: string) => {
+    const variant = variants.find(v => v.id_variant.toString() === variantId);
+    if (!variant) return 0;
+
+    const product = productos.find(p => Number(p.id) === variant.product);
+    if (!product) return 0;
+
+    const ivaId = Number(product.iva ?? 0);
+    const ivaItem = ivas.find(i => i.id_iva === ivaId);
+    if (ivaItem) return ivaItem.value;
+
+    const rawIva = Number(product.iva ?? 0);
+    if (!Number.isFinite(rawIva) || rawIva <= 0) return 0;
+    return rawIva > 1 ? rawIva / 100 : rawIva;
+  };
+
+  const [devolucionData, setDevolucionData] = useState<DevolucionData>({
+    motivo: 'Defectuoso',
+    itemsDevueltos: [],
+    productoNuevoId: '',
+    productoNuevoTalla: '',
+    productoNuevoColor: '',
+    medioPagoExcedente: 'Efectivo',
+  });
+
+  // Cargar datos desde API al montar el componente
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadVentas = useCallback(async () => {
+    setLoading(true);
+    try {
+      const ventasAPI = await getAllSales();
+      if (ventasAPI) {
+        const ventasMapeadas = ventasAPI.map((sale: Sale): Venta => ({
+          id: sale.id_sale,
+          numeroVenta: sale.number_sale,
+          clienteId: sale.client.toString(),
+          clienteNombre: sale.client_name || '',
+          fechaVenta: sale.date_sale,
+          estado: (sale.void ? 'Anulada' : 'Completada') as 'Completada' | 'Anulada' | 'Devolución',
+          items: (sale.details || []).map(detail => ({
+            id: detail.id_detail?.toString() || '',
+            productoId: detail.variant.toString(),
+            productoNombre: '',
+            talla: '',
+            color: '',
+            cantidad: detail.quantity,
+            precioUnitario: parseFloat(detail.unit_price || '0'),
+            subtotal: parseFloat(detail.subtotal || '0')
+          })),
+          subtotal: parseFloat(sale.subtotal),
+          iva: parseFloat(sale.iva),
+          total: parseFloat(sale.total),
+          metodoPago: sale.payment_method_name || 'Efectivo',
+          observaciones: sale.observations || '',
+          anulada: sale.void || false,
+          motivoAnulacion: sale.void_reason || '',
+          createdAt: sale.created_at || new Date().toISOString(),
+          number_pedido: (sale as any).number_pedido || '',
+          pedido: (sale as any).pedido,
+          user: (sale as any).user,
+        }));
+        setVentas(ventasMapeadas);
+      }
+    } catch (error) {
+      console.error('Error refreshing sales:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      // Cargar ventas
+      await loadVentas();
+
+      // Cargar clientes
+      const clientesAPI = await getAllClients();
+      if (clientesAPI) {
+        const clientesMapeados = clientesAPI.map((client: Clients) => ({
+          id: client.id_client,
+          nombre: client.name,
+          tipoDoc: client.type_doc,
+          numeroDoc: client.doc,
+          telefono: client.phone,
+          email: client.email,
+          direccion: client.address,
+          ciudad: client.city,
+          activo: client.state,
+          saldoAFavor: 0
+        }));
+        setClientes(clientesMapeados);
+      }
+
+      // Cargar productos
+      const productosAPI = await getAllProducts();
+      if (productosAPI) {
+        const productosMapeados = productosAPI.map((product: Product) => ({
+          id: product.id_product.toString(),
+          nombre: product.name,
+          categoria: product.category,
+          categoriaNombre: product.category_name,
+          precioVenta: product.price,
+          precioCompra: product.purchase_price,
+          activo: product.is_active,
+          iva: product.iva,
+        }));
+        setProductos(productosMapeados);
+      }
+
+      // Cargar tallas, colores, variantes e IVAs
+      const [tallasAPI, coloresAPI, variantesAPI, ivasAPI] = await Promise.all([
+        getAllSizes(),
+        getAllColors(),
+        getAllVariants(),
+        getAllIvas()
+      ]);
+      
+      if (tallasAPI) setTallas(tallasAPI);
+      if (coloresAPI) setColores(coloresAPI);
+      if (variantesAPI) setVariants(variantesAPI);
+      if (ivasAPI) setIvas(ivasAPI);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      loadVentas(); // Re-cargar desde API cuando hay cambios
+    };
+
+    const handlePedidoConvertidoAVenta = (event: any) => {
+      loadVentas(); // Mejor simplemente re-cargar desde API
+    };
+
+    window.addEventListener('salesUpdated', handleStorageChange);
+    window.addEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
+
+    return () => {
+      window.removeEventListener('salesUpdated', handleStorageChange);
+      window.removeEventListener('pedidoConvertidoAVenta', handlePedidoConvertidoAVenta as EventListener);
+    };
+  }, [loadVentas]);
+

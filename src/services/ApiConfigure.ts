@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const API = axios.create({
-    baseURL : 'http://127.0.0.1:8000/api/',
+    baseURL : 'https://damabella-backend.onrender.com/api/',
     headers : {
         'Content-Type': 'application/json',
         'ngrok-skip-browser-warning': 'true'
@@ -32,7 +32,7 @@ API.interceptors.response.use(
                 const refresh = localStorage.getItem('damabella_refresh_token');
                 if (!refresh) throw new Error('No refresh token');
 
-                const response = await axios.post('http://127.0.0.1:8000/api/auth/refresh/', {
+                const response = await axios.post('https://damabella-backend.onrender.com/api/auth/refresh/', {
                     refresh
                 });
 
@@ -44,8 +44,10 @@ API.interceptors.response.use(
             } catch {
                 // Refresh también expiró — cerrar sesión
                 localStorage.removeItem('damabella_access_token');
+                localStorage.removeItem('damabella_token');
                 localStorage.removeItem('damabella_refresh_token');
                 localStorage.removeItem('damabella_current_user');
+                localStorage.removeItem('damabella_user');
                 window.location.href = '/';
             }
         }

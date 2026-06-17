@@ -1,11 +1,15 @@
-import React, { useState, useContext, useMemo } from 'react';
-import { EcommerceContext } from '../../../../shared/contexts';
+import React, { useState, useContext, useMemo, useEffect } from 'react';
+import { EcommerceContext } from '@/shared/contexts';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { Package, ChevronDown } from 'lucide-react';
+import { useToast } from '../../../../shared/components/native';
+import { createOrder, getAllPaymentMethods, getAllStates } from '../../orders/services/OrderServices';
+import { getAllClients, createClients, CreateClientsDTO } from '../../customers/services/clientsServices';
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
 // ✅ CONFIGURACIÓN DE ENVÍO
-const MIN_SHIPPING_AMOUNT = 50000; // Monto mínimo para envío gratis
-const STANDARD_SHIPPING_COST = 8000; // Costo de envío estándar
+const MIN_SHIPPING_AMOUNT = 150000; // Monto mínimo para envío gratis
+const STANDARD_SHIPPING_COST = 15000; // Costo de envío estándar
 
 interface ShippingInfo {
   fullName: string;
@@ -32,16 +36,38 @@ interface CheckoutPageProps {
 
 export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentUser }) => {
   const ecommerceContext = useContext(EcommerceContext);
+  const { showToast } = useToast();
   
   if (!ecommerceContext) {
     return <div className="text-center py-8">Error al cargar contexto</div>;
   }
 
-  const { cart, clearCart } = ecommerceContext;
+  const { cart, clearCart, getProductStock, products } = ecommerceContext;
+
+  const [paymentMethodsDB, setPaymentMethodsDB] = useState<any[]>([]);
+  const [statesDB, setStatesDB] = useState<any[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Cargar métodos de pago y estados disponibles del backend al montar el componente
+  useEffect(() => {
+    const loadDBData = async () => {
+      try {
+        const [methods, states] = await Promise.all([
+          getAllPaymentMethods(),
+          getAllStates(),
+        ]);
+        if (methods) setPaymentMethodsDB(methods);
+        if (states) setStatesDB(states);
+      } catch (err) {
+        console.error('Error al cargar datos de pago y estados del backend:', err);
+      }
+    };
+    loadDBData();
+  }, []);
 
   // Estado del formulario
   const [shippingInfo, setShippingInfo] = useState<ShippingInfo>({
-    fullName: currentUser?.nombre || '',
+    fullName: currentUser?.name || currentUser?.nombre || '',
     phone: '',
     address: '',
     city: '',
@@ -149,7 +175,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
   }, [cart]);
 
   const shippingCost = subtotal > MIN_SHIPPING_AMOUNT ? 0 : STANDARD_SHIPPING_COST;
-  const iva = (subtotal + shippingCost) * 0.19;
+  const iva = subtotal * 0.19;
   const total = subtotal + shippingCost + iva;
 
   const hasErrors = Object.keys(errors).length > 0;
@@ -162,126 +188,233 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
     shippingInfo.postalCode &&
     !hasErrors;
 
-  const handleConfirmPurchase = () => {
+  const handleConfirmPurchase = async () => {
     if (!isFormValid) {
-      alert('Por favor completa todos los campos correctamente');
+      showToast('Por favor completa todos los campos correctamente', 'error');
       return;
     }
 
-    // Crear objeto de compra
-    const purchase = {
-      id: `ORD-${Date.now()}`,
-      items: cart,
-      subtotal: Number(subtotal.toFixed(2)),
-      shipping: shippingCost,
-      iva: Number(iva.toFixed(2)),
-      total: Number(total.toFixed(2)),
-      shippingInfo,
-      paymentMethod,
-      cardInfo: paymentMethod === 'card' ? {
-        lastFourDigits: cardInfo.cardNumber.slice(-4),
-        name: cardInfo.cardName,
-      } : null,
-      date: new Date().toLocaleDateString('es-CO'),
-      timestamp: Date.now(),
-    };
-
-    // Guardar en localStorage
-    localStorage.setItem('lastPurchase', JSON.stringify(purchase));
-    
-    // Guardar en historial de compras
-    const purchases = JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
-    purchases.push(purchase);
-    localStorage.setItem('purchaseHistory', JSON.stringify(purchases));
-
-    // Guardar como PEDIDO (key administrativa: 'damabella_pedidos')
-    try {
-      const PEDIDOS_KEY = 'damabella_pedidos';
-      const CLIENTES_KEY = 'damabella_clientes';
-      const VENTAS_KEY = 'damabella_ventas';
-
-      // 1) Asegurar cliente existe o crear uno nuevo (NO modificar clientes creados manualmente)
-      const clientesRaw = localStorage.getItem(CLIENTES_KEY) || '[]';
-      const clientes = JSON.parse(clientesRaw);
-
-      // Buscar por teléfono o por email (si existe currentUser)
-      const phone = shippingInfo.phone?.toString() || '';
-      const email = (currentUser?.email || '').toString().toLowerCase();
-
-      let cliente = clientes.find((c: any) => (c.telefono && c.telefono.toString() === phone) || (c.email && c.email.toString().toLowerCase() === email));
-
-      if (!cliente) {
-        // Crear cliente mínimo requerido por el admin
-        cliente = {
-          id: Date.now(),
-          nombre: shippingInfo.fullName || (currentUser?.nombre || 'Cliente sin nombre'),
-          tipoDoc: '',
-          numeroDoc: '',
-          telefono: phone,
-          email: currentUser?.email || '',
-          direccion: shippingInfo.address || '',
-          ciudad: shippingInfo.city || '',
-          activo: false,
-          createdAt: new Date().toISOString()
-        };
-        clientes.push(cliente);
-        try { localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientes)); } catch (e) { console.warn('[Checkout] No se pudo guardar cliente', e); }
+    // Validar stock disponible en tiempo real
+    for (const item of cart) {
+      const availableStock = getProductStock(item.productId, item.color, item.size);
+      if (item.quantity > availableStock) {
+        showToast(`Lo sentimos, "${item.productName}" (Talla: ${item.size}, Color: ${item.color}) ya no tiene stock suficiente. Disponible: ${availableStock} unidad(es).`, 'error');
+        onNavigate('cart');
+        return;
       }
-
-      // 2) Crear pedido en la key administrativa
-      const pedidosRaw = localStorage.getItem(PEDIDOS_KEY) || '[]';
-      const pedidos = JSON.parse(pedidosRaw);
-
-      const itemsPedido = cart.map((it: any, idx: number) => ({
-        id: `it-${Date.now()}-${idx}`,
-        productoId: it.productId,
-        productoNombre: it.productName || '',
-        talla: it.size || '',
-        color: it.color || '',
-        cantidad: it.quantity || 1,
-        precioUnitario: it.price || 0,
-        subtotal: (it.price || 0) * (it.quantity || 1)
-      }));
-
-      const nuevoPedido = {
-        id: Date.now(),
-        numeroPedido: `PED-${Date.now()}`,
-        tipo: 'Pedido',
-        clienteId: cliente.id,
-        clienteNombre: cliente.nombre,
-        fechaPedido: new Date().toISOString(),
-        estado: 'Pendiente',
-        items: itemsPedido,
-        productos: itemsPedido,
-        subtotal: Number(subtotal.toFixed(2)),
-        iva: Number(iva.toFixed(2)),
-        total: Number(total.toFixed(2)),
-        metodoPago: paymentMethod || 'unknown',
-        observaciones: '',
-        createdAt: new Date().toISOString(),
-        venta_id: null
-      };
-
-      pedidos.push(nuevoPedido);
-      try { localStorage.setItem(PEDIDOS_KEY, JSON.stringify(pedidos)); } catch (e) { console.warn('[Checkout] No se pudo guardar pedido', e); }
-
-      // Nota: no crear venta desde el checkout. El flujo correcto es:
-      // - El checkout crea únicamente el pedido con estado 'Pendiente'.
-      // - El admin (PedidosManager) debe cambiar el estado a 'Completada'/'Pagado',
-      //   momento en el cual la lógica centralizada convertirá el pedido en venta
-      //   (creando la entrada en `damabella_ventas` y descontando stock).
-
-    } catch (e) {
-      console.error('[Checkout] Error al crear pedido/cliente/venta administrativa', e);
     }
 
-    console.log('✅ Compra creada:', purchase);
+    setIsSubmitting(true);
+    try {
+      // 1) RESOLVER O CREAR CLIENTE EN EL BACKEND REAL
+      let clientId: number | null = null;
+      const directClientId = currentUser?.id_client ?? currentUser?.clientId ?? currentUser?.client?.id ?? (typeof currentUser?.client === 'number' ? currentUser.client : null);
+      
+      if (directClientId) {
+        clientId = Number(directClientId);
+        console.log('✅ Cliente ID directo desde currentUser:', clientId);
+      } else {
+        try {
+          const clients = await getAllClients();
+          const email = (currentUser?.email || '').toLowerCase().trim();
+          
+          let clientExistente = clients?.find((c: any) => 
+            (c.email && c.email.toLowerCase().trim() === email) ||
+            (c.phone && c.phone.trim() === shippingInfo.phone.trim()) ||
+            (c.doc && c.doc.trim() === shippingInfo.phone.trim())
+          );
 
-    // Limpiar carrito
-    clearCart();
+          if (clientExistente) {
+            clientId = clientExistente.id_client;
+            console.log('✅ Cliente encontrado en DB (por email, teléfono o documento):', clientId);
+          } else {
+            // Crear nuevo cliente
+            const nuevoCliente = await createClients({
+              name: shippingInfo.fullName,
+              type_doc: 1, // Cédula de Ciudadanía
+              doc: shippingInfo.phone, // Teléfono como doc temporal
+              phone: shippingInfo.phone,
+              email: currentUser?.email || '',
+              address: shippingInfo.address,
+              city: shippingInfo.city
+            });
+            if (nuevoCliente && nuevoCliente.id_client) {
+              clientId = nuevoCliente.id_client;
+              console.log('✅ Cliente creado en DB:', clientId);
+            } else {
+              throw new Error('No se pudo crear el cliente en el backend.');
+            }
+          }
+        } catch (clientError: any) {
+          console.error('Error al resolver cliente:', clientError);
+          showToast('Error al procesar el cliente en el servidor.', 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      }
 
-    // Navegar a página de éxito
-    onNavigate('purchase-success');
+      if (!clientId) {
+        showToast('No se pudo determinar el identificador del cliente.', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2) RESOLVER EL MÉTODO DE PAGO DESDE EL BACKEND
+      let paymentMethodId = 1;
+      const selectedName = 
+        paymentMethod === 'card' ? 'tarjeta' : 
+        paymentMethod === 'nequi' ? 'nequi' : 
+        paymentMethod === 'bancolombia' ? 'bancolombia' : 'contra entrega';
+      
+      const matchedMethod = paymentMethodsDB.find(m => 
+        m.name.toLowerCase().includes(selectedName) || 
+        selectedName.includes(m.name.toLowerCase())
+      );
+      if (matchedMethod) {
+        paymentMethodId = matchedMethod.id_method;
+      } else if (paymentMethodsDB.length > 0) {
+        paymentMethodId = paymentMethodsDB[0].id_method;
+      }
+
+      // 3) RESOLVER EL ESTADO PENDIENTE DESDE EL BACKEND
+      let stateId = 1;
+      const matchedState = statesDB.find(s => 
+        s.name_state.toLowerCase().includes('pendiente')
+      );
+      if (matchedState) {
+        stateId = matchedState.id_state;
+      } else if (statesDB.length > 0) {
+        stateId = statesDB[0].id_state;
+      }
+
+      // 4) CONSTRUIR PAYLOAD DE PEDIDO (DETAILS)
+      const detail = cart.map((it: any) => {
+        let vId = Number(it.variantId || 0);
+        if (vId === 0) {
+          // Intentar resolver desde los productos del contexto
+          const prod = products.find(p => 
+            String(p.id) === String(it.productId) || 
+            String(p.id).replace(/^p/i, '') === String(it.productId).replace(/^p/i, '')
+          );
+          if (prod) {
+            const v = prod.variants.find(varItem => varItem.color === it.color || varItem.color.toLowerCase() === (it.color || '').toLowerCase());
+            if (v) {
+              const s = v.sizes.find(sizeItem => sizeItem.size === it.size);
+              if (s && s.variantId) {
+                vId = Number(s.variantId);
+                console.log(`✅ Variante resuelta defensivamente para ${it.productName}:`, vId);
+              }
+            }
+          }
+        }
+        return {
+          variant: vId,
+          quantity: Number(it.quantity)
+        };
+      });
+
+      // Validar variantes válidas antes de enviar
+      const invalidItem = detail.find(d => d.variant === 0);
+      if (invalidItem) {
+        showToast('Hay un producto en el carrito con variante no válida.', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const orderPayload = {
+        client: clientId,
+        payment_method: paymentMethodId,
+        address_shipment: `${shippingInfo.address}, ${shippingInfo.city}, ${shippingInfo.department} (CP: ${shippingInfo.postalCode})`,
+        person_receives: shippingInfo.fullName,
+        observations: `Pedido web. Teléfono de contacto: ${shippingInfo.phone}`,
+        state: stateId,
+        subtotal: subtotal.toFixed(2),
+        iva: iva.toFixed(2),
+        total: total.toFixed(2),
+        detail
+      };
+
+      console.log('Sending CreateOrderDTO payload:', orderPayload);
+
+      // 5) ENVIAR PEDIDO REAL AL BACKEND
+      const result = await createOrder(orderPayload);
+      if (result) {
+        showToast('🛒 ¡Pedido generado exitosamente!', 'success');
+
+        // Sincronizar en LocalStorage como backup para la UI administrativa local
+        try {
+          const PEDIDOS_KEY = 'damabella_pedidos';
+          const pedidosRaw = localStorage.getItem(PEDIDOS_KEY) || '[]';
+          const pedidos = JSON.parse(pedidosRaw);
+
+          const itemsPedidoLocal = cart.map((it: any, idx: number) => ({
+            id: `it-${Date.now()}-${idx}`,
+            productoId: it.productId,
+            productoNombre: it.productName || '',
+            talla: it.size || '',
+            color: it.color || '',
+            cantidad: it.quantity || 1,
+            precioUnitario: it.price || 0,
+            subtotal: (it.price || 0) * (it.quantity || 1),
+            variantId: it.variantId || null
+          }));
+
+          const nuevoPedidoLocal = {
+            id: result.id_order || Date.now(),
+            numeroPedido: result.number_order || `PED-${Date.now()}`,
+            tipo: 'Pedido',
+            clienteId: clientId,
+            clienteNombre: shippingInfo.fullName,
+            fechaPedido: new Date().toISOString(),
+            estado: 'Pendiente',
+            items: itemsPedidoLocal,
+            productos: itemsPedidoLocal,
+            subtotal: Number(subtotal.toFixed(2)),
+            iva: Number(iva.toFixed(2)),
+            total: Number(total.toFixed(2)),
+            metodoPago: paymentMethod || 'unknown',
+            observaciones: '',
+            createdAt: new Date().toISOString(),
+            venta_id: null
+          };
+
+          pedidos.push(nuevoPedidoLocal);
+          localStorage.setItem(PEDIDOS_KEY, JSON.stringify(pedidos));
+
+          // Guardar en historial de compras
+          const purchases = JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
+          purchases.push({
+            id: result.number_order || `ORD-${Date.now()}`,
+            items: cart,
+            subtotal: Number(subtotal.toFixed(2)),
+            shipping: shippingCost,
+            iva: Number(iva.toFixed(2)),
+            total: Number(total.toFixed(2)),
+            shippingInfo,
+            paymentMethod,
+            date: new Date().toLocaleDateString('es-CO'),
+            timestamp: Date.now()
+          });
+          localStorage.setItem('purchaseHistory', JSON.stringify(purchases));
+
+        } catch (localError) {
+          console.warn('Error al guardar copia del pedido en almacenamiento local:', localError);
+        }
+
+        // Limpiar el carrito local
+        clearCart();
+
+        // Redirigir al historial de pedidos
+        onNavigate('orders');
+      } else {
+        showToast('❌ Error en el servidor al guardar el pedido.', 'error');
+      }
+    } catch (e) {
+      console.error('Error al procesar el pedido:', e);
+      showToast('❌ Error inesperado al enviar el pedido.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (cart.length === 0) {
@@ -315,10 +448,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
           {/* Formulario */}
           <div className="md:col-span-2 space-y-6">
             {/* Información de envío */}
-            <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="bg-white rounded-lg shadow-md p-8 md:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Información de envío</h2>
               
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
                   <input
@@ -408,7 +541,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
             </div>
 
             {/* Método de pago */}
-            <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="bg-white rounded-lg shadow-md p-8 md:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Método de pago</h2>
               
               <div className="space-y-3">
@@ -441,7 +574,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
 
               {/* Formulario de tarjeta */}
               {paymentMethod === 'card' && (
-                <div className="mt-6 space-y-4 pt-6 border-t">
+                <div className="mt-6 space-y-6 pt-6 border-t">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Nombre en la tarjeta</label>
                     <input
@@ -533,8 +666,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                       <span className="text-gray-700 font-medium">x{item.quantity}</span>
                     </div>
                     <div className="flex justify-between text-gray-600">
-                      <span>${item.price.toLocaleString('es-CO')}</span>
-                      <span>${(item.price * item.quantity).toLocaleString('es-CO')}</span>
+                      <span>{formatCOP(item.price)}</span>
+                      <span>{formatCOP(item.price * item.quantity)}</span>
                     </div>
                   </div>
                 ))}
@@ -546,26 +679,26 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               <div className="space-y-3">
                 <div className="flex justify-between text-gray-700">
                   <span>Subtotal:</span>
-                  <span>${subtotal.toLocaleString('es-CO', { maximumFractionDigits: 0 })}</span>
+                  <span>{formatCOP(subtotal)}</span>
                 </div>
 
                 <div className="flex justify-between text-gray-700">
                   <span>Envío:</span>
                   <span className={shippingCost === 0 ? 'text-green-600 font-medium' : ''}>
-                    {shippingCost === 0 ? '¡Gratis!' : `$${shippingCost.toLocaleString('es-CO')}`}
+                    {shippingCost === 0 ? '¡Gratis!' : formatCOP(shippingCost)}
                   </span>
                 </div>
 
                 <div className="flex justify-between text-gray-700">
                   <span>IVA (19%):</span>
-                  <span>${iva.toLocaleString('es-CO', { maximumFractionDigits: 0 })}</span>
+                  <span>{formatCOP(iva)}</span>
                 </div>
 
                 <hr className="my-3" />
 
                 <div className="flex justify-between text-lg font-bold text-gray-900">
                   <span>Total:</span>
-                  <span className="text-pink-600">${total.toLocaleString('es-CO', { maximumFractionDigits: 0 })}</span>
+                  <span className="text-pink-600 font-extrabold">{formatCOP(total)}</span>
                 </div>
               </div>
 
@@ -581,7 +714,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {subtotal > 0 && subtotal <= MIN_SHIPPING_AMOUNT && shippingCost > 0 && (
                 <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="text-xs text-gray-700 mb-2">
-                    ℹ️ Envío gratis en compras mayores a ${MIN_SHIPPING_AMOUNT.toLocaleString('es-CO')}
+                    ℹ️ Envío gratis en compras mayores a {formatCOP(MIN_SHIPPING_AMOUNT)}
                   </div>
                   <div className="w-full bg-blue-200 rounded-full h-2">
                     <div 
@@ -590,7 +723,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
                     ></div>
                   </div>
                   <div className="text-xs text-gray-600 mt-2">
-                    Te faltan ${(MIN_SHIPPING_AMOUNT - subtotal).toLocaleString('es-CO')} para envío gratis
+                    Te faltan {formatCOP(MIN_SHIPPING_AMOUNT - subtotal + 1)} para envío gratis
                   </div>
                 </div>
               )}
@@ -598,14 +731,14 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate, currentU
               {/* Botón de confirmación */}
               <button
                 onClick={handleConfirmPurchase}
-                disabled={!isFormValid}
+                disabled={!isFormValid || isSubmitting}
                 className={`w-full mt-6 py-3 rounded-lg font-semibold transition ${
-                  isFormValid
-                    ? 'bg-pink-400 text-white hover:bg-pink-500'
+                  isFormValid && !isSubmitting
+                    ? 'bg-pink-400 text-white hover:bg-pink-500 hover:scale-105 transform shadow-md'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                {isFormValid ? 'Generar Pedido' : 'Completa el formulario'}
+                {isSubmitting ? 'Procesando pedido...' : isFormValid ? 'Confirmar Pedido' : 'Completa el formulario'}
               </button>
 
               {/* Botón de volver */}

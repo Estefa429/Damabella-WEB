@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Card, Button, Input, Label, Select, Modal, DataTable, Badge, useToast } from '../../../../shared/components/native';
 import { Plus, Eye, Package, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../../../shared/contexts/AuthContext';
+import { createSale, CreateSaleDTO } from '../../sales/services/SalesServices';
+import { getAllClients, createClients, CreateClientsDTO } from '../../customers/services/clientsServices';
 
 interface OrderItem {
   productId: string;
@@ -59,7 +61,6 @@ const mockOrders: Order[] = [
 export function PedidosPage() {
   const [orders, setOrders] = useState<Order[]>(mockOrders);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'create' | 'view'>('create');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -178,43 +179,135 @@ export function PedidosPage() {
     setIsModalOpen(false);
   };
 
-  const handleConvertToSale = (order: Order) => {
-    setSelectedOrder(order);
-    setIsConvertModalOpen(true);
-  };
+  const handleConvertToSale = async (order: Order) => {
+    if (!order) return;
 
-  const confirmConvertToSale = () => {
-    if (!selectedOrder) return;
+    try {
+      // 🔄 Mostrar estado de carga
+      showToast('Procesando conversión a venta...', 'info');
 
-    // Crear venta
-    const nextNumber = getSales().length + 1;
-    const saleId = `V-${String(nextNumber).padStart(4, '0')}`;
-    
-    const newSale = {
-      id: saleId,
-      date: new Date().toISOString().split('T')[0],
-      clientName: selectedOrder.clientName,
-      clientEmail: selectedOrder.clientEmail,
-      clientPhone: selectedOrder.clientPhone,
-      items: selectedOrder.items,
-      total: selectedOrder.total,
-      paymentMethod: selectedOrder.paymentMethod,
-      seller: user?.name || 'Sistema',
-      status: 'Completada',
-      fromOrder: selectedOrder.id,
-    };
+      // ═══════════════════════════════════════════════════════════════
+      // 1️⃣ OBTENER O CREAR EL CLIENTE
+      // ═══════════════════════════════════════════════════════════════
+      let clientId: number;
+      
+      try {
+        // Buscar cliente existente
+        const clientes = await getAllClients();
+        const clienteExistente = clientes?.find(
+          (c: any) => c.name.toLowerCase() === order.clientName.toLowerCase()
+        );
 
-    saveSale(newSale);
+        if (clienteExistente) {
+          clientId = clienteExistente.id_client;
+          console.log('✅ Cliente encontrado:', clientId);
+        } else {
+          // Crear cliente nuevo
+          const nuevoClienteDTO: CreateClientsDTO = {
+            name: order.clientName,
+            type_doc: 1, // Cédula de Ciudadanía por defecto
+            doc: order.clientPhone, // Usar teléfono como doc temporal
+            phone: order.clientPhone,
+            email: order.clientEmail,
+            address: order.clientAddress,
+            city: ''
+          };
 
-    // Eliminar pedido
-    setOrders(orders.filter(o => o.id !== selectedOrder.id));
-    
-    showToast('Pedido convertido a venta exitosamente', 'success');
-    setIsConvertModalOpen(false);
-    setSelectedOrder(null);
+          const clienteCreado = await createClients(nuevoClienteDTO);
+          if (!clienteCreado || !clienteCreado.id_client) {
+            throw new Error('No se pudo crear el cliente');
+          }
 
-    // Disparar evento para que VentasPage se actualice
-    window.dispatchEvent(new Event('salesUpdated'));
+          clientId = clienteCreado.id_client;
+          console.log('✅ Cliente creado:', clientId);
+        }
+      } catch (clientError) {
+        console.error('❌ Error al obtener/crear cliente:', clientError);
+        showToast('Error al procesar el cliente. Verifica los datos.', 'error');
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // 2️⃣ MAPEAR PRODUCTOS AL FORMATO DE LA API
+      // ═══════════════════════════════════════════════════════════════
+      
+      // Convertir los items del pedido al formato que espera la API
+      const details = order.items.map((item) => ({
+        variant: parseInt(item.productId, 10), // ID de la variante
+        quantity: item.quantity,
+        unit_price: item.unitPrice.toString(),
+        subtotal: (item.quantity * item.unitPrice).toString(),
+      }));
+
+      // ═══════════════════════════════════════════════════════════════
+      // 3️⃣ PREPARAR PAYLOAD PARA LA API
+      // ═══════════════════════════════════════════════════════════════
+      
+      const salePayload: CreateSaleDTO = {
+        client: clientId,                              // ✅ ID del cliente
+        payment_method: 1,                             // ✅ Método de pago (1=Efectivo, ajustar según tu API)
+        date_sale: new Date().toISOString().split('T')[0], // Fecha actual
+        state: 1,                                      // ✅ Estado inicial: 1=Completada
+        observations: `Venta convertida desde pedido nº ${order.id}`, // ✅ Observación automática
+        details: details                               // ✅ Array de productos mapeado
+      };
+
+      console.log('📤 Payload a enviar a API:', JSON.stringify(salePayload, null, 2));
+
+      // ═══════════════════════════════════════════════════════════════
+      // 4️⃣ LLAMAR AL SERVICIO DE CREACIÓN DE VENTAS
+      // ═══════════════════════════════════════════════════════════════
+      
+      let resultado: any;
+      
+      try {
+        resultado = await createSale(salePayload);
+        console.log('✅ Respuesta del servidor:', resultado);
+      } catch (apiError) {
+        console.error('❌ Error en llamada a API:', apiError);
+        showToast('Error de conexión con el servidor', 'error');
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // 5️⃣ VALIDAR RESPUESTA Y PROCESAR RESULTADO
+      // ═══════════════════════════════════════════════════════════════
+      
+      if (!resultado) {
+        showToast('❌ No se pudo crear la venta. Verifica los datos.', 'error');
+        return;
+      }
+
+      // ✅ La venta se creó exitosamente
+      showToast(
+        `✅ Pedido ${order.id} convertido a venta exitosamente`,
+        'success'
+      );
+
+      // ═══════════════════════════════════════════════════════════════
+      // 6️⃣ ACTUALIZAR UI
+      // ═══════════════════════════════════════════════════════════════
+      
+      // Eliminar el pedido de la tabla (ya está en Ventas)
+      setOrders(prev => prev.filter(o => o.id !== order.id));
+
+      // Disparar evento para sincronizar con módulo de Ventas
+      window.dispatchEvent(new Event('salesUpdated'));
+      window.dispatchEvent(new CustomEvent('pedidoConvertidoAVenta', {
+        detail: { 
+          pedidoId: order.id,
+          clienteId: clientId,
+          observaciones: `Venta convertida desde pedido nº ${order.id}`
+        }
+      }));
+
+    } catch (error) {
+      console.error('❌ Error general en handleConvertToSale:', error);
+      showToast(
+        `❌ Error inesperado: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+        'error'
+      );
+    }
   };
 
   const columns = [
@@ -594,46 +687,6 @@ export function PedidosPage() {
             </div>
           </form>
         )}
-      </Modal>
-
-      {/* Modal de Confirmación para Convertir a Venta */}
-      <Modal
-        isOpen={isConvertModalOpen}
-        onClose={() => setIsConvertModalOpen(false)}
-        title="Convertir a Venta"
-      >
-        <div className="space-y-4">
-          <p className="text-gray-700">
-            ¿Estás seguro de convertir el pedido <strong>{selectedOrder?.id}</strong> en una venta?
-          </p>
-          <p className="text-sm text-gray-600">
-            Esta acción moverá el pedido al módulo de Ventas y no podrá deshacerse.
-          </p>
-
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm text-gray-600">Cliente:</span>
-              <span className="font-medium">{selectedOrder?.clientName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Total:</span>
-              <span className="font-bold text-green-600">${selectedOrder?.total.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={() => setIsConvertModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              type="button" 
-              onClick={confirmConvertToSale}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              Aceptar
-            </Button>
-          </div>
-        </div>
       </Modal>
     </div>
   );

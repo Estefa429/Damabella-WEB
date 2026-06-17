@@ -1,6 +1,6 @@
 import React from 'react';
 import { Search, Heart, ShoppingCart, User } from 'lucide-react';
-import { useEcommerce } from '../../../../shared/contexts';
+import { useEcommerce } from '@/shared/contexts';
 
 interface PremiumNavbarProps {
   onNavigate: (view: string, category?: string) => void;

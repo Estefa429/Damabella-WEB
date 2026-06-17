@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Package } from 'lucide-react';
-import { useEcommerce } from '../../../../shared/contexts';
+import { ArrowLeft, Package, Truck, Store, X } from 'lucide-react';
+import { useEcommerce } from '@/shared/contexts';
+import { getMyOrders } from '../services/OrderServices';
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
 interface OrdersPageProps {
   onNavigate: (view: string) => void;
@@ -8,234 +10,324 @@ interface OrdersPageProps {
 }
 
 export function OrdersPage({ onNavigate, currentUser }: OrdersPageProps) {
-  const { orders } = useEcommerce();
+  const { products } = useEcommerce();
   const [allOrders, setAllOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Indicar montaje del componente (log inicial)
-    try { console.log('[OrdersPage] useEffect start - component mounted'); } catch (e) {}
-    // Leer usuario desde localStorage (priorizar 'damabella_current_user' según petición)
-    const currentUserRaw = localStorage.getItem('damabella_current_user');
-    const fallbackUserRaw = localStorage.getItem('damabella_user');
-
-    try { console.log('[OrdersPage] localStorage.getItem("damabella_current_user") =>', currentUserRaw === null ? 'NULL' : currentUserRaw); } catch (e) {}
-    try { console.log('[OrdersPage] localStorage.getItem("damabella_user") =>', fallbackUserRaw === null ? 'NULL' : fallbackUserRaw); } catch (e) {}
-
-    const storedUserRaw = currentUserRaw || fallbackUserRaw;
-    if (!storedUserRaw) {
-      try { console.log('[OrdersPage] no damabella_current_user or damabella_user found; aborting filter'); } catch (e) {}
-      setAllOrders([]);
-      return;
-    }
-
-    let storedUser: any = null;
-    try {
-      storedUser = JSON.parse(storedUserRaw);
-    } catch (e) {
-      try { console.log('[OrdersPage] error parsing stored user (current_user or user)', e); } catch (e2) {}
-      setAllOrders([]);
-      return;
-    }
-
-    // Extraer id intentando varios campos comunes
-    const userIdRaw = storedUser?.id ?? storedUser?.userId ?? storedUser?.clienteId ?? storedUser?.cliente?.id ?? storedUser?.data?.id ?? null;
-    try { console.log('[OrdersPage] resolved storedUser id candidates ->', { id: storedUser?.id, userId: storedUser?.userId, clienteId: storedUser?.clienteId }); } catch (e) {}
-
-    if (userIdRaw === undefined || userIdRaw === null) {
-      try { console.log('[OrdersPage] stored user has no identifiable id; aborting filter'); } catch (e) {}
-      setAllOrders([]);
-      return;
-    }
-
-    const userIdStr = String(userIdRaw);
-
-    // --- LOGS DE DEPURACIÓN (se muestran en la consola del navegador) ---
-    try {
-      console.log('[OrdersPage] mounted - clientId (from damabella_user):', userIdStr);
-
-      const ordersRawKey = localStorage.getItem('orders');
-      const salesRawKey = localStorage.getItem('sales');
-      const damabellaOrdersRaw = localStorage.getItem('damabella_orders');
-      const damabellaVentasRaw = localStorage.getItem('damabella_ventas');
-
-      console.log('[OrdersPage] localStorage.getItem("orders") =>', ordersRawKey === null ? 'NULL' : ordersRawKey);
-      console.log('[OrdersPage] localStorage.getItem("sales") =>', salesRawKey === null ? 'NULL' : salesRawKey);
-      console.log('[OrdersPage] localStorage.getItem("damabella_orders") =>', damabellaOrdersRaw === null ? 'NULL' : damabellaOrdersRaw);
-      console.log('[OrdersPage] localStorage.getItem("damabella_ventas") =>', damabellaVentasRaw === null ? 'NULL' : damabellaVentasRaw);
-
-      const parsedOrdersRaw = ordersRawKey ? JSON.parse(ordersRawKey) : [];
-      const parsedSalesRaw = salesRawKey ? JSON.parse(salesRawKey) : [];
-      const parsedDamabellaOrders = damabellaOrdersRaw ? JSON.parse(damabellaOrdersRaw) : [];
-      const parsedDamabellaVentas = damabellaVentasRaw ? JSON.parse(damabellaVentasRaw) : [];
-
-      console.log('[OrdersPage] parsed - orders (key "orders"):', Array.isArray(parsedOrdersRaw) && parsedOrdersRaw.length ? parsedOrdersRaw : 'EMPTY_OR_NOT_ARRAY');
-      console.log('[OrdersPage] parsed - sales (key "sales"):', Array.isArray(parsedSalesRaw) && parsedSalesRaw.length ? parsedSalesRaw : 'EMPTY_OR_NOT_ARRAY');
-      console.log('[OrdersPage] parsed - damabella_orders:', Array.isArray(parsedDamabellaOrders) && parsedDamabellaOrders.length ? parsedDamabellaOrders : 'EMPTY_OR_NOT_ARRAY');
-      console.log('[OrdersPage] parsed - damabella_ventas:', Array.isArray(parsedDamabellaVentas) && parsedDamabellaVentas.length ? parsedDamabellaVentas : 'EMPTY_OR_NOT_ARRAY');
-    } catch (logErr) {
-      console.error('[OrdersPage] error logging localStorage contents', logErr);
-    }
-
-    // Cargar datos administrativos: pedidos y ventas
-    const pedidosRaw = localStorage.getItem('damabella_pedidos');
-    const ventasRaw = localStorage.getItem('damabella_ventas');
-
-    try { console.log('[OrdersPage] localStorage.getItem("damabella_pedidos") =>', pedidosRaw === null ? 'NULL' : pedidosRaw); } catch (e) {}
-    try { console.log('[OrdersPage] localStorage.getItem("damabella_ventas") =>', ventasRaw === null ? 'NULL' : ventasRaw); } catch (e) {}
-
-    const parsedPedidos = pedidosRaw ? JSON.parse(pedidosRaw) : [];
-    const parsedVentas = ventasRaw ? JSON.parse(ventasRaw) : [];
-
-    // Helper: comparar ids tolerante (extrae dígitos si es necesario)
-    const idMatches = (userId: string, candidate: any) => {
-      try {
-        if (candidate == null) return false;
-        const candStr = String(candidate);
-        const userDigits = (userId.match(/\d+/) || [userId])[0];
-        const candDigits = (candStr.match(/\d+/) || [candStr])[0];
-        return userDigits === candDigits || candStr.includes(userDigits) || String(userId).includes(candDigits);
-      } catch (e) {
-        return false;
+  const findVariantDetails = (variantId: number) => {
+    for (const product of products || []) {
+      for (const variant of product.variants || []) {
+        for (const sizeItem of variant.sizes || []) {
+          if (Number(sizeItem.variantId) === Number(variantId)) {
+            return {
+              productName: product.name,
+              image: product.image,
+              color: variant.color,
+              size: sizeItem.size
+            };
+          }
+        }
       }
+    }
+    return null;
+  };
+
+  const fetchOrders = async () => {
+    // Si el usuario no es un cliente, evitamos hacer la llamada a getMyOrders()
+    // ya que causará un 401 que desloguea al usuario debido al interceptor.
+    const isUserCliente = () => {
+      if (!currentUser) return false;
+      const roleName = (currentUser.rol_name ?? currentUser.role ?? currentUser.rol ?? '').toString().toLowerCase().trim();
+      const roleId = Number(currentUser.rol);
+      return roleName === 'cliente' || roleName === 'clientes' || roleName === 'client' || roleName === 'clients' || roleId === 2;
     };
 
-    // Filtrar pedidos y ventas por cliente
-    const pedidosFiltrados = Array.isArray(parsedPedidos) ? parsedPedidos.filter((p: any) => idMatches(userIdStr, p.clienteId ?? p.cliente_id ?? p.clientId ?? p.client ?? p.cliente)) : [];
-    const ventasFiltradas = Array.isArray(parsedVentas) ? parsedVentas.filter((v: any) => idMatches(userIdStr, v.clienteId ?? v.cliente_id ?? v.clientId ?? v.client ?? v.cliente)) : [];
+    if (!isUserCliente()) {
+      setAllOrders([]);
+      setLoading(false);
+      return;
+    }
 
-    try { console.log('[OrdersPage] pedidosFiltrados ->', pedidosFiltrados.length ? pedidosFiltrados : 'EMPTY'); } catch (e) {}
-    try { console.log('[OrdersPage] ventasFiltradas ->', ventasFiltradas.length ? ventasFiltradas : 'EMPTY'); } catch (e) {}
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getMyOrders();
+      if (data) {
+        const mapped = data.map((p: any) => {
+          const stateName = p.state?.name_state || p.state_name || 'Pendiente';
+          
+          const mapItems = (details: any[]) => (details || []).map((it: any) => {
+            const variantId = it.variant;
+            const foundDetails = findVariantDetails(variantId);
+            
+            const parts = (it.variant_name || '').split(' - ');
+            const prodName = foundDetails?.productName || parts[0] || 'Producto';
+            const color = foundDetails?.color || parts[1] || '';
+            const size = foundDetails?.size || parts[2] || '';
+            
+            return {
+              productName: prodName,
+              color: color,
+              size: size,
+              quantity: it.quantity || 1,
+              price: it.sales_price || it.price || 0,
+              image: foundDetails?.image || it.image || ''
+            };
+          });
 
-    // Mapear entradas a la forma esperada por la UI
-    const mapItems = (items: any[]) => (items || []).map((it: any) => ({
-      productName: it.productoNombre || it.productName || it.name || '',
-      color: it.color || it.colorName || '',
-      size: it.talla || it.size || it.sizeName || '',
-      quantity: it.cantidad || it.quantity || 1,
-      price: it.precioUnitario || it.price || 0
-    }));
+          return {
+            id: String(p.id_order || p.number_order || Date.now()),
+            numberOrder: p.number_order || '',
+            origin: 'pedido',
+            items: mapItems(p.detail || []),
+            subtotal: Number(p.subtotal) || 0,
+            iva: Number(p.iva) || 0,
+            total: Number(p.total) || 0,
+            paymentMethod: p.payment_method_name || 'Desconocido',
+            clientName: p.client_name || '',
+            address: p.address_shipment || '',
+            personReceives: p.person_receives || '',
+            date: p.order_date || p.created_at || new Date().toISOString(),
+            status: stateName
+          };
+        });
 
-    const pedidosUI = pedidosFiltrados.map((p: any) => ({
-      id: String(p.id || p.numeroPedido || Date.now()),
-      origin: 'pedido',
-      items: mapItems(p.items || p.productos || p.productosPedido || []),
-      subtotal: p.subtotal || 0,
-      iva: p.iva || 0,
-      total: p.total || p.subtotal || 0,
-      paymentMethod: p.metodoPago || p.paymentMethod || 'unknown',
-      clientName: p.clienteNombre || p.clientName || '',
-      clientEmail: p.clienteEmail || p.email || '',
-      clientPhone: p.clienteTelefono || p.telefono || '',
-      clientAddress: p.direccion || p.clientAddress || '',
-      date: p.fechaPedido || p.date || p.createdAt || new Date().toISOString(),
-      status: p.estado || p.status || 'Pendiente',
-      createdAt: p.createdAt || new Date().toISOString()
-    }));
-
-    const ventasUI = ventasFiltradas.map((v: any) => ({
-      id: String(v.id || v.numeroVenta || Date.now()),
-      origin: 'venta',
-      items: mapItems(v.items || []),
-      subtotal: v.subtotal || 0,
-      iva: v.iva || 0,
-      total: v.total || v.subtotal || 0,
-      paymentMethod: v.metodoPago || v.paymentMethod || 'unknown',
-      clientName: v.clienteNombre || v.clientName || '',
-      clientEmail: v.clienteEmail || v.email || '',
-      clientPhone: v.clienteTelefono || v.telefono || '',
-      clientAddress: v.direccion || v.clientAddress || '',
-      date: v.fechaVenta || v.date || v.createdAt || new Date().toISOString(),
-      status: v.estado || v.status || 'Completada',
-      createdAt: v.createdAt || new Date().toISOString()
-    }));
-
-    // Combinar: mostrar primero pedidos, luego ventas
-    const combined = [...pedidosUI, ...ventasUI];
-    setAllOrders(combined);
-  }, [orders]);
-
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Entregado': return 'bg-green-100 text-green-800';
-      case 'Enviado': return 'bg-blue-100 text-blue-800';
-      case 'Pendiente': return 'bg-yellow-100 text-yellow-800';
-      case 'Cancelado': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+        // Ordenar por fecha descendente (más recientes primero)
+        mapped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setAllOrders(mapped);
+      } else {
+        setAllOrders([]);
+      }
+    } catch (err: any) {
+      console.error('[OrdersPage] fetchOrders error:', err);
+      // Si el backend devuelve un 404 (por ejemplo, perfil de cliente inexistente en DB), se trata como 0 pedidos
+      if (err.response?.status === 404) {
+        setAllOrders([]);
+      } else {
+        setError('Hubo un error al cargar tus pedidos. Por favor, reintenta.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Determina si el status representa una compra completada
+  useEffect(() => {
+    fetchOrders();
+  }, [products]);
+
   const isCompletedStatus = (status: string | undefined) => {
     if (!status) return false;
     const s = status.toString().toLowerCase();
     return s === 'completado' || s === 'entregado' || s === 'pagado' || s === 'confirmado';
   };
 
-  return (
-    <div className="min-h-screen bg-[#F5F6F7]">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 sticky top-0 z-40">
-        <button onClick={() => onNavigate('profile')}>
-          <ArrowLeft size={24} />
-        </button>
-        <h1 className="text-lg font-bold">Mis Pedidos</h1>
-      </header>
+  const getShippingMethod = (order: any) => {
+    if (order.address || order.address_shipment) {
+      return { 
+        text: 'delivery', 
+        icon: <Truck size={14} className="text-[#701A75]" />,
+        isDelivery: true
+      };
+    }
+    return { 
+      text: 'Recogida en tienda', 
+      icon: <Store size={14} className="text-gray-400" />,
+      isDelivery: false
+    };
+  };
 
+  const formatDateSpanish = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const months = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+      ];
+      return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const formatOrderId = (order: any, index: number, total: number) => {
+    if (order.numberOrder) {
+      const match = order.numberOrder.match(/\d+/);
+      if (match) {
+        const num = parseInt(match[0], 10);
+        const padded = num < 10 ? `0${num}` : `${num}`;
+        return `Pedido #${padded}`;
+      }
+      return order.numberOrder;
+    }
+    const num = total - index;
+    const padded = num < 10 ? `0${num}` : `${num}`;
+    return `Pedido #${padded}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-slate-50 min-h-[450px] p-6 sm:p-8 flex flex-col items-center justify-center py-20 text-center">
+        <div className="w-12 h-12 border-4 border-[#8B5CF6] border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-gray-600 font-medium">Cargando tus pedidos...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-slate-50 min-h-[450px] p-6 sm:p-8 flex flex-col items-center justify-center py-20 text-center">
+        <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4 text-red-500 border border-red-100">
+          <X size={32} />
+        </div>
+        <p className="text-red-600 font-medium mb-4">{error}</p>
+        <button
+          onClick={fetchOrders}
+          className="bg-gradient-to-r from-pink-400 to-purple-400 text-white px-6 py-2 rounded-full hover:from-pink-500 hover:to-purple-500 transition-all font-medium shadow-sm"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-50 min-h-[450px] p-4 sm:p-6">
       {allOrders.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-96">
-          <Package size={64} className="text-gray-300 mb-4" />
-          <p className="text-gray-600 mb-4">Aún no tienes pedidos</p>
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400 border border-gray-100">
+            <Package size={32} />
+          </div>
+          <p className="text-gray-600 mb-6 text-base font-medium">Aún no tienes pedidos registrados</p>
           <button
             onClick={() => onNavigate('home')}
-            className="bg-[#FFB6C1] text-white px-6 py-2 rounded-lg hover:bg-[#FF9EB1]"
+            className="bg-gradient-to-r from-pink-400 to-purple-400 text-white px-8 py-3 rounded-full hover:from-pink-500 hover:to-purple-500 transition-all transform hover:scale-105 shadow-md font-medium"
           >
             Explorar Productos
           </button>
         </div>
       ) : (
-        <div className="p-4 space-y-3">
-          {allOrders.map((order) => (
-            <div key={`${order.origin}-${order.id}`} className="bg-white rounded-xl p-4 shadow-sm">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="font-bold text-lg">{order.id}</p>
-                  <p className="text-sm text-gray-600">
-                    {new Date(order.date || order.createdAt).toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${isCompletedStatus(order.status) ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                    {isCompletedStatus(order.status) ? 'Compra completada' : 'Pedido'}
-                  </span>
-                  <span className="text-xs text-gray-600 mt-1">{order.status}</span>
-                </div>
-              </div>
-
-              <div className="space-y-2 mb-3">
-                {order.items.map((item: any, idx: number) => (
-                  <div key={idx} className="flex gap-3">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium line-clamp-1">{item.productName}</p>
-                      <p className="text-xs text-gray-600">{item.color} | Talla: {item.size} | x{item.quantity}</p>
-                      <p className="text-sm font-bold">${item.price.toLocaleString()}</p>
-                    </div>
+        <div className="space-y-4 max-w-2xl mx-auto">
+          {allOrders.map((order, orderIdx) => {
+            const isPendiente = order.status.toLowerCase() === 'pendiente';
+            const isEntregado = order.status.toLowerCase() === 'entregado' || isCompletedStatus(order.status);
+            
+            return (
+              <div 
+                key={`${order.origin}-${order.id}`} 
+                className="bg-white rounded-xl p-4 border border-gray-100/80 shadow-sm mb-4"
+              >
+                {/* Header del Pedido */}
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm" style={{ color: '#701A75' }}>
+                      {formatOrderId(order, orderIdx, allOrders.length)}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                      isPendiente 
+                      ? 'bg-[#F3E8FF] text-[#7E22CE]' 
+                      : isEntregado
+                      ? 'bg-[#FCE7F3] text-[#DB2777]'
+                      : 'bg-red-50 text-red-700'
+                    }`}>
+                      {order.status}
+                    </span>
                   </div>
-                ))}
-              </div>
-
-              <div className="pt-3 border-t border-gray-200 flex justify-between items-center">
-                <div>
-                  <p className="text-xs text-gray-600">Total</p>
-                  <p className="text-lg font-bold text-[#FFB6C1]">${order.total.toLocaleString()}</p>
+                  <span className="text-xs text-gray-400">
+                    {formatDateSpanish(order.date)}
+                  </span>
                 </div>
-                <p className="text-xs text-gray-600">{order.paymentMethod}</p>
+
+                {/* Items del Pedido */}
+                <div className="space-y-2">
+                  {order.items.map((item: any, idx: number) => (
+                    <div key={idx} className="flex gap-4 items-start">
+                      {/* Miniatura */}
+                      <div className="w-14 h-14 bg-gray-50 rounded-lg overflow-hidden border border-gray-100 flex-shrink-0">
+                        <img 
+                          src={item.image || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="%23f3f4f6"/><text x="50" y="55" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="%239ca3af">DAMABELLA</text></svg>'} 
+                          alt={item.productName} 
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.onerror = null;
+                            target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="%23f3f4f6"/><text x="50" y="55" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="%239ca3af">DAMABELLA</text></svg>';
+                          }}
+                        />
+                      </div>
+
+                      {/* Detalles del producto */}
+                      <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                        <div className="flex justify-between items-start gap-2">
+                          <h4 className="font-bold text-gray-800 text-sm leading-tight truncate">
+                            {item.productName}
+                          </h4>
+                          <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">
+                            {formatCOP(item.price)} c/u
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-gray-500 mt-0.5">
+                          <span>Talla: <strong className="text-gray-800 font-bold">{item.size}</strong></span>
+                          <span className="mx-1.5 text-gray-300">|</span>
+                          <span>Color: <strong className="text-gray-800 font-bold">{item.color}</strong></span>
+                          <span className="mx-1.5 text-gray-300">|</span>
+                          <span>Cantidad: <strong className="text-gray-800 font-bold">{item.quantity}</strong></span>
+                        </div>
+
+                        {order.items.length === 1 && (
+                          <div className="flex justify-between items-end mt-1.5 border-t border-gray-50 pt-1.5">
+                            <div className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: getShippingMethod(order).isDelivery ? '#701A75' : '#6b7280' }}>
+                              {getShippingMethod(order).icon}
+                              <span>{getShippingMethod(order).text}</span>
+                            </div>
+
+                            <div className="text-right">
+                              <p className="text-[10px] text-gray-400 font-medium leading-none">Total del pedido</p>
+                              <p className="text-base font-bold mt-1 leading-none" style={{ color: isPendiente ? '#701A75' : '#1f2937' }}>
+                                {formatCOP(order.total)}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {order.items.length > 1 && (
+                  <>
+                    <div className="border-t border-gray-100 my-2" />
+                    <div className="flex justify-between items-end">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: getShippingMethod(order).isDelivery ? '#701A75' : '#6b7280' }}>
+                        {getShippingMethod(order).icon}
+                        <span>{getShippingMethod(order).text}</span>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-[10px] text-gray-400 font-medium leading-none">Total del pedido</p>
+                        <p className="text-base font-bold mt-1 leading-none" style={{ color: isPendiente ? '#701A75' : '#1f2937' }}>
+                          {formatCOP(order.total)}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
+
+          {/* Botón en el fondo del listado */}
+          <div className="flex justify-center pt-4">
+            <button
+              onClick={() => onNavigate('profile')}
+              style={{ backgroundColor: '#701A75', color: '#ffffff' }}
+              className="hover:opacity-90 px-8 py-2.5 rounded-full text-xs font-bold transition-all shadow-md"
+            >
+              Volver a mi perfil
+            </button>
+          </div>
         </div>
       )}
     </div>

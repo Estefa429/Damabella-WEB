@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { User, Mail, Phone, MapPin, LogOut, Edit2, Package, Heart, ChevronRight, Home, Bell, Shield, CreditCard, ChevronUp, X, Eye, EyeOff, Check, AlertCircle, Lock, Save } from 'lucide-react';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
-import { useEcommerce } from '../../../../shared/contexts';
+import { useEcommerce } from '@/shared/contexts';
+import { getMyOrders } from '@/features/ecommerce/orders/services/OrderServices';
+
 
 interface ProfilePageProps {
   onNavigate: (view: string) => void;
@@ -33,6 +35,48 @@ export function ProfilePage({ onNavigate, currentUser, onLogout, onLogin }: Prof
   const { orders, favorites } = useEcommerce();
   const [isEditing, setIsEditing] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [userOrdersCount, setUserOrdersCount] = useState<number>(0);
+  const [loadingOrdersCount, setLoadingOrdersCount] = useState<boolean>(true);
+
+  // Cargar número de pedidos reales desde la base de datos
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    // Si no es un cliente (por ejemplo, es administrador), no tiene pedidos y evitamos la llamada a la API
+    // que podría fallar con 401/403/404 y provocar un cierre de sesión automático por el interceptor.
+    const isUserCliente = () => {
+      const roleName = (currentUser.rol_name ?? currentUser.role ?? currentUser.rol ?? '').toString().toLowerCase().trim();
+      const roleId = Number(currentUser.rol);
+      return roleName === 'cliente' || roleName === 'clientes' || roleName === 'client' || roleName === 'clients' || roleId === 2;
+    };
+
+    if (!isUserCliente()) {
+      setUserOrdersCount(0);
+      setLoadingOrdersCount(false);
+      return;
+    }
+    
+    const fetchOrdersCount = async () => {
+      setLoadingOrdersCount(true);
+      try {
+        const data = await getMyOrders();
+        if (data) {
+          setUserOrdersCount(data.length);
+        } else {
+          setUserOrdersCount(0);
+        }
+      } catch (err: any) {
+        console.error('[ProfilePage] Error al obtener contador de pedidos:', err);
+        // Si es 404 (cliente no existe en DB), significa 0 pedidos
+        setUserOrdersCount(0);
+      } finally {
+        setLoadingOrdersCount(false);
+      }
+    };
+    
+    fetchOrdersCount();
+  }, [currentUser]);
+
 
   // Debug: Ver qué datos tiene currentUser
   console.log('🔍 [ProfilePage] currentUser:', currentUser);
@@ -419,9 +463,7 @@ export function ProfilePage({ onNavigate, currentUser, onLogout, onLogin }: Prof
     );
   }
 
-  // Cargar pedidos del localStorage y combinarlos con los del contexto
-  const purchaseHistory = JSON.parse(localStorage.getItem('purchaseHistory') || '[]');
-  const userOrdersCount = orders.filter(order => order.clientEmail === currentUser?.email).length + purchaseHistory.length;
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -589,7 +631,13 @@ export function ProfilePage({ onNavigate, currentUser, onLogout, onLogin }: Prof
                     <Package size={20} className="text-pink-400" />
                     <span className="text-gray-700">Pedidos</span>
                   </div>
-                  <span className="text-2xl text-gray-900 font-bold">{userOrdersCount}</span>
+                  <span className="text-2xl text-gray-900 font-bold">
+                    {loadingOrdersCount ? (
+                      <span className="inline-block w-5 h-5 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"></span>
+                    ) : (
+                      userOrdersCount
+                    )}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">

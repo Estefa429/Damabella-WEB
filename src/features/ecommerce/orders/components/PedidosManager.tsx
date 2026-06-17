@@ -6,6 +6,8 @@
 // - Productos: siguen en localStorage hasta que tengan su propia API
 // - Bug de cleanup en useEffect corregido
 // - exportOrders() de la API reemplaza la exportación manual
+// - Fix: variantId ahora usa id_variant real de la API
+// - Fix: cálculos de totales unificados con precioVenta
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
@@ -13,31 +15,28 @@ import {
   Download, AlertCircle, Pencil, Ban, ShoppingCart, Repeat,
 } from 'lucide-react';
 import { Button, Input, Modal } from '../../../../shared/components/native';
+import { usePermissions } from '@/shared/hooks/usePermissions';
 import { validateField } from '../../../../shared/utils/validation';
-import { finalizarVenta, generarNumeroVenta } from '../../../../services/saleService';
 import {
-  cambiarEstadoPedidoCentralizado,
   puedeEditarse,
   puedeTransicionar,
   obtenerClaseEstado,
-  obtenerDescripcionEstado,
-  type EstadoPedido,
 } from '../../../../services/pedidosCentralizado';
 import { getAllClients, createClients, CreateClientsDTO, Clients } from '../../customers/services/clientsServices';
-import { getAllProducts, Product, getAllColors, getAllSizes, Color, Size } from '../../products/services/productsService';
+import { getAllProducts, Product, getAllVariants, getAllColors, getAllSizes, Color, Size, getAllInventory } from '../../products/services/productsService';
+import { createSale, CreateSaleDTO } from '../../sales/services/SalesServices';
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
 import { useOrders } from './UseOrder';
 import {
   formDataToCreateOrderDTO,
   apiOrderToLocal,
-  apiStateToLocalState,
   metodoPagoNameToId,
+  apiStateToLocalState,
   type ItemPedidoLocal,
   type FormDataLocal,
 } from './OrderMappers';
-
-// ─── Keys localStorage ───────
-// NOTA: Productos ahora se cargan de API
+import { getAllStates, type OrderState } from '../services/OrderServices';
 
 // ─── IVA ─────────────────────────────────────────────────────────────────────
 const IVA_RATE = 0.19;
@@ -48,6 +47,7 @@ type EstadoLocal = PedidoLocal['estado'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PedidosManager() {
+  const { hasPermission } = usePermissions();
 
   // ── API ──────────────────────────────────────────────────────────────────
   const {
@@ -74,19 +74,21 @@ export default function PedidosManager() {
   const [productos, setProductos] = useState<any[]>([]);
   const [tallas, setTallas] = useState<Size[]>([]);
   const [colores, setColores] = useState<Color[]>([]);
+  const [dbStates, setDbStates] = useState<OrderState[]>([]);
+  const [inventarios, setInventarios] = useState<any[]>([]);
 
   // ── Modales ───────────────────────────────────────────────────────────────
-  const [showModal,            setShowModal]            = useState(false);
-  const [showDetailModal,      setShowDetailModal]      = useState(false);
-  const [showClienteModal,     setShowClienteModal]     = useState(false);
-  const [showEstadoModal,      setShowEstadoModal]      = useState(false);
-  const [showNotificationModal,setShowNotificationModal]= useState(false);
-  const [showConfirmModal,     setShowConfirmModal]     = useState(false);
+  const [showModal,             setShowModal]             = useState(false);
+  const [showDetailModal,       setShowDetailModal]       = useState(false);
+  const [showClienteModal,      setShowClienteModal]      = useState(false);
+  const [showEstadoModal,       setShowEstadoModal]       = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showConfirmModal,      setShowConfirmModal]      = useState(false);
 
-  const [editingPedido,            setEditingPedido]            = useState<PedidoLocal | null>(null);
-  const [viewingPedido,            setViewingPedido]            = useState<PedidoLocal | null>(null);
-  const [pedidoParaCambiarEstado,  setPedidoParaCambiarEstado]  = useState<PedidoLocal | null>(null);
-  const [nuevoEstadoModal,         setNuevoEstadoModal]         = useState<EstadoLocal>('Pendiente');
+  const [editingPedido,           setEditingPedido]           = useState<PedidoLocal | null>(null);
+  const [viewingPedido,           setViewingPedido]           = useState<PedidoLocal | null>(null);
+  const [pedidoParaCambiarEstado, setPedidoParaCambiarEstado] = useState<PedidoLocal | null>(null);
+  const [nuevoEstadoModal,        setNuevoEstadoModal]        = useState<EstadoLocal>('Pendiente');
 
   const [notificationMessage, setNotificationMessage] = useState('');
   const [notificationType,    setNotificationType]    = useState<'success' | 'error' | 'info'>('info');
@@ -100,32 +102,29 @@ export default function PedidosManager() {
   const [clienteQuery,          setClienteQuery]          = useState('');
   const [selectedClienteNombre, setSelectedClienteNombre] = useState('');
   const [showClienteDropdown,   setShowClienteDropdown]   = useState(false);
-  const [productoQuery,         setProductoQuery]         = useState('');
-  const [showProductoDropdown,  setShowProductoDropdown]  = useState(false);
+  const [variantSearch,         setVariantSearch]         = useState('');
+  const [showVariantDrop,       setShowVariantDrop]       = useState(false);
+  const [selectedVariant,       setSelectedVariant]       = useState<any | null>(null);
+  const [itemTalla,             setItemTalla]             = useState('');
+  const [itemColor,             setItemColor]             = useState('');
+  const [itemCantidad,          setItemCantidad]          = useState('1');
+  const [itemPrecioCompra,      setItemPrecioCompra]      = useState('');
+  const [itemPrecioVenta,       setItemPrecioVenta]       = useState('');
 
   // ── Formulario pedido ─────────────────────────────────────────────────────
   const emptyForm = (): FormDataLocal => ({
-    clienteId:     '',
-    fechaPedido:   new Date().toISOString().split('T')[0],
-    metodoPago:    'Efectivo',
-    observaciones: '',
-    items:         [],
-    direccionEnvio:'',
-    personaRecibe: '',
-    estadoId:      1,
+    clienteId:      '',
+    fechaPedido:    new Date().toISOString().split('T')[0],
+    metodoPago:     'Efectivo',
+    observaciones:  '',
+    items:          [],
+    direccionEnvio: '',
+    personaRecibe:  '',
+    estadoId:       1,
   });
 
   const [formData,   setFormData]   = useState<FormDataLocal>(emptyForm());
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-
-  const [nuevoItem, setNuevoItem] = useState({
-    productoId: '',
-    talla: '',
-    color: '',
-    cantidad: '1',
-  });
-
-  const [stockDisponible, setStockDisponible] = useState<number | null>(null);
 
   // ── Formulario nuevo cliente ──────────────────────────────────────────────
   const [nuevoCliente, setNuevoCliente] = useState({
@@ -140,7 +139,14 @@ export default function PedidosManager() {
   // EFFECTS
   // ─────────────────────────────────────────────────────────────────────────
 
-  // Cargar clientes desde API y sincronizar productos desde localStorage
+  // useEffect totales — sin cambios, ya estaba bien
+  // useEffect(() => {
+  //   const total    = formData.items.reduce((sum, item) => sum + item.cantidad * item.precioVenta, 0);
+  //   const subtotal = total / (1 + IVA_RATE);
+  //   const iva      = total - subtotal;
+  //   setTotales({ subtotal, iva, total });
+  // }, [formData.items]);
+
   useEffect(() => {
     const loadClients = async () => {
       setClientesLoading(true);
@@ -148,16 +154,16 @@ export default function PedidosManager() {
         const clientesAPI = await getAllClients();
         if (clientesAPI) {
           const clientesMapeados = clientesAPI.map((client: Clients) => ({
-            id: client.id_client,
-            nombre: client.name,
-            tipoDoc: client.type_doc,
-            numeroDoc: client.doc,
-            telefono: client.phone,
-            email: client.email,
-            direccion: client.address,
-            ciudad: client.city,
-            activo: client.state,
-            saldoAFavor: 0
+            id:         client.id_client,
+            nombre:     client.name,
+            tipoDoc:    client.type_doc,
+            numeroDoc:  client.doc,
+            telefono:   client.phone,
+            email:      client.email,
+            direccion:  client.address,
+            ciudad:     client.city,
+            activo:     client.state,
+            saldoAFavor: client.saldoAFavor ?? (client as any).saldo_a_favor ?? 0,
           }));
           setClientes(clientesMapeados);
         }
@@ -173,13 +179,14 @@ export default function PedidosManager() {
         const productosAPI = await getAllProducts();
         if (productosAPI) {
           const productosMapeados = productosAPI.map((product: Product) => ({
-            id: product.id_product.toString(),
-            nombre: product.name,
-            categoria: product.category,
+            id:              product.id_product.toString(),
+            id_product:      product.id_product,
+            nombre:          product.name,
+            categoria:       product.category,
             categoriaNombre: product.category_name,
-            precioVenta: product.price,
-            precioCompra: product.purchase_price,
-            activo: product.is_active
+            precioVenta:     product.price,
+            precioCompra:    product.purchase_price,
+            activo:          product.is_active,
           }));
           setProductos(productosMapeados);
         }
@@ -190,25 +197,64 @@ export default function PedidosManager() {
 
     const loadTallasYColores = async () => {
       try {
-        const tallasAPI = await getAllSizes();
+        const tallasAPI  = await getAllSizes();
         const coloresAPI = await getAllColors();
-        if (tallasAPI) setTallas(tallasAPI);
+        if (tallasAPI)  setTallas(tallasAPI);
         if (coloresAPI) setColores(coloresAPI);
       } catch (error) {
         console.error('Error loading sizes and colors:', error);
       }
     };
 
+    const loadStates = async () => {
+      try {
+        const states = await getAllStates();
+        if (states) setDbStates(states);
+      } catch (error) {
+        console.error('Error loading states:', error);
+      }
+    };
+
+    const loadInventarios = async () => {
+      try {
+        const invAPI = await getAllInventory();
+        if (invAPI) setInventarios(invAPI);
+      } catch (error) {
+        console.error('Error loading inventory:', error);
+      }
+    };
+
     loadClients();
     loadProductos();
     loadTallasYColores();
+    loadStates();
+    loadInventarios();
   }, []);
+
+  const refreshInventarios = async () => {
+    try {
+      const invAPI = await getAllInventory();
+      if (invAPI) {
+        setInventarios(invAPI);
+        return invAPI;
+      }
+    } catch (error) {
+      console.error('Error refreshing inventory:', error);
+    }
+    return null;
+  };
+
+  const getVariantStock = (variantId: number): number => {
+    const inv = inventarios.find((i: any) => Number(i.variant ?? i.id_variant) === Number(variantId));
+    if (inv) return Number(inv.stock ?? 0);
+    return 0;
+  };
 
   // Cerrar dropdowns al click fuera
   useEffect(() => {
     const close = () => {
       setShowClienteDropdown(false);
-      setShowProductoDropdown(false);
+      setShowVariantDrop(false);
     };
     window.addEventListener('click', close);
     return () => window.removeEventListener('click', close);
@@ -224,31 +270,81 @@ export default function PedidosManager() {
     setShowNotificationModal(true);
   }, []);
 
-  const calcularTotales = (items: ItemPedidoLocal[]) => {
-    const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
-    const iva      = subtotal * IVA_RATE;
-    return { subtotal, iva, total: subtotal + iva };
+
+  const normalizeOptionValue = (value: string) =>
+    value?.replace(/-/g, ' ').trim() ?? '';
+
+  const getFirstValidOption = (values: string[]) =>
+    values.find(value => value && value.trim() && value !== '-');
+
+  const getTallasDisponibles = (): string[] =>
+    tallas.map(t => t.name).filter(Boolean);
+
+  const getColoresDisponibles = (): string[] =>
+    colores.map(c => c.name).filter(Boolean);
+
+  const resetItemSelection = () => {
+    setSelectedVariant(null);
+    setVariantSearch('');
+    setItemTalla('');
+    setItemColor('');
+    setItemCantidad('1');
+    setItemPrecioCompra('');
+    setItemPrecioVenta('');
   };
 
-  const getProductoSeleccionado = () =>
-    productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
-
-  const getTallasDisponibles = (): string[] => {
-    return tallas.map(t => t.name).filter(Boolean);
-  };
-
-  const getColoresDisponibles = (): string[] => {
-    return colores.map(c => c.name).filter(Boolean);
-  };
-
-  const getEstadoColor = (estado: EstadoLocal) => {
-    switch (estado) {
-      case 'Pendiente':          return 'bg-yellow-100 text-yellow-700';
-      case 'Completada':         return 'bg-green-100 text-green-700';
-      case 'Anulado':            return 'bg-red-100 text-red-700';
-      case 'Convertido a venta': return 'bg-blue-100 text-blue-700';
-      default:                   return 'bg-gray-100 text-gray-700';
+  // Fix: cargar variantes reales desde API al seleccionar producto
+  // handleSelectProduct — talla y color desde variante real de la API
+  const handleSelectProduct = async (product: any) => {
+    let variantsData: any[] = [];
+    try {
+      const todas = await getAllVariants();
+      variantsData = (todas || []).filter(
+        (v: any) => Number(v.product ?? v.id_product) === Number(product.id_product ?? product.id)
+      );
+    } catch (e) {
+      console.warn('[PedidosManager] No se pudieron cargar variantes:', e);
     }
+
+    // Talla y color desde la primera variante REAL de la API
+    const primeraVariante = variantsData[0];
+    const firstTalla = primeraVariante
+      ? String(primeraVariante.size_name ?? primeraVariante.talla ?? primeraVariante.size ?? '').trim()
+      : normalizeOptionValue(getFirstValidOption(getTallasDisponibles()) ?? '');
+    const firstColor = primeraVariante
+      ? String(primeraVariante.color_name ?? primeraVariante.color ?? '').trim()
+      : normalizeOptionValue(getFirstValidOption(getColoresDisponibles()) ?? '');
+
+    const precioVenta  = product.precioVenta  ?? product.price ?? 0;
+    const precioCompra = product.precioCompra ?? 0;
+
+    setSelectedVariant({
+      ...product,
+      talla:       firstTalla,
+      color:       firstColor,
+      precioVenta,
+      variants:    variantsData,
+    });
+    setVariantSearch(product.nombre || '');
+    setItemPrecioCompra(String(precioCompra));
+    setItemPrecioVenta(String(precioVenta));
+    setShowVariantDrop(false);
+    setItemTalla(firstTalla);
+    setItemColor(firstColor);
+  };
+
+  // Clases del badge de estado. El estado proviene SIEMPRE de la API
+  // (pedido.estado, derivado de la tabla States de Django vía apiOrderToLocal),
+  // nunca de localStorage. Nombres/IDs reales: 1 Pendiente · 2 Entregado ·
+  // 3 Cancelado · 4 Anulado.
+  // Clases del badge de estado unificadas desde el servicio centralizado
+  const getEstadoBadgeClass = (estado: EstadoLocal) => {
+    return obtenerClaseEstado(estado);
+  };
+
+  const getClienteDocumento = (clienteId: string) => {
+    const cliente = clientes.find((c: any) => c.id?.toString() === clienteId);
+    return cliente ? cliente.numeroDoc : '-';
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -263,31 +359,6 @@ export default function PedidosManager() {
       setFormErrors(prev => ({ ...prev, fechaPedido: 'La fecha del pedido es obligatoria' }));
   };
 
-  const handleNuevoItemChange = (field: string, value: any) => {
-    setNuevoItem(prev => {
-      if (field === 'productoId') {
-        setStockDisponible(null);
-        return { ...prev, productoId: value, talla: '', color: '', cantidad: '1' };
-      }
-      if (field === 'talla') {
-        setStockDisponible(null);
-        return { ...prev, talla: value, color: '' };
-      }
-      if (field === 'color') {
-        const p = productos.find((p: any) => p.id.toString() === prev.productoId);
-        if (p?.variantes) {
-          const vt = p.variantes.find((v: any) => v.talla === prev.talla);
-          const ci = vt?.colores?.find((c: any) => c.color === value);
-          setStockDisponible(ci ? ci.cantidad : 0);
-        } else {
-          setStockDisponible(null);
-        }
-        return { ...prev, color: value };
-      }
-      return { ...prev, [field]: value };
-    });
-  };
-
   const handleNuevoClienteChange = (field: string, value: any) => {
     setNuevoCliente(prev => ({ ...prev, [field]: value }));
     let err = '';
@@ -298,7 +369,7 @@ export default function PedidosManager() {
         err = 'Correo electrónico inválido';
     }
     if (field === 'telefono') {
-      if (!value)               err = 'Teléfono obligatorio';
+      if (!value)                    err = 'Teléfono obligatorio';
       else if (!/^\d+$/.test(value)) err = 'Solo números';
     }
     setFormErrors(prev => ({ ...prev, [`nuevoCliente_${field}`]: err }));
@@ -309,13 +380,13 @@ export default function PedidosManager() {
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleCreate = () => {
+    refreshInventarios();
     setEditingPedido(null);
     setFormData(emptyForm());
-    setNuevoItem({ productoId: '', talla: '', color: '', cantidad: '1' });
+    resetItemSelection();
     setClienteQuery('');
-    setProductoQuery('');
     setShowClienteDropdown(false);
-    setShowProductoDropdown(false);
+    setShowVariantDrop(false);
     setFormErrors({});
     setShowModal(true);
   };
@@ -325,6 +396,7 @@ export default function PedidosManager() {
       notify(`No puedes editar un pedido en estado "${pedido.estado}".`, 'error');
       return;
     }
+    refreshInventarios();
     setEditingPedido(pedido);
     setFormData({
       clienteId:      pedido.clienteId,
@@ -343,9 +415,9 @@ export default function PedidosManager() {
       : pedido.clienteNombre;
     setClienteQuery(label);
     setSelectedClienteNombre(label);
-    setProductoQuery('');
+    resetItemSelection();
     setShowClienteDropdown(false);
-    setShowProductoDropdown(false);
+    setShowVariantDrop(false);
     setFormErrors({});
     setShowModal(true);
   };
@@ -356,11 +428,13 @@ export default function PedidosManager() {
 
   const agregarItem = () => {
     const errs: Record<string, string> = {};
-    if (!nuevoItem.productoId) errs['nuevoItem_productoId'] = 'Selecciona un producto';
-    if (!nuevoItem.talla)      errs['nuevoItem_talla']      = 'Selecciona una talla';
-    if (!nuevoItem.color)      errs['nuevoItem_color']      = 'Selecciona un color';
-    const cantNum = parseInt(nuevoItem.cantidad, 10);
-    if (isNaN(cantNum) || cantNum < 1) errs['nuevoItem_cantidad'] = 'Cantidad inválida';
+    if (!selectedVariant)                      errs['item_selectedVariant'] = 'Selecciona un producto';
+    if (!itemTalla)                            errs['item_talla']           = 'Selecciona una talla';
+    if (!itemColor)                            errs['item_color']           = 'Selecciona un color';
+    const cantNum = parseInt(itemCantidad, 10);
+    if (isNaN(cantNum) || cantNum < 1)         errs['itemCantidad']         = 'Cantidad inválida';
+    if (!itemPrecioVenta)                      errs['item_precioVenta']     = 'Precio de venta no definido';
+    if (!itemPrecioCompra)                     errs['item_precioCompra']    = 'Precio de compra no definido';
 
     if (Object.keys(errs).length) {
       setFormErrors(prev => ({ ...prev, ...errs }));
@@ -368,53 +442,85 @@ export default function PedidosManager() {
       return;
     }
 
-    const producto = productos.find((p: any) => p.id.toString() === nuevoItem.productoId);
-    if (!producto) return;
+    if (!selectedVariant) return;
 
-    const item: ItemPedidoLocal = {
-      id:             Date.now().toString(),
-      productoId:     nuevoItem.productoId,
-      productoNombre: producto.nombre,
-      talla:          nuevoItem.talla,
-      color:          nuevoItem.color,
-      cantidad:       cantNum,
-      precioUnitario: producto.precioVenta,
-      subtotal:       cantNum * producto.precioVenta,
-    };
+    const variantTalla = itemTalla.trim().toLowerCase();
+    const variantColor = itemColor.trim().toLowerCase();
+
+    // Buscar variante real por talla Y color para obtener id_variant correcto
+    const varianteReal = (selectedVariant.variants ?? []).find((v: any) => {
+      const talla = String(v.size_name ?? v.talla ?? v.size ?? '').trim().toLowerCase();
+      const color = String(v.color_name ?? v.color ?? '').trim().toLowerCase();
+      return talla === variantTalla && color === variantColor;
+    });
+
+    // Fallback: buscar solo por talla si no hay coincidencia exacta
+    const varianteFallback = (selectedVariant.variants ?? []).find((v: any) => {
+      const talla = String(v.size_name ?? v.talla ?? v.size ?? '').trim().toLowerCase();
+      return talla === variantTalla;
+    });
+
+    const variantId = Number(
+      varianteReal?.id_variant ??
+      varianteReal?.id ??
+      varianteFallback?.id_variant ??
+      varianteFallback?.id ??
+      null
+    );
+
+    if (!variantId) {
+      notify(`No se encontró variante para talla "${itemTalla}" y color "${itemColor}". Verifica el inventario.`, 'error');
+      return;
+    }
+
+    // Validar Stock disponible
+    const stockDisponible = getVariantStock(variantId);
+    const cantidadPrevia = formData.items
+      .filter(it => Number(it.variantId) === variantId)
+      .reduce((sum, it) => sum + it.cantidad, 0);
+
+    const cantidadTotalSolicitada = cantidadPrevia + cantNum;
+
+    if (cantidadTotalSolicitada > stockDisponible) {
+      notify(`No hay suficiente stock disponible para "${selectedVariant.nombre}" (Talla: ${itemTalla}, Color: ${itemColor}). Stock actual: ${stockDisponible} unidad(es). Ya has solicitado: ${cantidadPrevia} unidad(es).`, 'error');
+      return;
+    }
+
+    const precioCompra = parseFloat(itemPrecioCompra) || 0;
+    const precioVenta  = parseFloat(itemPrecioVenta)  || 0;
+    const subtotal     = cantNum * precioVenta;
+
+    // agregarItem — precioVenta garantizado como number
+  const item: ItemPedidoLocal = {
+    id:             Date.now().toString(),
+    productoId:     String(selectedVariant.id_product ?? selectedVariant.id),
+    variantId,
+    productoNombre: selectedVariant.nombre,
+    talla:          itemTalla,
+    color:          itemColor,
+    cantidad:       cantNum,
+    precioCompra:   parseFloat(itemPrecioCompra) || 0,
+    precioVenta:    parseFloat(itemPrecioVenta)  || 0,  // nunca undefined
+    precioUnitario: parseFloat(itemPrecioVenta)  || 0,
+    subtotal:       cantNum * (parseFloat(itemPrecioVenta) || 0),
+  };
 
     setFormData(prev => ({ ...prev, items: [...prev.items, item] }));
-    setNuevoItem({ productoId: '', talla: '', color: '', cantidad: '1' });
-    setProductoQuery('');
-    setShowProductoDropdown(false);
+    resetItemSelection();
+    setShowVariantDrop(false);
     setFormErrors(prev => ({
       ...prev,
-      'nuevoItem_productoId': '',
-      'nuevoItem_talla': '',
-      'nuevoItem_color': '',
-      'nuevoItem_cantidad': '',
+      item_selectedVariant: '',
+      item_talla:           '',
+      item_color:           '',
+      itemCantidad:         '',
+      item_precioVenta:     '',
+      item_precioCompra:    '',
     }));
   };
 
   const eliminarItem = (itemId: string) =>
     setFormData(prev => ({ ...prev, items: prev.items.filter(i => i.id !== itemId) }));
-
-  const actualizarCantidadItem = (itemId: string, value: string) => {
-    const cantidad = Math.max(1, parseInt(value, 10) || 1);
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items.map(i =>
-        i.id !== itemId ? i : { ...i, cantidad, subtotal: cantidad * i.precioUnitario }),
-    }));
-  };
-
-  const actualizarPrecioItem = (itemId: string, value: string) => {
-    const precio = Math.max(0, parseFloat(value) || 0);
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items.map(i =>
-        i.id !== itemId ? i : { ...i, precioUnitario: precio, subtotal: i.cantidad * precio }),
-    }));
-  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // GUARDAR (CREAR / EDITAR) → API
@@ -427,8 +533,8 @@ export default function PedidosManager() {
     }
 
     const errs: Record<string, string> = {};
-    if (!formData.clienteId)  errs.clienteId  = 'Debes seleccionar un cliente';
-    if (!formData.fechaPedido) errs.fechaPedido = 'La fecha del pedido es obligatoria';
+    if (!formData.clienteId)   errs.clienteId   = 'Debes seleccionar un cliente';
+    if (!formData.fechaPedido) errs.fechaPedido  = 'La fecha del pedido es obligatoria';
     if (Object.keys(errs).length) {
       setFormErrors(errs);
       notify('Por favor completa todos los campos obligatorios', 'error');
@@ -437,6 +543,28 @@ export default function PedidosManager() {
     if (!formData.items.length) {
       notify('Agrega al menos un producto', 'error');
       return;
+    }
+
+    // Validar Stock disponible antes de guardar (refrescar inventario primero)
+    const latestInventory = await refreshInventarios();
+    const inventoryToUse = latestInventory || inventarios;
+
+    const getVariantStockHelper = (variantId: number, invs: any[]): number => {
+      const inv = invs.find((i: any) => Number(i.variant ?? i.id_variant) === Number(variantId));
+      if (inv) return Number(inv.stock ?? 0);
+      return 0;
+    };
+
+    for (const item of formData.items) {
+      const stockDisponible = getVariantStockHelper(Number(item.variantId), inventoryToUse);
+      const cantidadTotalSolicitada = formData.items
+        .filter(it => Number(it.variantId) === Number(item.variantId))
+        .reduce((sum, it) => sum + it.cantidad, 0);
+
+      if (cantidadTotalSolicitada > stockDisponible) {
+        notify(`Stock insuficiente para el producto "${item.productoNombre}" (Talla: ${item.talla}, Color: ${item.color}). Stock disponible: ${stockDisponible} unidad(es).`, 'error');
+        return;
+      }
     }
 
     const dto = formDataToCreateOrderDTO(formData);
@@ -465,44 +593,80 @@ export default function PedidosManager() {
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleCambiarEstado = async (pedido: PedidoLocal, estadoDestino: EstadoLocal) => {
-    // Mapa de estado local → id de estado en backend
-    // Ajusta estos ids según tu base de datos
-    const estadoIdMap: Record<EstadoLocal, number> = {
-      'Pendiente':          1,
-      'Completada':         2,
-      'Anulado':            3,
-      'Convertido a venta': 4,
-    };
+    // Buscar el ID real en los estados cargados de la BD
+    const matchingState = dbStates.find(s => 
+      apiStateToLocalState(s) === estadoDestino
+    );
 
-    if (estadoDestino === 'Completada') {
-      setConfirmMessage(`¿Confirmas convertir el pedido ${pedido.numeroPedido} a venta?`);
-      setConfirmAction(() => async () => {
-        const result = await apiCambiarEstado(pedido.id, estadoIdMap[estadoDestino]);
-        if (result) {
-          notify(`Estado actualizado correctamente`, 'success');
-          window.dispatchEvent(new Event('salesUpdated'));
-          window.dispatchEvent(new Event('ordersUpdated'));
-        } else {
-          notify('Error al cambiar el estado. Verifica la conexión.', 'error');
-        }
-        setShowEstadoModal(false);
-        setShowConfirmModal(false);
-      });
-      setShowConfirmModal(true);
+    if (!matchingState) {
+      notify(`No se encontró el ID para el estado "${estadoDestino}" en la base de datos.`, 'error');
+      console.warn('Estados disponibles:', dbStates);
       return;
     }
 
-    const result = await apiCambiarEstado(pedido.id, estadoIdMap[estadoDestino]);
-    if (result) {
-      notify(`Estado actualizado a "${estadoDestino}"`, 'success');
-    } else {
-      notify('Error al cambiar el estado.', 'error');
-    }
-    setShowEstadoModal(false);
+    const estadoIdReal = matchingState.id_state;
+
+    const msg = estadoDestino === 'Entregado'
+      ? `¿Confirmas convertir el pedido ${pedido.numeroPedido} a venta?`
+      : `¿Confirmas cambiar el estado del pedido ${pedido.numeroPedido} a "${estadoDestino}"?`;
+
+    setConfirmMessage(msg);
+    setConfirmAction(() => async () => {
+      console.debug('[handleCambiarEstado] Enviando a API:', { id: pedido.id, stateId: estadoIdReal });
+      
+      try {
+        const result = await apiCambiarEstado(pedido.id, estadoIdReal);
+        
+        if (result) {
+          if (estadoDestino === 'Entregado') {
+            console.debug('[handleCambiarEstado] Iniciando creación automática de venta para pedido:', pedido.numeroPedido);
+            
+            const salePayload: any = {
+              client: parseInt(pedido.clienteId, 10),
+              order: pedido.id,
+              payment_method: pedido.metodoPagoId || 1, 
+              date_sale: new Date().toISOString().split('T')[0],
+              state: 1, 
+              observations: `Venta automática desde pedido nº ${pedido.numeroPedido}. ${pedido.observaciones || ''}`,
+              details: pedido.items.map(item => ({
+                variant: item.variantId,
+                quantity: item.cantidad,
+                unit_price: item.precioUnitario.toString(),
+                subtotal: item.subtotal.toString()
+              }))
+            };
+
+            try {
+              const ventaCreada = await createSale(salePayload);
+              if (ventaCreada) {
+                notify('Pedido convertido a venta exitosamente', 'success');
+                window.dispatchEvent(new Event('salesUpdated'));
+              }
+            } catch (saleErr) {
+              console.error('Error creando venta automática:', saleErr);
+              notify('Pedido entregado, pero hubo un error al registrar la venta en el servidor.', 'warning');
+            }
+          } else {
+            notify(`Estado actualizado a "${estadoDestino}"`, 'success');
+          }
+
+          // Notificar a otros módulos y cerrar modales
+          setTimeout(() => {
+            window.dispatchEvent(new Event('ordersUpdated'));
+          }, 500);
+        }
+      } catch (err) {
+        console.error('[handleCambiarEstado] Error:', err);
+        notify('Ocurrió un error al procesar el cambio de estado.', 'error');
+      }
+      setShowEstadoModal(false);
+      setShowConfirmModal(false);
+    });
+    setShowConfirmModal(true);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // CREAR CLIENTE (sigue en localStorage hasta tener API)
+  // CREAR CLIENTE → API
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleCrearCliente = async () => {
@@ -526,32 +690,32 @@ export default function PedidosManager() {
       setClientesLoading(true);
 
       const clienteDTO: CreateClientsDTO = {
-        name: nuevoCliente.nombre,
+        name:     nuevoCliente.nombre,
         type_doc: nuevoCliente.tipoDoc === 'CC' ? 1 : nuevoCliente.tipoDoc === 'CE' ? 2 : 3,
-        doc: nuevoCliente.numeroDoc,
-        phone: nuevoCliente.telefono,
-        email: nuevoCliente.email,
-        address: nuevoCliente.direccion,
-        city: ''
+        doc:      nuevoCliente.numeroDoc,
+        phone:    nuevoCliente.telefono,
+        email:    nuevoCliente.email,
+        address:  nuevoCliente.direccion,
+        city:     '',
       };
 
       const clienteCreado = await createClients(clienteDTO);
 
       if (clienteCreado) {
         const clienteMapeado = {
-          id: clienteCreado.id_client,
-          nombre: clienteCreado.name,
-          tipoDoc: clienteCreado.type_doc,
-          numeroDoc: clienteCreado.doc,
-          telefono: clienteCreado.phone,
-          email: clienteCreado.email,
-          direccion: clienteCreado.address,
-          ciudad: clienteCreado.city,
-          activo: clienteCreado.state,
-          saldoAFavor: 0
+          id:          clienteCreado.id_client,
+          nombre:      clienteCreado.name,
+          tipoDoc:     clienteCreado.type_doc,
+          numeroDoc:   clienteCreado.doc,
+          telefono:    clienteCreado.phone,
+          email:       clienteCreado.email,
+          direccion:   clienteCreado.address,
+          ciudad:      clienteCreado.city,
+          activo:      clienteCreado.state,
+          saldoAFavor: 0,
         };
 
-        setClientes([...clientes, clienteMapeado]);
+        setClientes(prev => [...prev, clienteMapeado]);
         handleFieldChange('clienteId', clienteMapeado.id.toString());
         const label = `${clienteMapeado.nombre} - ${clienteMapeado.numeroDoc}`;
         setClienteQuery(label);
@@ -571,7 +735,7 @@ export default function PedidosManager() {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // DESCARGAR COMPROBANTE (local, sin cambios)
+  // DESCARGAR COMPROBANTE
   // ─────────────────────────────────────────────────────────────────────────
 
   const descargarComprobante = (pedido: PedidoLocal) => {
@@ -591,16 +755,16 @@ PRODUCTOS
 ${pedido.items.map(i => `
 ${i.productoNombre}
 Talla: ${i.talla} | Color: ${i.color}
-Cantidad: ${i.cantidad} x $${i.precioUnitario.toLocaleString()}
-Subtotal: $${i.subtotal.toLocaleString()}
+Cantidad: ${i.cantidad} x ${formatCOP(i.precioUnitario)}
+Subtotal: ${formatCOP(i.subtotal)}
 `).join('\n')}
 
 ---------------------------------
 TOTALES
 ---------------------------------
-Subtotal: $${pedido.subtotal.toLocaleString()}
-IVA (19%): $${pedido.iva.toLocaleString()}
-TOTAL: $${pedido.total.toLocaleString()}
+Subtotal: ${formatCOP(pedido.subtotal)}
+IVA (19%): ${formatCOP(pedido.iva)}
+TOTAL: ${formatCOP(pedido.total)}
 
 Método de Pago: ${pedido.metodoPago}
 ${pedido.observaciones ? `\nObservaciones:\n${pedido.observaciones}` : ''}
@@ -624,12 +788,15 @@ DAMABELLA - Moda Femenina
 
   const filteredPedidos = useMemo(() => {
     return pedidos.filter(p => {
-      if (p.estado !== 'Pendiente') return false;
+      // ELIMINADO: if (p.estado !== 'Pendiente') return false; 
+      // Ahora se muestran todos los pedidos (Pendientes, Entregados, etc.)
       const q = searchTerm.toLowerCase();
       if (!q) return true;
+      const doc = getClienteDocumento(p.clienteId).toLowerCase();
       return (
         p.numeroPedido.toLowerCase().includes(q) ||
         p.clienteNombre.toLowerCase().includes(q) ||
+        doc.includes(q) ||
         p.estado.toLowerCase().includes(q) ||
         new Date(p.fechaPedido).toLocaleDateString().includes(searchTerm) ||
         p.total.toString().includes(searchTerm) ||
@@ -640,7 +807,7 @@ DAMABELLA - Moda Femenina
         )
       );
     });
-  }, [pedidos, searchTerm]);
+  }, [pedidos, searchTerm, clientes]);
 
   const totalPages = Math.ceil(filteredPedidos.length / ITEMS_PER_PAGE);
 
@@ -649,16 +816,15 @@ DAMABELLA - Moda Femenina
     return filteredPedidos.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredPedidos, currentPage]);
 
-  // Listas para dropdowns
   const clientesFiltradosSelect = useMemo(() =>
     clientes
       .filter((c: any) => c.activo !== false)
       .filter((c: any) => {
         const q = clienteQuery.toLowerCase();
         return (
-          (c.nombre?.toLowerCase() ?? '').includes(q) ||
-          (c.numeroDoc ?? '').includes(clienteQuery) ||
-          (c.telefono ?? '').includes(clienteQuery)
+          (c.nombre?.toLowerCase()  ?? '').includes(q) ||
+          (c.numeroDoc              ?? '').includes(clienteQuery) ||
+          (c.telefono               ?? '').includes(clienteQuery)
         );
       }),
     [clientes, clienteQuery]);
@@ -667,20 +833,18 @@ DAMABELLA - Moda Femenina
     productos
       .filter((p: any) => p.activo)
       .filter((p: any) => {
-        const q = productoQuery.toLowerCase();
+        const q = variantSearch.toLowerCase();
         return (
-          (p.nombre?.toLowerCase() ?? '').includes(q) ||
-          (p.referencia?.toLowerCase() ?? '').includes(q) ||
-          (p.codigoInterno?.toLowerCase() ?? '').includes(q)
+          (p.nombre?.toLowerCase()          ?? '').includes(q) ||
+          (p.categoriaNombre?.toLowerCase() ?? '').includes(q)
         );
       }),
-    [productos, productoQuery]);
+    [productos, variantSearch]);
 
-  const totales           = calcularTotales(formData.items);
   const clienteSeleccionado = clientes.find(
     (c: any) => c.id?.toString() === formData.clienteId?.toString()
   );
-  const saldoDisponible   = Number(clienteSeleccionado?.saldoAFavor || 0);
+  const saldoDisponible = Number(clienteSeleccionado?.saldoAFavor || 0);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -704,10 +868,12 @@ DAMABELLA - Moda Femenina
             <Download size={20} />
             Descargar Pedidos
           </Button>
-          <Button onClick={handleCreate} variant="primary" className="flex items-center gap-2">
-            <Plus size={20} />
-            Registrar Pedido
-          </Button>
+          {hasPermission('pedidos', 'create') && (
+            <Button onClick={handleCreate} variant="primary" className="flex items-center gap-2">
+              <Plus size={20} />
+              Registrar Pedido
+            </Button>
+          )}
         </div>
       </div>
 
@@ -741,6 +907,7 @@ DAMABELLA - Moda Femenina
               <tr>
                 <th className="text-left py-4 px-6 text-gray-600">Número</th>
                 <th className="text-left py-4 px-6 text-gray-600">Cliente</th>
+                <th className="text-left py-4 px-6 text-gray-600">Documento</th>
                 <th className="text-left py-4 px-6 text-gray-600">Fecha</th>
                 <th className="text-right py-4 px-6 text-gray-600">Total</th>
                 <th className="text-center py-4 px-6 text-gray-600">Estado</th>
@@ -750,31 +917,39 @@ DAMABELLA - Moda Femenina
             <tbody className="divide-y divide-gray-100">
               {apiLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-400">
+                  <td colSpan={7} className="py-12 text-center text-gray-400">
                     Cargando pedidos...
                   </td>
                 </tr>
               ) : filteredPedidos.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-500">
+                  <td colSpan={7} className="py-12 text-center text-gray-500">
                     <ShoppingCart className="mx-auto mb-4 text-gray-300" size={48} />
                     <p>No se encontraron pedidos</p>
                   </td>
                 </tr>
               ) : (
                 paginatedPedidos.map(pedido => (
-                  <tr key={pedido.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={pedido.id}
+                    className={`transition-colors ${
+                      pedido.estado === 'Cancelado' || pedido.estado === 'Anulado'
+                        ? 'opacity-50 line-through bg-gray-50'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <td className="py-4 px-6 text-gray-900">{pedido.numeroPedido}</td>
                     <td className="py-4 px-6 text-gray-600">{pedido.clienteNombre}</td>
+                    <td className="py-4 px-6 text-gray-600">{getClienteDocumento(pedido.clienteId)}</td>
                     <td className="py-4 px-6 text-gray-600">
                       {new Date(pedido.fechaPedido).toLocaleDateString()}
                     </td>
                     <td className="py-4 px-6 text-right text-gray-900">
-                      ${pedido.total.toLocaleString()}
+                      {formatCOP(pedido.total)}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex justify-center">
-                        <span className={`inline-flex px-3 py-1 rounded-full text-sm ${getEstadoColor(pedido.estado)}`}>
+                        <span className={`inline-flex items-center ${getEstadoBadgeClass(pedido.estado)}`}>
                           {pedido.estado}
                         </span>
                       </div>
@@ -801,20 +976,31 @@ DAMABELLA - Moda Femenina
                             setNuevoEstadoModal(pedido.estado);
                             setShowEstadoModal(true);
                           }}
-                          className="p-2 hover:bg-purple-50 rounded-lg text-purple-600"
-                          title="Cambiar estado"
+                          disabled={!hasPermission('pedidos', 'edit')}
+                          className={`p-2 rounded-lg transition-colors ${
+                            !hasPermission('pedidos', 'edit')
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'hover:bg-purple-50 text-purple-600'
+                          }`}
+                          title={!hasPermission('pedidos', 'edit') ? "Sin permiso de edición" : "Cambiar estado"}
                         >
                           <Repeat size={18} />
                         </button>
                         <button
                           onClick={() => handleEdit(pedido)}
-                          disabled={!puedeEditarse(pedido.estado)}
+                          disabled={!puedeEditarse(pedido.estado) || !hasPermission('pedidos', 'edit')}
                           className={`p-2 rounded-lg transition-colors ${
-                            !puedeEditarse(pedido.estado)
+                            !puedeEditarse(pedido.estado) || !hasPermission('pedidos', 'edit')
                               ? 'text-gray-300 cursor-not-allowed'
                               : 'hover:bg-gray-100 text-gray-600'
                           }`}
-                          title={!puedeEditarse(pedido.estado) ? `No editable en estado ${pedido.estado}` : 'Editar'}
+                          title={
+                            !hasPermission('pedidos', 'edit')
+                              ? 'Sin permiso de edición'
+                              : !puedeEditarse(pedido.estado)
+                                ? `No editable en estado ${pedido.estado}`
+                                : 'Editar'
+                          }
                         >
                           <Pencil size={18} />
                         </button>
@@ -831,10 +1017,7 @@ DAMABELLA - Moda Femenina
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
             <span>
-              Mostrando{' '}
-              {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredPedidos.length)} a{' '}
-              {Math.min(currentPage * ITEMS_PER_PAGE, filteredPedidos.length)} de{' '}
-              {filteredPedidos.length} pedidos
+              {`Mostrando ${Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredPedidos.length)} a ${Math.min(currentPage * ITEMS_PER_PAGE, filteredPedidos.length)} de ${filteredPedidos.length} pedidos`}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -974,7 +1157,7 @@ DAMABELLA - Moda Femenina
                     <label className="block text-gray-700 mb-1 text-[10px]">Método de Pago *</label>
                     {saldoDisponible > 0 && formData.clienteId && (
                       <div className="mb-1 rounded-md border border-green-300 bg-green-50 p-1 text-[10px]">
-                        <span className="text-green-800 font-semibold">✅ Saldo: ${saldoDisponible.toLocaleString()}</span>
+                        <span className="text-green-800 font-semibold">✅ Saldo: {formatCOP(saldoDisponible)}</span>
                       </div>
                     )}
                     <select
@@ -1000,45 +1183,88 @@ DAMABELLA - Moda Femenina
                 {/* Agregar producto */}
                 <h4 className="text-gray-900 text-[10px] font-semibold mb-2 mt-2">Agregar productos</h4>
                 <div className="bg-gray-50 rounded-md p-2 mb-2 border border-gray-200">
-                  <div className="flex gap-2 items-center">
-                    <div className="flex-1">
+                  <div className="flex flex-wrap gap-2 items-end">
+                    <div className="flex-1 min-w-[200px] relative">
                       <Input
-                        value={productoQuery}
-                        onChange={e => { setProductoQuery(e.target.value); setShowProductoDropdown(true); if (!e.target.value) handleNuevoItemChange('productoId', ''); }}
-                        onFocus={() => setShowProductoDropdown(true)}
-                        placeholder="Producto"
+                        value={variantSearch}
+                        onChange={e => { setVariantSearch(e.target.value); setSelectedVariant(null); setShowVariantDrop(true); }}
+                        onFocus={() => setShowVariantDrop(true)}
+                        onBlur={() => setTimeout(() => setShowVariantDrop(false), 200)}
+                        placeholder="Buscar producto..."
                         className="w-full h-7 px-2 text-[10px]"
                       />
-                      {showProductoDropdown && (
-                        <div className="absolute z-[9999] mt-1 w-80 max-h-40 bg-white border border-gray-200 rounded-md shadow-md overflow-y-auto">
-                          {productosFiltradosSelect.length === 0
-                            ? <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
-                            : productosFiltradosSelect.map((p: any) => (
-                              <button type="button" key={p.id} className="w-full text-left px-2 py-1 hover:bg-gray-50"
-                                onClick={() => {
-                                  handleNuevoItemChange('productoId', p.id.toString());
-                                  setProductoQuery(`${p.nombre}${p.referencia ? ` (${p.referencia})` : ''}`);
-                                  setShowProductoDropdown(false);
-                                }}>
-                                <div className="text-[10px] text-gray-900">{p.nombre}</div>
-                                <div className="text-[10px] text-gray-500">${(p.precioVenta || 0).toLocaleString()}</div>
+                      {selectedVariant && (
+                        <div className="mt-2 p-3 bg-white border border-gray-200 rounded-md text-[10px] text-gray-700">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <p className="font-semibold text-gray-900">Producto</p>
+                              <p className="text-gray-600 truncate">{selectedVariant.nombre}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">Cantidad</p>
+                              <p className="text-gray-600">{itemCantidad || '0'}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">Talla</p>
+                              <p className="text-gray-600">{itemTalla || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">Color</p>
+                              <p className="text-gray-600">{itemColor || '-'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {showVariantDrop && (
+                        <div className="absolute z-50 mt-1 w-full max-h-60 bg-white border border-gray-200 rounded-md shadow-lg overflow-y-auto text-[10px]">
+                          {productosFiltradosSelect.length === 0 ? (
+                            <div className="px-3 py-3 text-center text-gray-500">No hay resultados</div>
+                          ) : (
+                            productosFiltradosSelect.map((p: any) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onMouseDown={(e) => { e.preventDefault(); handleSelectProduct(p); }}
+                                className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                              >
+                                <div className="font-semibold text-gray-900">{p.nombre}</div>
+                                <div className="text-gray-500 text-[10px]">
+                                  {p.categoriaNombre || 'Sin categoría'} · Venta {formatCOP(p.precioVenta ?? 0)}
+                                </div>
                               </button>
                             ))
-                          }
+                          )}
                         </div>
                       )}
                     </div>
                     <div className="w-24">
-                      <select value={nuevoItem.talla} onChange={e => handleNuevoItemChange('talla', e.target.value)}
-                        className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px]">
+                      <select
+                        value={itemTalla}
+                        onChange={e => {
+                          const value = normalizeOptionValue(e.target.value);
+                          setItemTalla(value);
+                          if (selectedVariant) {
+                            setSelectedVariant({ ...selectedVariant, talla: value });
+                          }
+                        }}
+                        className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px]"
+                      >
                         <option value="">Talla</option>
                         {getTallasDisponibles().map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
                     <div className="w-24">
-                      <select value={nuevoItem.color} onChange={e => handleNuevoItemChange('color', e.target.value)}
-                        disabled={!nuevoItem.talla}
-                        className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px]">
+                      <select
+                        value={itemColor}
+                        onChange={e => {
+                          const value = normalizeOptionValue(e.target.value);
+                          setItemColor(value);
+                          if (selectedVariant) {
+                            setSelectedVariant({ ...selectedVariant, color: value });
+                          }
+                        }}
+                        className="w-full h-7 px-2 border border-gray-300 rounded-md text-[10px]"
+                      >
                         <option value="">Color</option>
                         {getColoresDisponibles().map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
@@ -1046,12 +1272,27 @@ DAMABELLA - Moda Femenina
                     <div className="w-20">
                       <Input
                         type="number" min="1"
-                        max={stockDisponible ?? undefined}
-                        placeholder="Cant."
-                        value={nuevoItem.cantidad}
-                        onChange={e => handleNuevoItemChange('cantidad', e.target.value)}
-                        disabled={!nuevoItem.color || stockDisponible === 0}
+                        value={itemCantidad}
+                        onChange={e => setItemCantidad(e.target.value)}
                         className="w-full h-7 px-2 text-[10px]"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <Input
+                        type="number"
+                        value={itemPrecioCompra}
+                        readOnly
+                        placeholder="P. Compra"
+                        className="w-full h-7 px-2 text-[10px] bg-gray-100 cursor-not-allowed"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <Input
+                        type="number"
+                        value={itemPrecioVenta}
+                        readOnly
+                        placeholder="P. Venta"
+                        className="w-full h-7 px-2 text-[10px] bg-gray-100 cursor-not-allowed"
                       />
                     </div>
                     <Button onClick={agregarItem} variant="secondary" className="h-7 px-3 text-[10px] whitespace-nowrap">
@@ -1066,37 +1307,42 @@ DAMABELLA - Moda Femenina
                 <table className="w-full text-[10px]">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      {['Num','Producto','Talla','Color','Cant.','Unitario','Total','Acción'].map(h => (
-                        <th key={h} className={`px-2 py-1.5 font-semibold text-gray-700 whitespace-nowrap ${h === 'Acción' ? 'text-center' : h === 'Cant.' || h === 'Unitario' || h === 'Total' ? 'text-right' : 'text-left'}`}>{h}</th>
-                      ))}
+                      <th className="text-left py-2 px-3 text-gray-600">Producto</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Talla</th>
+                      <th className="text-left py-2 px-3 text-gray-600">Color</th>
+                      <th className="text-right py-2 px-3 text-gray-600">Cant.</th>
+                      <th className="text-right py-2 px-3 text-gray-600">P. Venta</th>
+                      <th className="text-right py-2 px-3 text-gray-600">IVA</th>
+                      <th className="text-right py-2 px-3 text-gray-600">Total parcial</th>
+                      <th className="py-2 px-3"></th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {formData.items.length === 0
-                      ? <tr><td colSpan={8} className="px-2 py-2 text-center text-gray-500">No hay productos agregados</td></tr>
-                      : formData.items.map((item, idx) => (
-                        <tr key={item.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                          <td className="px-2 py-1.5">{idx + 1}</td>
-                          <td className="px-2 py-1.5 font-medium truncate max-w-xs">{item.productoNombre}</td>
-                          <td className="px-2 py-1.5">{item.talla}</td>
-                          <td className="px-2 py-1.5">{item.color}</td>
-                          <td className="px-2 py-1.5 text-right">
-                            <Input type="number" min="1" value={item.cantidad} onChange={e => actualizarCantidadItem(item.id, e.target.value)} className="h-6 px-1.5 text-[10px] text-right w-12" />
-                          </td>
-                          <td className="px-2 py-1.5">
-                            <Input type="number" min="0" value={item.precioUnitario} onChange={e => actualizarPrecioItem(item.id, e.target.value)} className="h-6 px-1.5 text-[10px] text-right w-16" />
-                          </td>
-                          <td className="px-2 py-1.5 text-right font-semibold whitespace-nowrap">
-                            ${(item.precioUnitario * item.cantidad).toLocaleString()}
-                          </td>
-                          <td className="px-2 py-1.5 text-center">
-                            <button onClick={() => eliminarItem(item.id)} className="text-red-600 hover:bg-red-50 p-1.5 rounded">
-                              <X size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    }
+                  <tbody className="divide-y divide-gray-100">
+                    {formData.items.length === 0 ? (
+                      <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-500">No hay productos agregados</td></tr>
+                    ) : (
+                      formData.items.map((item) => {
+                        // Fix: usar siempre precioVenta para consistencia con los totales
+                        const precioVenta  = item.precioVenta;
+                        const totalParcial = item.cantidad * precioVenta;
+                        return (
+                          <tr key={item.id} className="hover:bg-gray-50">
+                            <td className="py-2 px-3 text-gray-900 font-medium">{item.productoNombre}</td>
+                            <td className="py-2 px-3 text-gray-700">{item.talla}</td>
+                            <td className="py-2 px-3 text-gray-700">{item.color}</td>
+                            <td className="py-2 px-3 text-right tabular-nums">{item.cantidad}</td>
+                            <td className="py-2 px-3 text-right tabular-nums">{formatCOP(precioVenta)}</td>
+                            <td className="py-2 px-3 text-right tabular-nums">{Math.round(IVA_RATE * 100)}%</td>
+                            <td className="py-2 px-3 text-right tabular-nums font-medium">{formatCOP(totalParcial)}</td>
+                            <td className="py-2 px-3 text-right">
+                              <button onClick={() => eliminarItem(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded">
+                                <X size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1108,15 +1354,25 @@ DAMABELLA - Moda Femenina
             <div className="max-w-5xl mx-auto">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 items-end">
                 <div className="lg:col-span-2 rounded-md bg-gray-50 border border-gray-200 p-2">
-                  <div className="flex justify-between text-gray-600 text-[10px]">
-                    <span>Subtotal</span><span>${totales.subtotal.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-600 text-[10px] mt-1">
-                    <span>IVA ({Math.round(IVA_RATE * 100)}%)</span><span>${totales.iva.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-2 pt-2 border-t border-gray-200">
-                    <span>Total a pagar</span><span>${totales.total.toLocaleString()}</span>
-                  </div>
+                  {(() => {
+                    // Cálculos inline para evitar desincronización
+                    const total    = formData.items.reduce((sum, item) => sum + item.cantidad * (item.precioVenta || item.precioUnitario || 0), 0);
+                    const subtotal = total / (1 + IVA_RATE);
+                    const iva      = total - subtotal;
+                    return (
+                      <>
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>Total parcial</span><span>{formatCOP(subtotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-gray-600 text-[10px] mt-1">
+                          <span>IVA ( {Math.round(IVA_RATE * 100)} % )</span><span>{formatCOP(iva)}</span>
+                        </div>
+                        <div className="flex justify-between text-gray-900 text-[11px] font-semibold mt-2 pt-2 border-t border-gray-200">
+                          <span>Total a pagar</span><span>{formatCOP(total)}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className="lg:col-span-2 flex gap-2 justify-end">
                   <Button onClick={() => setShowModal(false)} variant="secondary" className="h-6 px-3 text-[10px]">Cancelar</Button>
@@ -1133,14 +1389,14 @@ DAMABELLA - Moda Femenina
       {/* ── Modal Detalle ────────────────────────────────────────────────── */}
       {viewingPedido && (
         <Modal isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} title={`Detalle Pedido ${viewingPedido.numeroPedido}`}>
-          <div className="space-y-0 p-0 -mt-4">
+          <div className="space-y-0 p-0 -mt-4 max-h-[85vh] overflow-y-auto pr-2">
             <div className="grid grid-cols-2 gap-1 p-1 bg-gray-50 rounded-lg">
               {[
-                ['Cliente',          viewingPedido.clienteNombre],
-                ['Fecha',            new Date(viewingPedido.fechaPedido).toLocaleDateString()],
-                ['Método de Pago',   viewingPedido.metodoPago],
-                ['Dirección Envío',  viewingPedido.direccionEnvio || '-'],
-                ['Persona recibe',   viewingPedido.personaRecibe || '-'],
+                ['Cliente',         viewingPedido.clienteNombre],
+                ['Fecha',           new Date(viewingPedido.fechaPedido).toLocaleDateString()],
+                ['Método de Pago',  viewingPedido.metodoPago],
+                ['Dirección Envío', viewingPedido.direccionEnvio || '-'],
+                ['Persona recibe',  viewingPedido.personaRecibe || '-'],
               ].map(([label, val]) => (
                 <div key={label}>
                   <div className="text-sm text-gray-600 mb-1">{label}</div>
@@ -1149,7 +1405,7 @@ DAMABELLA - Moda Femenina
               ))}
               <div>
                 <div className="text-sm text-gray-600 mb-1">Estado</div>
-                <span className={`inline-flex px-3 py-1 rounded-full text-sm ${getEstadoColor(viewingPedido.estado)}`}>
+                <span className={`inline-flex items-center ${getEstadoBadgeClass(viewingPedido.estado)}`}>
                   {viewingPedido.estado}
                 </span>
               </div>
@@ -1161,21 +1417,21 @@ DAMABELLA - Moda Femenina
                   <div key={i} className="border border-gray-200 rounded-lg p-1 text-sm">
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-900">{item.productoNombre}</span>
-                      <span>${item.subtotal.toLocaleString()}</span>
+                      <span>{formatCOP(item.subtotal)}</span>
                     </div>
                     <div className="text-gray-600">
                       {item.talla && `Talla: ${item.talla} | `}
                       {item.color && `Color: ${item.color} | `}
-                      Cant: {item.cantidad} × ${item.precioUnitario.toLocaleString()}
+                      {`Cant: ${item.cantidad} × ${formatCOP(item.precioUnitario)}`}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
             <div className="border-t pt-2 bg-gray-50 rounded-lg p-2 space-y-1">
-              <div className="flex justify-between text-gray-600"><span>Subtotal:</span><span>${viewingPedido.subtotal.toLocaleString()}</span></div>
-              <div className="flex justify-between text-gray-600"><span>IVA (19%):</span><span>${viewingPedido.iva.toLocaleString()}</span></div>
-              <div className="flex justify-between text-gray-900 pt-1 border-t font-semibold"><span>Total:</span><span>${viewingPedido.total.toLocaleString()}</span></div>
+              <div className="flex justify-between text-gray-600"><span>Subtotal:</span><span>{formatCOP(viewingPedido.subtotal)}</span></div>
+              <div className="flex justify-between text-gray-600"><span>IVA (19%):</span><span>{formatCOP(viewingPedido.iva)}</span></div>
+              <div className="flex justify-between text-gray-900 pt-1 border-t font-semibold"><span>Total:</span><span>{formatCOP(viewingPedido.total)}</span></div>
             </div>
             {viewingPedido.observaciones && (
               <div>
@@ -1195,7 +1451,9 @@ DAMABELLA - Moda Femenina
               <label className="block text-gray-700 mb-1">Tipo de Documento *</label>
               <select value={nuevoCliente.tipoDoc} onChange={e => setNuevoCliente(p => ({ ...p, tipoDoc: e.target.value }))}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500">
-                {[['CC','Cédula de Ciudadanía'],['CE','Cédula de Extranjería'],['TI','Tarjeta de Identidad'],['PAS','Pasaporte']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                {[['CC','Cédula de Ciudadanía'],['CE','Cédula de Extranjería'],['TI','Tarjeta de Identidad'],['PAS','Pasaporte']].map(([v,l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -1225,7 +1483,9 @@ DAMABELLA - Moda Femenina
           </div>
           <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowClienteModal(false)} variant="secondary">Cancelar</Button>
-            <Button onClick={handleCrearCliente} variant="primary">Crear Cliente</Button>
+            <Button onClick={handleCrearCliente} variant="primary" disabled={clientesLoading}>
+              {clientesLoading ? 'Creando...' : 'Crear Cliente'}
+            </Button>
           </div>
         </div>
       </Modal>
@@ -1234,14 +1494,14 @@ DAMABELLA - Moda Femenina
       <Modal isOpen={showEstadoModal} onClose={() => setShowEstadoModal(false)} title="Cambiar Estado del Pedido">
         <div className="space-y-4">
           {pedidoParaCambiarEstado && (() => {
-            const esConvertido = pedidoParaCambiarEstado.estado === 'Convertido a venta' || pedidoParaCambiarEstado.estado === 'Completada';
+            const esConvertido = pedidoParaCambiarEstado.estado === 'Entregado';
             return (
               <>
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm text-gray-700 space-y-1">
                   <p><span className="font-semibold">Pedido:</span> {pedidoParaCambiarEstado.numeroPedido}</p>
                   <p><span className="font-semibold">Cliente:</span> {pedidoParaCambiarEstado.clienteNombre}</p>
                   <p><span className="font-semibold">Estado actual:</span>{' '}
-                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getEstadoColor(pedidoParaCambiarEstado.estado)}`}>
+                    <span className={`inline-block ${getEstadoBadgeClass(pedidoParaCambiarEstado.estado)}`}>
                       {pedidoParaCambiarEstado.estado}
                     </span>
                   </p>
@@ -1252,25 +1512,53 @@ DAMABELLA - Moda Femenina
                     Este pedido ya fue convertido en venta. Modifícalo desde el módulo de Ventas.
                   </div>
                 ) : (
-                  <div>
-                    <label className="block text-gray-700 mb-3 font-semibold">Nuevo Estado</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['Pendiente','Completada','Anulado'] as const).map(estado => {
-                        const valido = puedeTransicionar(pedidoParaCambiarEstado.estado, estado);
-                        return (
-                          <button key={estado}
-                            onClick={() => valido && setNuevoEstadoModal(estado)}
-                            disabled={!valido}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                              valido
-                                ? nuevoEstadoModal === estado ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            }`}
-                          >
-                            {estado === 'Completada' ? 'Convertir a venta' : estado}
-                          </button>
-                        );
-                      })}
+                  <div className="space-y-4">
+                    {/* SECCIÓN: ESTADOS DEL FLUJO */}
+                    <div>
+                      <label className="block text-gray-700 mb-3 font-semibold text-sm">Estados del Flujo</label>
+                      <div className="flex flex-wrap gap-2">
+                        {(['Pendiente', 'Entregado', 'Cancelado', 'Anulado'] as EstadoLocal[]).map(estado => {
+                          const esActual = pedidoParaCambiarEstado.estado === estado;
+                          const valido = puedeTransicionar(pedidoParaCambiarEstado.estado, estado);
+                          const esAnulacionOCancelacion = estado === 'Cancelado' || estado === 'Anulado';
+                          const tienePermisoEstado = esAnulacionOCancelacion ? hasPermission('pedidos', 'delete') : true;
+                          const botDisabled = !valido || esActual || !tienePermisoEstado;
+                          
+                          return (
+                            <button 
+                              key={estado}
+                              onClick={() => valido && tienePermisoEstado && handleCambiarEstado(pedidoParaCambiarEstado, estado)}
+                              disabled={botDisabled}
+                              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                                esActual
+                                  ? 'bg-zinc-100 text-zinc-500 border-zinc-200 cursor-default'
+                                  : (valido && tienePermisoEstado)
+                                    ? 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                                    : 'bg-gray-50 text-gray-400 border-gray-100 cursor-not-allowed'
+                              }`}
+                            >
+                              {estado}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* SECCIÓN: ACCIÓN (CONVERTIR A VENTA) */}
+                    <div className="border-t pt-4">
+                      <label className="block text-gray-700 mb-3 font-semibold text-sm">Acción Principal</label>
+                        <button
+                        onClick={() => handleCambiarEstado(pedidoParaCambiarEstado, 'Entregado')}
+                        disabled={!puedeTransicionar(pedidoParaCambiarEstado.estado, 'Entregado')}
+                        className={`w-full px-4 py-3 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                          puedeTransicionar(pedidoParaCambiarEstado.estado, 'Entregado')
+                            ? 'bg-purple-600 text-white hover:bg-purple-700'
+                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        <CheckCircle size={18} />
+                        Convertir a Venta
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1323,12 +1611,17 @@ DAMABELLA - Moda Femenina
           </div>
           <div className="flex gap-2 justify-end pt-2 border-t">
             <Button onClick={() => setShowConfirmModal(false)} variant="secondary">Cancelar</Button>
-            <Button onClick={() => { if (confirmAction) confirmAction(); }} variant="primary" className="bg-red-600 hover:bg-red-700">
+            <Button
+              onClick={() => { if (confirmAction) confirmAction(); }}
+              variant="primary"
+              className="bg-red-600 hover:bg-red-700"
+            >
               Confirmar
             </Button>
           </div>
         </div>
       </Modal>
+
     </div>
   );
 }

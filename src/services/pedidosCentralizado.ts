@@ -1,27 +1,28 @@
 /**
- * 🔒 SERVICIO MAESTRO CENTRALIZADO DE PEDIDOS
- * 
- * Función única que orquesta TODOS los cambios de estado de un pedido:
- * - Cambios de estado genéricos
- * - Anulaciones con devolución de stock
- * - Validaciones y bloqueos
- * - Sincronización automática con Ventas
- * 
- * Este es el punto de entrada único para cualquier modificación de pedidos
+ * 🔒 REGLAS Y HELPERS CENTRALIZADOS DE ESTADO DE PEDIDOS
+ *
+ * Módulo PURO (sin efectos secundarios ni localStorage): define los tipos,
+ * las validaciones de transición y los helpers de UI para el estado de un pedido.
+ *
+ * La persistencia y la lógica de negocio (crear la venta, descontar / devolver
+ * stock, anular la venta) la maneja el BACKEND de Django automáticamente al hacer
+ * `PATCH /orders/{id}/patch_state/`. El front solo:
+ *   1) valida la transición con `puedeTransicionar` / `puedeEditarse`,
+ *   2) llama a la API vía `useOrders.cambiarEstado(id, estadoId)`,
+ *   3) refresca la lista con `fetchPedidos()`.
  */
-
-import { cambiarEstadoCentralizado } from './cambiarEstadoCentralizado';
-import { anularPedidoCentralizado } from './anularPedidoCentralizado';
 
 // ============================================================
 // TIPOS E INTERFACES
 // ============================================================
 
-export type EstadoPedido = 'Pendiente' | 'Completada' | 'Anulado' | 'Convertido a venta';
+// Nombres EXACTOS de la tabla States de Django:
+//   1 = Pendiente · 2 = Entregado · 3 = Cancelado · 4 = Anulado
+export type EstadoPedido = 'Pendiente' | 'Entregado' | 'Cancelado' | 'Anulado';
 
-export type TipoTransicion = 
-  | 'completar'      // Pendiente → Completada (crea Venta + descuenta stock)
-  | 'anular'         // Pendiente/Completada → Anulado (devuelve stock si aplica)
+export type TipoTransicion =
+  | 'completar'      // Pendiente → Entregado (el backend crea la Venta + descuenta stock)
+  | 'anular'         // Pendiente/Entregado → Cancelado (el backend devuelve stock si aplica)
   | 'cambiar-estado'; // Cambio genérico de estado
 
 export interface ItemPedido {
@@ -51,31 +52,6 @@ export interface Pedido {
   observaciones: string;
   createdAt: string;
   venta_id?: string | null;
-  stockAjustado?: boolean; // Flag para saber si ya se descargó stock
-}
-
-export interface ResultadoTransicion {
-  exitoso: boolean;
-  error?: string;
-  mensaje: string;
-  tipo: TipoTransicion;
-  pedidoActualizado?: Pedido;
-  ventaCreada?: any;
-  stockDevuelto?: Array<{
-    productoId: string;
-    nombreProducto: string;
-    talla: string;
-    color: string;
-    cantidad: number;
-  }>;
-}
-
-export interface ConfiguracionTransicion {
-  // Callbacks de eventos
-  onExitoso?: (resultado: ResultadoTransicion) => void;
-  onError?: (error: string) => void;
-  onNotificar?: (titulo: string, mensaje: string, tipo: 'success' | 'error' | 'info') => void;
-  onLog?: (mensaje: string, nivel: 'log' | 'warn' | 'error') => void;
 }
 
 // ============================================================
@@ -84,11 +60,11 @@ export interface ConfiguracionTransicion {
 
 /**
  * ✅ ¿Puede editarse un pedido en este estado?
- * 
+ *
  * Regla: Solo Pendiente es editable
  * - Pendiente: ✅ (aún no hay venta)
- * - Completada: ❌ (venta ya existe, cambios afectarían Ventas)
- * - Anulado: ❌ (estado terminal)
+ * - Entregado: ❌ (venta ya existe, cambios afectarían Ventas)
+ * - Cancelado / Anulado: ❌ (estados terminales)
  */
 export function puedeEditarse(estado: EstadoPedido): boolean {
   return estado === 'Pendiente';
@@ -96,28 +72,28 @@ export function puedeEditarse(estado: EstadoPedido): boolean {
 
 /**
  * ✅ ¿Puede cambiar de estado este pedido?
- * 
+ *
  * Regla: Transiciones permitidas
- * - Pendiente → Completada: ✅ (crear venta)
- * - Pendiente → Anulado: ✅ (cancelar)
- * - Completada → Anulado: ✅ (anular después de venta)
- * - Completada → Pendiente: ❌ (no se permite reversa)
- * - Anulado → *: ❌ (estado terminal)
+ * - Pendiente → Entregado: ✅ (convertir a venta)
+ * - Pendiente → Cancelado: ✅ (anular)
+ * - Entregado → Cancelado: ✅ (anular después de venta)
+ * - Entregado → Pendiente: ❌ (no se permite reversa)
+ * - Cancelado / Anulado → *: ❌ (estados terminales)
  */
 export function puedeTransicionar(
   estadoActual: EstadoPedido,
   estadoDestino: EstadoPedido
 ): boolean {
-  // Anulado es terminal
-  if (estadoActual === 'Anulado') return false;
+  // Estados terminales: no admiten más cambios
+  if (estadoActual === 'Cancelado' || estadoActual === 'Anulado') return false;
 
   // Transiciones válidas
   if (estadoActual === 'Pendiente') {
-    return estadoDestino === 'Completada' || estadoDestino === 'Anulado';
+    return estadoDestino === 'Entregado' || estadoDestino === 'Cancelado';
   }
 
-  if (estadoActual === 'Completada') {
-    return estadoDestino === 'Anulado'; // Solo permite anular
+  if (estadoActual === 'Entregado') {
+    return estadoDestino === 'Cancelado'; // Solo permite anular
   }
 
   return false;
@@ -130,148 +106,15 @@ export function determinarTipoTransicion(
   estadoActual: EstadoPedido,
   estadoDestino: EstadoPedido
 ): TipoTransicion | null {
-  if (estadoDestino === 'Completada' && estadoActual === 'Pendiente') {
+  if (estadoDestino === 'Entregado' && estadoActual === 'Pendiente') {
     return 'completar';
   }
 
-  if (estadoDestino === 'Anulado' && (estadoActual === 'Pendiente' || estadoActual === 'Completada')) {
+  if (estadoDestino === 'Cancelado' && (estadoActual === 'Pendiente' || estadoActual === 'Entregado')) {
     return 'anular';
   }
 
   return null; // Transición inválida o no soportada
-}
-
-// ============================================================
-// FUNCIÓN MAESTRO CENTRALIZADA
-// ============================================================
-
-/**
- * 🔒 FUNCIÓN MAESTRO: Cambiar estado de un pedido
- * 
- * Punto de entrada ÚNICO para cualquier cambio de estado.
- * Orquesta automáticamente la transición correcta según las reglas.
- * 
- * @param pedido - El pedido a modificar
- * @param nuevoEstado - Estado destino
- * @param config - Configuración (callbacks)
- * @returns Resultado con detalles de la transición
- */
-export function cambiarEstadoPedidoCentralizado(
-  pedido: Pedido,
-  nuevoEstado: EstadoPedido,
-  config?: ConfiguracionTransicion
-): ResultadoTransicion {
-  const log = config?.onLog || console.log;
-  const notificar = config?.onNotificar || (() => {});
-
-  try {
-    log(
-      `\n🔄 [cambiarEstadoPedidoCentralizado] ${pedido.numeroPedido}: ${pedido.estado} → ${nuevoEstado}`,
-      'log'
-    );
-
-    // ================================================================
-    // 1️⃣ VALIDAR: ¿Es una transición permitida?
-    // ================================================================
-
-    const esValida = puedeTransicionar(pedido.estado, nuevoEstado);
-    if (!esValida) {
-      const error = `❌ Transición no permitida: ${pedido.estado} → ${nuevoEstado}`;
-      log(error, 'error');
-      notificar('Error', 'No puedes hacer este cambio de estado', 'error');
-      return {
-        exitoso: false,
-        error,
-        mensaje: `No se puede pasar de ${pedido.estado} a ${nuevoEstado}`,
-        tipo: 'cambiar-estado',
-      };
-    }
-
-    // ================================================================
-    // 2️⃣ DETERMINAR: ¿Qué tipo de transición es?
-    // ================================================================
-
-    const tipoTransicion = determinarTipoTransicion(pedido.estado, nuevoEstado);
-    if (!tipoTransicion) {
-      const error = `❌ Tipo de transición no identificado`;
-      log(error, 'error');
-      return {
-        exitoso: false,
-        error,
-        mensaje: 'Error al procesar el cambio de estado',
-        tipo: 'cambiar-estado',
-      };
-    }
-
-    log(`✅ Tipo de transición: ${tipoTransicion}`, 'log');
-
-    // ================================================================
-    // 3️⃣ EJECUTAR: La función correcta según el tipo
-    // ================================================================
-
-    let resultado: any;
-
-    if (tipoTransicion === 'completar') {
-      // Cambiar a Completada: Crea Venta + descuenta stock
-      log(`\n📋 Ejecutando: COMPLETAR PEDIDO`, 'log');
-      resultado = cambiarEstadoCentralizado(pedido, 'Completada', {
-        onNotificar: notificar,
-        onLog: log,
-      });
-    } else if (tipoTransicion === 'anular') {
-      // Anular: Devuelve stock si aplica
-      log(`\n🚫 Ejecutando: ANULAR PEDIDO`, 'log');
-      resultado = anularPedidoCentralizado(pedido, {
-        onNotificar: notificar,
-        onLog: log,
-      });
-    }
-
-    // ================================================================
-    // 4️⃣ RETORNAR: Resultado unificado
-    // ================================================================
-
-    if (resultado.exitoso) {
-      const resultadoFinal: ResultadoTransicion = {
-        exitoso: true,
-        mensaje: resultado.mensaje,
-        tipo: tipoTransicion,
-        pedidoActualizado: resultado.pedidoActualizado || resultado.pedidoAnulado,
-        ventaCreada: resultado.ventaCreada,
-        stockDevuelto: resultado.stockDevuelto,
-      };
-
-      if (config?.onExitoso) {
-        config.onExitoso(resultadoFinal);
-      }
-
-      return resultadoFinal;
-    } else {
-      const resultadoFinal: ResultadoTransicion = {
-        exitoso: false,
-        error: resultado.error,
-        mensaje: resultado.mensaje,
-        tipo: tipoTransicion,
-      };
-
-      if (config?.onError) {
-        config.onError(resultado.error);
-      }
-
-      return resultadoFinal;
-    }
-  } catch (error: any) {
-    const mensajeError = error.message || 'Error desconocido';
-    log(`❌ [ERROR] ${mensajeError}`, 'error');
-    notificar('Error', mensajeError, 'error');
-
-    return {
-      exitoso: false,
-      error: mensajeError,
-      mensaje: 'Error al cambiar el estado del pedido',
-      tipo: 'cambiar-estado',
-    };
-  }
 }
 
 // ============================================================
@@ -283,8 +126,8 @@ export function cambiarEstadoPedidoCentralizado(
  * Útil para mostrar solo opciones válidas en UI
  */
 export function obtenerEstadosValidos(estadoActual: EstadoPedido): EstadoPedido[] {
-  const estados: EstadoPedido[] = ['Pendiente', 'Completada', 'Anulado'];
-  return estados.filter(estado => 
+  const estados: EstadoPedido[] = ['Pendiente', 'Entregado', 'Cancelado', 'Anulado'];
+  return estados.filter(estado =>
     estado !== estadoActual && puedeTransicionar(estadoActual, estado)
   );
 }
@@ -296,8 +139,10 @@ export function obtenerDescripcionEstado(estado: EstadoPedido): string {
   switch (estado) {
     case 'Pendiente':
       return 'Pendiente de procesamiento';
-    case 'Completada':
-      return 'Convertido a venta';
+    case 'Entregado':
+      return 'Entregado (convertido a venta)';
+    case 'Cancelado':
+      return 'Cancelado';
     case 'Anulado':
       return 'Anulado';
     default:
@@ -311,13 +156,14 @@ export function obtenerDescripcionEstado(estado: EstadoPedido): string {
 export function obtenerClaseEstado(estado: EstadoPedido): string {
   switch (estado) {
     case 'Pendiente':
-      return 'bg-yellow-100 text-yellow-800 border border-yellow-300';
-    case 'Completada':
-      return 'bg-green-100 text-green-800 border border-green-300';
+      return 'bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider';
+    case 'Entregado':
+      return 'bg-green-100 text-green-800 border border-green-300 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider';
+    case 'Cancelado':
     case 'Anulado':
-      return 'bg-red-100 text-red-800 border border-red-300';
+      return 'bg-red-100 text-red-800 border border-red-300 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider';
     default:
-      return 'bg-gray-100 text-gray-800 border border-gray-300';
+      return 'bg-gray-100 text-gray-800 border border-gray-300 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider';
   }
 }
 
@@ -327,9 +173,11 @@ export function obtenerClaseEstado(estado: EstadoPedido): string {
 export function obtenerColorEstado(estado: EstadoPedido): string {
   switch (estado) {
     case 'Pendiente':
-      return 'yellow';
-    case 'Completada':
+      return 'amber';
+    case 'Entregado':
       return 'green';
+    case 'Cancelado':
+      return 'red';
     case 'Anulado':
       return 'red';
     default:
@@ -344,46 +192,40 @@ export function obtenerColorEstado(estado: EstadoPedido): string {
 /*
 MATRIZ DE TRANSICIONES - REGLAS CENTRALIZADAS:
 
-┌──────────────┬────────────┬──────────────┬─────────┬────────────┐
-│ Estado Actual │ Editable?  │ → Pendiente  │→Completa│ → Anulado  │
-├──────────────┼────────────┼──────────────┼─────────┼────────────┤
-│ Pendiente    │     ✅     │      -       │   ✅    │     ✅     │
-│              │            │              │Crea Venta  Cancelar  │
-│              │            │              │Stock ⬇️    (sin Venta)│
-├──────────────┼────────────┼──────────────┼─────────┼────────────┤
-│ Completada   │     ❌     │      ❌      │    -    │     ✅     │
-│              │            │   (reversa   │         │Anula Venta │
-│              │            │   prohibida) │         │Stock ⬆️    │
-├──────────────┼────────────┼──────────────┼─────────┼────────────┤
-│ Anulado      │     ❌     │      ❌      │    ❌   │      -     │
-│              │ (terminal) │   (no)       │  (no)   │(ya anulado)│
-└──────────────┴────────────┴──────────────┴─────────┴────────────┘
+┌───────────────┬───────────┬─────────────┬────────────┬────────────┐
+│ Estado Actual │ Editable? │ → Pendiente │ → Entregado│ → Cancelado│
+├───────────────┼───────────┼─────────────┼────────────┼────────────┤
+│ Pendiente     │    ✅     │      -      │     ✅     │     ✅     │
+│               │           │             │ Crea Venta │ Cancelar   │
+│               │           │             │ Stock ⬇️   │ (sin Venta)│
+├───────────────┼───────────┼─────────────┼────────────┼────────────┤
+│ Entregado     │    ❌     │     ❌      │     -      │     ✅     │
+│               │           │  (reversa   │            │ Anula Venta│
+│               │           │  prohibida) │            │ Stock ⬆️   │
+├───────────────┼───────────┼─────────────┼────────────┼────────────┤
+│ Cancelado     │    ❌     │     ❌      │     ❌     │     -      │
+│ Anulado       │ (terminal)│   (no)      │   (no)     │ (terminal) │
+└───────────────┴───────────┴─────────────┴────────────┴────────────┘
 
-FLUJOS PRINCIPALES:
+NOTA: Los efectos secundarios (crear Venta, descontar/devolver stock, anular Venta)
+los ejecuta el BACKEND de Django al recibir PATCH /orders/{id}/patch_state/.
+Este módulo NO toca localStorage ni stock: solo valida y describe estados.
 
-1. COMPLETAR (Pendiente → Completada):
-   - Validar stock disponible
-   - Descontar stock (stockAjustado = true)
-   - Crear Venta automáticamente
-   - Sincronizar módulos
-   - Disparar eventos
+FLUJOS PRINCIPALES (responsabilidad del backend):
 
-2. ANULAR (Pendiente → Anulado):
-   - No hay stock que devolver (aún es Pendiente)
-   - Cambiar estado a Anulado
-   - Sin Venta asociada aún
-   - Cancelación simple
+1. COMPLETAR (Pendiente → Entregado / state=2):
+   - El backend crea la Venta automáticamente y descuenta stock.
 
-3. ANULAR (Completada → Anulado):
-   - Devolver stock (stockAjustado era true)
-   - Cambiar estado a Anulado en Pedidos
-   - Marcar Venta como "Anulada"
-   - Sincronizar módulos
+2. ANULAR (Pendiente → Cancelado / state=3):
+   - Aún no hay venta; el backend solo cambia el estado.
+
+3. ANULAR (Entregado → Cancelado / state=3):
+   - El backend devuelve stock y marca la Venta como anulada.
 
 BLOQUEOS:
 
 - Edición: Solo si estado === 'Pendiente'
-- Cambio de estado: Solo según matriz anterior
-- Reversa (Completada → Pendiente): PROHIBIDA
-- Terminal (Anulado): No se puede cambiar
+- Cambio de estado: Solo según la matriz anterior
+- Reversa (Entregado → Pendiente): PROHIBIDA
+- Terminal (Cancelado / Anulado): No se puede cambiar
 */

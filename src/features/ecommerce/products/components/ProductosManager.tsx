@@ -17,17 +17,21 @@ import {
   getAllSizes,
   createColor,
   createSize,
+  getPhotos,
+  getPhotosById,
+  createPhotos,
+  deletePhotos,
   Product,
   Inventory,
   Color,
   Size,
+  Photo,
 } from '@/features/ecommerce/products/services/productsService';
+import { getAllIvas, Iva } from '@/features/purchases/services/ivaService';
+import { API } from '@/services/ApiConfigure';
 import { getAllVariants, VariantProduct } from '@/features/purchases/services/PurchasesService';
 import { getAllCategories, Categories } from '@/features/ecommerce/categories/services/categoriesService';
-
-// ─── Utils ────────────────────────────────────────────────────────────────────
-const formatCOP = (value: number) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+import { formatCOP } from '@/features/dashboard/utils/dashboardHelpers';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ProductosManager() {
@@ -40,6 +44,7 @@ export default function ProductosManager() {
   const [categories, setCategories] = useState<Categories[]>([]);
   const [colors,     setColors]     = useState<Color[]>([]);
   const [sizes,      setSizes]      = useState<Size[]>([]);
+  const [ivas,       setIvas]       = useState<Iva[]>([]);
   const [loading,    setLoading]    = useState(true);
 
   // ─── UI ──────────────────────────────────────────────────────────────────────
@@ -71,6 +76,7 @@ export default function ProductosManager() {
   const [editName,     setEditName]     = useState('');
   const [editPrice,    setEditPrice]    = useState('');
   const [editCategory, setEditCategory] = useState<number | null>(null);
+  const [editIvaId,    setEditIvaId]    = useState<number | null>(null);
   const [editErrors,   setEditErrors]   = useState<Record<string, string>>({});
   const [editPurchasePrice, setEditPurchasePrice] = useState('');
 
@@ -78,6 +84,7 @@ export default function ProductosManager() {
   const [addName,     setAddName]     = useState('');
   const [addPrice,    setAddPrice]    = useState('');
   const [addCategory, setAddCategory] = useState<number | null>(null);
+  const [addIvaId,    setAddIvaId]    = useState<number | null>(null);
   const [addErrors,   setAddErrors]   = useState<Record<string, string>>({});
   const [addPurchasePrice, setAddPurchasePrice] = useState('');
   const [addImage, setAddImage] = useState<File | null>(null);
@@ -94,19 +101,29 @@ export default function ProductosManager() {
   const [newColorName, setNewColorName] = useState('');
   const [newSizeName, setNewSizeName] = useState('');
 
+  // ─── Estados para fotos ──────────────────────────────────────────────────────
+  const [addPhotos, setAddPhotos] = useState<File[]>([]);
+  const [addPhotoPreviews, setAddPhotoPreviews] = useState<string[]>([]);
+  const [productPhotos, setProductPhotos] = useState<Photo[]>([]);
+  const [showPhotosModal, setShowPhotosModal] = useState(false);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const [selectedVariantForPhoto, setSelectedVariantForPhoto] = useState<number | null>(null);
+
   // ─── Load data ───────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [prods, vars, inv, cats, cols, szs] = await Promise.all([
+      const [prods, vars, inv, cats, cols, szs, ivaList] = await Promise.all([
         getAllProducts(),
         getAllVariants(),
         getAllInventory(),
         getAllCategories(),
         getAllColors(),
         getAllSizes(),
+        getAllIvas(),
       ]);
       if (prods) setProducts(prods);
+      if (ivaList) setIvas(ivaList);
       if (vars)  setVariants(vars);
       if (inv)   setInventory(inv);
       if (cats)  setCategories(cats);
@@ -121,6 +138,13 @@ export default function ProductosManager() {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+
+  // Cargar fotos cuando se abre el modal de detalle
+  useEffect(() => {
+    if (viewingProduct && showDetailModal) {
+      loadProductPhotos(viewingProduct.id_product);
+    }
+  }, [viewingProduct, showDetailModal]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
   const getProductVariants = (productId: number) =>
@@ -147,6 +171,19 @@ export default function ProductosManager() {
       }
     }
     return { stock: '', color: '', size: '' };
+  };
+
+  // Construir URL completa para la imagen retornada por backend
+  const buildPhotoUrl = (raw: string | null | undefined) => {
+    if (!raw) return '';
+    try {
+      if (/^https?:\/\//i.test(raw)) return raw;
+      const base = (API.defaults.baseURL as string) || '';
+      const origin = base.replace(/\/api\/?$/i, '').replace(/\/$/, '');
+      return `${origin}/${String(raw).replace(/^\/+/, '')}`;
+    } catch {
+      return String(raw);
+    }
   };
 
   // Validar consistencia de inventario
@@ -177,6 +214,12 @@ export default function ProductosManager() {
     return 0;
   };
 
+  const getProductIvaLabel = (product: Product) => {
+    const ivaItem = ivas.find(i => i.id_iva === product.iva);
+    if (!ivaItem) return 'Sin IVA';
+    return `${ivaItem.name} (${Math.round(ivaItem.value * 100)}%)`;
+  };
+
   // ─── Auto-generar SKU ────────────────────────────────────────────────────────
   const autoGenerateSku = () => {
     const productPrefix = addName.substring(0, 3).toUpperCase() || 'PRD';
@@ -185,6 +228,148 @@ export default function ProductosManager() {
     const timestamp = Date.now().toString().slice(-6);
     
     setAddSku(`${productPrefix}-${sizeStr}-${colorStr}-${timestamp}`);
+  };
+
+  // ─── Funciones para gestión de fotos ──────────────────────────────────────────
+  const handleAddPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.currentTarget.files;
+    if (files) {
+      const newPhotos = Array.from(files);
+      setAddPhotos([...addPhotos, ...newPhotos]);
+
+      // Crear previsualizaciones
+      newPhotos.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const result = event.target?.result as string;
+          setAddPhotoPreviews(prev => [...prev, result]);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setAddPhotos(addPhotos.filter((_, i) => i !== index));
+    setAddPhotoPreviews(addPhotoPreviews.filter((_, i) => i !== index));
+  };
+
+  const uploadPhotosForProduct = async (productId: number, photos: File[], variant?: number): Promise<number> => {
+    if (photos.length === 0) return 0;
+    
+    setIsUploadingPhotos(true);
+    const uploaded: Photo[] = [];
+
+    for (const photo of photos) {
+      try {
+        const result = await createPhotos(productId, photo, variant);
+        if (result) {
+          uploaded.push(result);
+        } else {
+          console.warn('createPhotos devolvió null para:', photo.name);
+        }
+      } catch (error) {
+        console.error('Error uploading photo:', error);
+      }
+    }
+
+    // Si al menos una foto se creó, anexarla al estado para mostrarla inmediatamente
+    if (uploaded.length > 0) {
+      setProductPhotos(prev => [...prev, ...uploaded]);
+    }
+
+    setIsUploadingPhotos(false);
+
+    // Devolver el número de fotos que se subieron correctamente
+    return uploaded.length;
+  };
+
+  const loadProductPhotos = async (productId: number) => {
+    try {
+      // Limpiar fotos actuales para evitar peticiones a rutas obsoletas mientras cargamos detalles
+      setProductPhotos([]);
+
+      const allPhotos = await getPhotos();
+      if (allPhotos) {
+        // Filtrar fotos del producto actual
+        const filtered = allPhotos.filter(p => p.producto === productId);
+
+        // Obtener detalle por ID para asegurar que la URL se resuelva correctamente
+        const detailed = await Promise.all(filtered.map(async (p) => {
+          try {
+            const detail = await getPhotosById(p.id);
+            // Log para depuración: pegar esto si necesitas ayuda
+            console.log('[loadProductPhotos] photo detail for id', p.id, detail);
+
+            const imageRaw = (detail && (detail.image ?? p.image)) || p.image;
+
+            // Si el backend solo devuelve una ruta relativa (ej: 'products/photos/xxx.jpg')
+            // evitamos construir una URL que provoque una petición directa al archivo estático.
+            // En ese caso, dejamos la imagen vacía y mostramos placeholder hasta que
+            // el backend proporcione un campo que permita descargar la imagen vía API.
+            if (typeof imageRaw === 'string' && (/^https?:\/\//i.test(imageRaw) || imageRaw.startsWith('data:'))) {
+              return { ...p, image: buildPhotoUrl(imageRaw) } as Photo;
+            } else {
+              console.warn(`[loadProductPhotos] image for photo id ${p.id} is a relative path; skipping direct URL to avoid 404`, imageRaw);
+              return { ...p, image: '' } as Photo;
+            }
+          } catch (err) {
+            console.error('[loadProductPhotos] error fetching photo detail', p.id, err);
+            return { ...p, image: '' } as Photo;
+          }
+        }));
+
+        setProductPhotos(detailed);
+      }
+    } catch (error) {
+      console.error('Error loading photos:', error);
+      setProductPhotos([]);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId: number) => {
+    const ok = await deletePhotos(photoId);
+    if (ok) {
+      showToast('Foto eliminada', 'success');
+      setProductPhotos(productPhotos.filter(p => p.id !== photoId));
+    } else {
+      showToast('Error al eliminar la foto', 'error');
+    }
+  };
+
+  // ─── Modal para seleccionar variante y subir fotos ─────────────────────────
+  const photosInputId = (productId: number) => `upload-photos-modal-${productId}`;
+
+  const handleOpenPhotosForProduct = (productId: number) => {
+    setAddPhotos([]);
+    setAddPhotoPreviews([]);
+    setSelectedVariantForPhoto(null);
+    setShowPhotosModal(true);
+  };
+
+  const handleSelectFilesAndUpload = async (productId: number) => {
+    if (!viewingProduct) return;
+    if (addPhotos.length === 0) {
+      showToast('Selecciona al menos una imagen', 'error');
+      return;
+    }
+    const uploadedCount = await uploadPhotosForProduct(productId, addPhotos, selectedVariantForPhoto ?? undefined);
+    if (uploadedCount === addPhotos.length) {
+      showToast('Fotos cargadas correctamente', 'success');
+    } else if (uploadedCount > 0) {
+      showToast(`Se cargaron ${uploadedCount} de ${addPhotos.length} fotos`, 'warning');
+    } else {
+      showToast('Error subiendo fotos', 'error');
+    }
+
+    // Siempre intentar recargar fotos desde servidor y cerrar modal si hubo al menos una subida
+    await loadProductPhotos(productId);
+    if (uploadedCount > 0) {
+      setShowPhotosModal(false);
+      setAddPhotos([]);
+      setAddPhotoPreviews([]);
+      setSelectedVariantForPhoto(null);
+    }
   };
 
   // ─── Filter & paginate ───────────────────────────────────────────────────────
@@ -206,6 +391,7 @@ export default function ProductosManager() {
     setEditPrice(String(product.price));
     setEditPurchasePrice(String(product.purchase_price));
     setEditCategory(product.category);
+    setEditIvaId(product.iva ?? null);
     setEditErrors({});
     setShowEditModal(true);
   };
@@ -216,6 +402,7 @@ export default function ProductosManager() {
     if (!editPrice || Number(editPrice) <= 0) errors.price    = 'El precio debe ser mayor a 0';
     if (!editPurchasePrice || Number(editPurchasePrice) <= 0) errors.purchasePrice = 'El precio de compra debe ser mayor a 0';
     if (!editCategory)                        errors.category = 'Selecciona una categoría';
+    if (!editIvaId)                           errors.iva      = 'Selecciona un IVA';
     setEditErrors(errors);
     if (Object.keys(errors).length > 0) return;
     if (!editingProduct) return;
@@ -226,6 +413,7 @@ export default function ProductosManager() {
       price:     Number(editPrice),
       purchase_price: Number(editPurchasePrice),
       category:  editCategory!,
+      iva:       editIvaId ?? undefined,
       is_active: editingProduct.is_active,
     });
 
@@ -244,6 +432,7 @@ export default function ProductosManager() {
     setAddName('');
     setAddPrice('');
     setAddCategory(null);
+    setAddIvaId(ivas[0]?.id_iva ?? null);
     setAddPurchasePrice('');
     setAddImage(null);
     setAddImagePreview('');
@@ -324,6 +513,7 @@ export default function ProductosManager() {
     if (!addPrice || Number(addPrice) <= 0) errors.price    = 'El precio debe ser mayor a 0';
     if (!addPurchasePrice || Number(addPurchasePrice) <= 0) errors.purchasePrice = 'El precio de compra debe ser mayor a 0';
     if (!addCategory)                        errors.category = 'Selecciona una categoría';
+    if (!addIvaId)                           errors.iva      = 'Selecciona un IVA';
     
     // Detectar si hay campos de variante parcialmente llenados
     const hasAnyVariantField = !!(addColorId || addSizeId || addStock || addSku.trim());
@@ -372,6 +562,7 @@ export default function ProductosManager() {
         category: addCategory!,
         price: Number(addPrice),
         purchase_price: Number(addPurchasePrice),
+        iva: addIvaId ?? undefined,
         sku: addSku.trim(),
         size: addSizeId!,
         color: addColorId!,
@@ -401,7 +592,8 @@ export default function ProductosManager() {
         name: addName.trim(),
         category: addCategory!,
         price: Number(addPrice),
-        purchase_price: Number(addPurchasePrice)
+        purchase_price: Number(addPurchasePrice),
+        iva: addIvaId ?? undefined
       });
 
       if (!result) {
@@ -417,6 +609,17 @@ export default function ProductosManager() {
     // 2. Guardar imagen en localStorage si existe
     if (imageBase64 && result) {
       localStorage.setItem(`product_image_${result.id_product}`, imageBase64);
+    }
+
+    // 3. Cargar fotos si existen
+    if (addPhotos.length > 0 && result) {
+      console.log('📸 handleSaveAdd - Subiendo fotos...');
+      const photosUploaded = await uploadPhotosForProduct(result.id_product, addPhotos);
+      if (photosUploaded) {
+        showToast(`${addPhotos.length} foto(s) cargada(s) exitosamente`, 'success');
+      } else {
+        showToast('Algunas fotos no se cargaron correctamente', 'warning');
+      }
     }
 
     await loadData();
@@ -436,6 +639,8 @@ export default function ProductosManager() {
     setAddSku('');
     setImageBase64('');
     setAddErrors({});
+    setAddPhotos([]);
+    setAddPhotoPreviews([]);
   };
 
   const handleCloseAddModal = () => {
@@ -444,6 +649,7 @@ export default function ProductosManager() {
     setAddName('');
     setAddPrice('');
     setAddCategory(null);
+    setAddIvaId(null);
     setAddPurchasePrice('');
     setAddImage(null);
     setAddImagePreview('');
@@ -453,6 +659,8 @@ export default function ProductosManager() {
     setAddSku('');
     setImageBase64('');
     setAddErrors({});
+    setAddPhotos([]);
+    setAddPhotoPreviews([]);
   };
 
   // ─── Toggle ──────────────────────────────────────────────────────────────────
@@ -665,6 +873,7 @@ export default function ProductosManager() {
                   
                   {/* Categoría */}
                   <p className="text-xs text-gray-500 mb-2">{product.category_name}</p>
+                  <p className="text-xs text-gray-500 mb-2">IVA: {getProductIvaLabel(product)}</p>
 
                   {/* Talla, Color, Cantidad - Solo mostrar si es consistente */}
                   {(() => {
@@ -894,6 +1103,10 @@ export default function ProductosManager() {
                   <p className="font-medium">{viewingProduct.category_name}</p>
                 </div>
                 <div>
+                  <p className="text-xs text-gray-500 mb-0.5">IVA</p>
+                  <p className="font-semibold text-gray-900">{getProductIvaLabel(viewingProduct)}</p>
+                </div>
+                <div>
                   <p className="text-xs text-gray-500 mb-0.5">Precio</p>
                   <p className="text-2xl font-bold text-gray-900">{formatCOP(viewingProduct.price)}</p>
                 </div>
@@ -994,6 +1207,91 @@ export default function ProductosManager() {
                   </div>
                 )}
               </div>
+
+              {/* Fotos del Producto */}
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-gray-900">
+                    📸 Fotos ({productPhotos.length})
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => { setAddPhotos([]); setAddPhotoPreviews([]); setSelectedVariantForPhoto(null); setShowPhotosModal(true); }}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    + Agregar fotos
+                  </button>
+                </div>
+                
+                {productPhotos.length === 0 ? (
+                  <p className="text-xs text-gray-400">Sin fotos. Agrega una para mostrar el producto.</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {productPhotos.map(photo => (
+                      <div key={photo.id} className="relative group">
+                        <img 
+                          src={buildPhotoUrl(photo.image)}
+                          alt="Producto"
+                          className="w-full h-24 object-cover rounded-lg"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%23f0f0f0" width="100" height="100"/%3E%3Ctext x="50" y="50" text-anchor="middle" dy=".3em" fill="%23999" font-size="12"%3ENo imagen%3C/text%3E%3C/svg%3E';
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePhoto(photo.id)}
+                          className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                  {/* Modal para seleccionar variante y subir fotos */}
+                  <Modal isOpen={showPhotosModal} onClose={() => setShowPhotosModal(false)} title={`Agregar fotos — ${viewingProduct?.name ?? ''}`} size="md">
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-600">Selecciona la variante a la cual asignar las fotos (o deja en Producto para asociarlas al producto):</p>
+                      <div className="max-h-44 overflow-y-auto border rounded p-2 bg-white">
+                        <div className="flex items-center gap-2 mb-2">
+                          <input type="radio" id={`variant_none_${viewingProduct?.id_product}`} name="variant_select" checked={selectedVariantForPhoto === null} onChange={() => setSelectedVariantForPhoto(null)} />
+                          <label htmlFor={`variant_none_${viewingProduct?.id_product}`} className="text-xs">Producto (sin variante)</label>
+                        </div>
+                        {getProductVariants(viewingProduct?.id_product ?? 0).map(v => (
+                          <div key={v.id_variant} className="flex items-center gap-2 mb-2">
+                            <input type="radio" id={`variant_${v.id_variant}`} name="variant_select" checked={selectedVariantForPhoto === v.id_variant} onChange={() => setSelectedVariantForPhoto(v.id_variant)} />
+                            <label htmlFor={`variant_${v.id_variant}`} className="text-xs">{v.sku} — {v.size_name} / {v.color_name}</label>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Archivos seleccionados</label>
+                        {addPhotoPreviews.length === 0 ? (
+                          <p className="text-xs text-gray-400">No hay archivos seleccionados</p>
+                        ) : (
+                          <div className="flex gap-2 overflow-x-auto">
+                            {addPhotoPreviews.map((p, i) => (
+                              <div key={i} className="w-20 h-20 bg-gray-100 rounded overflow-hidden flex items-center justify-center">
+                                <img src={p} alt={`preview-${i}`} className="w-full h-full object-cover" />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input id={photosInputId(viewingProduct?.id_product ?? 0)} type="file" multiple accept="image/*" onChange={handleAddPhotos} className="hidden" />
+                        <button type="button" className="text-xs text-blue-600 hover:underline" onClick={() => document.getElementById(photosInputId(viewingProduct?.id_product ?? 0))?.click()}>Seleccionar archivos</button>
+                        <div className="flex-1" />
+                        <Button type="button" variant="secondary" onClick={() => { setShowPhotosModal(false); setAddPhotos([]); setAddPhotoPreviews([]); setSelectedVariantForPhoto(null); }}>Cancelar</Button>
+                        <Button type="button" variant="primary" onClick={() => handleSelectFilesAndUpload(viewingProduct!.id_product)} disabled={isUploadingPhotos || addPhotos.length === 0}>
+                          {isUploadingPhotos ? 'Subiendo...' : 'Subir fotos'}
+                        </Button>
+                      </div>
+                    </div>
+                  </Modal>
+              </div>
             </div>
           );
         })()}
@@ -1042,6 +1340,23 @@ export default function ProductosManager() {
           </div>
 
           <div>
+            <label className="block text-gray-700 font-medium mb-0.5 text-xs">IVA *</label>
+            <select
+              value={editIvaId ?? ''}
+              onChange={(e) => setEditIvaId(Number(e.target.value) || null)}
+              className={`w-full h-8 px-2 border rounded-lg text-sm ${editErrors.iva ? 'border-red-400' : 'border-gray-300'}`}
+            >
+              <option value="">Seleccionar IVA...</option>
+              {ivas.map(iva => (
+                <option key={iva.id_iva} value={iva.id_iva}>
+                  {iva.name} ({Math.round(iva.value * 100)}%)
+                </option>
+              ))}
+            </select>
+            {editErrors.iva && <p className="text-red-500 text-xs mt-0.5">{editErrors.iva}</p>}
+          </div>
+
+          <div>
             <label className="block text-gray-700 font-medium mb-0.5 text-xs">Categoría *</label>
             <select
               value={editCategory ?? ''}
@@ -1072,301 +1387,322 @@ export default function ProductosManager() {
   isOpen={showAddModal} 
   onClose={handleCloseAddModal} 
   title="Nuevo Producto" 
-  size="md"
+  size="xl"
 >
-  <div className="space-y-1.5 text-xs max-h-[400px] overflow-y-auto">
+  <div className="text-xs space-y-2">
 
-    {/* Alerta informativa */}
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-xs text-blue-700">
-      <strong>Opcional:</strong> Puedes crear el producto con talla, color y stock inicial. Si no los completas, podrás agregar variantes más tarde desde el módulo de Compras.
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-blue-700">
+      <strong>Opcional:</strong> Puedes crear el producto con talla, color y stock inicial.
     </div>
 
-    {/* Imagen */}
-    <div>
-      <label className="block text-gray-700 font-medium mb-1 text-xs">
-        Imagen del Producto
-      </label>
-
-      <div className="border border-dashed border-gray-300 rounded-lg p-1.5 text-center bg-gray-50">
-        {addImagePreview ? (
-          <div>
-            <img 
-              src={addImagePreview} 
-              alt="Preview" 
-              className="w-full h-16 object-cover rounded-lg mb-1" 
+    <div className="grid gap-2 lg:grid-cols-2">
+      <div className="space-y-2">
+        <div>
+          <label className="block text-gray-700 font-medium mb-1 text-xs">Imagen principal *</label>
+          <div className="border border-dashed border-gray-300 rounded-lg bg-white h-28 max-h-28 overflow-hidden relative">
+            <input
+              id="add-image-input"
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="hidden"
             />
-            <div className="flex gap-2 justify-center text-xs">
-              <label className="text-blue-500 hover:underline cursor-pointer text-xs">
-                Cambiar
-                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+
+            {addImagePreview ? (
+              <>
+                <img
+                  src={addImagePreview}
+                  alt="Preview"
+                  className="w-full h-24 object-cover"
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-black/15 backdrop-blur-sm px-2 py-1 flex items-center justify-center gap-2 text-xs text-white">
+                  <label htmlFor="add-image-input" className="cursor-pointer text-blue-100 hover:text-white">
+                    Cambiar
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddImage(null);
+                      setAddImagePreview('');
+                      setImageBase64('');
+                    }}
+                    className="text-red-200 hover:text-white"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <label htmlFor="add-image-input" className="h-full flex flex-col items-center justify-center gap-2 text-gray-400 cursor-pointer">
+                <Package size={24} className="text-gray-400" />
+                <span>Subir imagen</span>
               </label>
+            )}
+          </div>
+          {addErrors.productImage && <p className="text-red-500 text-xs mt-1">{addErrors.productImage}</p>}
+        </div>
+
+        <div>
+          <label className="block text-gray-700 font-medium mb-1 text-xs">Nombre del producto *</label>
+          <Input
+            value={addName}
+            onChange={(e) => setAddName(e.target.value)}
+            placeholder="Nombre del producto"
+            className={`h-8 text-xs ${addErrors.name ? 'border-red-400' : ''}`}
+          />
+          {addErrors.name && <p className="text-red-500 text-xs mt-1">{addErrors.name}</p>}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Precio compra *</label>
+            <Input
+              type="number"
+              value={addPurchasePrice}
+              onChange={(e) => setAddPurchasePrice(e.target.value)}
+              placeholder="0"
+              className={`h-8 text-xs ${addErrors.purchasePrice ? 'border-red-400' : ''}`}
+            />
+            {addErrors.purchasePrice && <p className="text-red-500 text-xs mt-1">{addErrors.purchasePrice}</p>}
+          </div>
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Precio venta *</label>
+            <Input
+              type="number"
+              value={addPrice}
+              onChange={(e) => setAddPrice(e.target.value)}
+              placeholder="0"
+              className={`h-8 text-xs ${addErrors.price ? 'border-red-400' : ''}`}
+            />
+            {addErrors.price && <p className="text-red-500 text-xs mt-1">{addErrors.price}</p>}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">IVA *</label>
+            <select
+              value={addIvaId ?? ''}
+              onChange={(e) => setAddIvaId(Number(e.target.value) || null)}
+              className={`w-full h-8 px-2 border rounded-lg text-xs ${addErrors.iva ? 'border-red-400' : 'border-gray-300'}`}
+            >
+              <option value="">Seleccionar IVA...</option>
+              {ivas.map(iva => (
+                <option key={iva.id_iva} value={iva.id_iva}>
+                  {iva.name} ({Math.round(iva.value * 100)}%)
+                </option>
+              ))}
+            </select>
+            {addErrors.iva && <p className="text-red-500 text-xs mt-1">{addErrors.iva}</p>}
+          </div>
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Categoría *</label>
+            <select
+              value={addCategory ?? ''}
+              onChange={(e) => setAddCategory(Number(e.target.value) || null)}
+              className={`w-full h-8 px-2 border rounded-lg text-xs ${addErrors.category ? 'border-red-400' : 'border-gray-300'}`}
+            >
+              <option value="">Seleccionar</option>
+              {categories.map(c => (
+                <option key={c.id_category} value={c.id_category}>{c.name}</option>
+              ))}
+            </select>
+            {addErrors.category && <p className="text-red-500 text-xs mt-1">{addErrors.category}</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div className="grid gap-2 lg:grid-cols-2">
+      <div className="border border-gray-200 rounded-lg p-2 space-y-2">
+        <h3 className="text-sm font-semibold text-gray-800">Variante inicial</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Talla</label>
+            {isCreatingNewSize ? (
+              <div className="space-y-2">
+                <Input
+                  value={newSizeName}
+                  onChange={(e) => setNewSizeName(e.target.value)}
+                  placeholder="Ej: M"
+                  className="h-8 text-xs"
+                />
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={handleCreateSize}
+                    disabled={isSubmitting}
+                    className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-[10px] hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Creando...' : 'Crear'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingNewSize(false);
+                      setNewSizeName('');
+                    }}
+                    className="flex-1 px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px] hover:bg-gray-300"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <select
+                  value={addSizeId ?? ''}
+                  onChange={(e) => setAddSizeId(Number(e.target.value) || null)}
+                  className={`w-full h-8 px-2 border rounded-lg text-xs ${addErrors.size ? 'border-red-400' : 'border-gray-300'}`}
+                >
+                  <option value="">Seleccionar</option>
+                  {sizes.map(s => (
+                    <option key={s.id_size} value={s.id_size}>{s.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingNewSize(true)}
+                  className="text-blue-600 text-[10px] mt-1 hover:underline"
+                >
+                  + Nueva talla
+                </button>
+              </>
+            )}
+            {addErrors.size && <p className="text-red-500 text-xs mt-1">{addErrors.size}</p>}
+          </div>
+
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Color</label>
+            {isCreatingNewColor ? (
+              <div className="space-y-2">
+                <Input
+                  value={newColorName}
+                  onChange={(e) => setNewColorName(e.target.value)}
+                  placeholder="Ej: Negro"
+                  className="h-8 text-xs"
+                />
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={handleCreateColor}
+                    disabled={isSubmitting}
+                    className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-[10px] hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Creando...' : 'Crear'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingNewColor(false);
+                      setNewColorName('');
+                    }}
+                    className="flex-1 px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px] hover:bg-gray-300"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <select
+                  value={addColorId ?? ''}
+                  onChange={(e) => setAddColorId(Number(e.target.value) || null)}
+                  className={`w-full h-8 px-2 border rounded-lg text-xs ${addErrors.color ? 'border-red-400' : 'border-gray-300'}`}
+                >
+                  <option value="">Seleccionar</option>
+                  {colors.map(c => (
+                    <option key={c.id_color} value={c.id_color}>{c.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingNewColor(true)}
+                  className="text-blue-600 text-[10px] mt-1 hover:underline"
+                >
+                  + Nuevo color
+                </button>
+              </>
+            )}
+            {addErrors.color && <p className="text-red-500 text-xs mt-1">{addErrors.color}</p>}
+          </div>
+
+          <div>
+            <label className="block text-gray-700 font-medium mb-1 text-xs">Stock inicial</label>
+            <Input
+              type="number"
+              value={addStock}
+              onChange={(e) => setAddStock(e.target.value)}
+              placeholder="0"
+              className={`h-8 text-xs ${addErrors.stock ? 'border-red-400' : ''}`}
+            />
+            {addErrors.stock && <p className="text-red-500 text-xs mt-1">{addErrors.stock}</p>}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-gray-700 font-medium text-xs">SKU</label>
               <button
                 type="button"
-                onClick={() => {
-                  setAddImage(null);
-                  setAddImagePreview('');
-                  setImageBase64('');
-                }}
-                className="text-red-500 hover:underline"
+                onClick={autoGenerateSku}
+                className="text-xs text-blue-600 hover:underline"
               >
-                Eliminar
+                Generar
               </button>
             </div>
+            <Input
+              value={addSku}
+              onChange={(e) => setAddSku(e.target.value)}
+              placeholder="Ej: VES-M-NEG-001"
+              className={`h-8 text-xs font-mono ${addErrors.sku ? 'border-red-400' : ''}`}
+            />
+            {addErrors.sku && <p className="text-red-500 text-xs mt-1">{addErrors.sku}</p>}
           </div>
-        ) : (
-          <label className="cursor-pointer text-gray-400 text-xs py-4 block">
-            <Package size={26} className="mx-auto mb-2" />
-            Subir imagen
-            <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+        </div>
+      </div>
+
+      <div className="border border-gray-200 rounded-lg p-2 space-y-2 max-h-48 overflow-hidden">
+        <h3 className="text-sm font-semibold text-gray-800">Fotos del producto</h3>
+        <div className="border border-dashed border-amber-400 rounded-lg p-2 text-center bg-white h-20 flex items-center justify-center">
+          <input
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={handleAddPhotos}
+            className="hidden"
+            id="add-photos-input"
+          />
+          <label htmlFor="add-photos-input" className="cursor-pointer inline-flex items-center justify-center rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-gray-50">
+            + Agregar fotos
           </label>
+        </div>
+        {addPhotoPreviews.length > 0 && (
+          <div className="grid grid-cols-3 gap-1.5 overflow-hidden">
+            {addPhotoPreviews.map((preview, index) => (
+              <div key={index} className="relative rounded-lg overflow-hidden border border-gray-200 h-16">
+                <img src={preview} alt={`Preview ${index}`} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removePhoto(index)}
+                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {addPhotoPreviews.length > 0 && (
+          <p className="text-xs text-amber-700">{addPhotoPreviews.length} foto(s) seleccionada(s)</p>
         )}
       </div>
     </div>
 
-    {/* Nombre */}
-    <div>
-      <label className="block text-gray-700 font-medium mb-1 text-xs">
-        Nombre del Producto *
-      </label>
-      <Input
-        value={addName}
-        onChange={(e) => setAddName(e.target.value)}
-        placeholder="Nombre del producto"
-        className={`h-9 text-sm ${addErrors.name ? 'border-red-400' : ''}`}
-      />
-      {addErrors.name && <p className="text-red-500 text-xs mt-0.5">{addErrors.name}</p>}
-    </div>
-
-    {/* Precios */}
-    <div className="grid grid-cols-2 gap-3">
-      <div>
-        <label className="block text-gray-700 font-medium mb-1 text-xs">
-          Precio compra *
-        </label>
-        <Input
-          type="number"
-          value={addPurchasePrice}
-          onChange={(e) => setAddPurchasePrice(e.target.value)}
-          placeholder="0"
-          className={`h-9 text-sm ${addErrors.purchasePrice ? 'border-red-400' : ''}`}
-        />
-        {addErrors.purchasePrice && <p className="text-red-500 text-xs mt-0.5">{addErrors.purchasePrice}</p>}
-      </div>
-
-      <div>
-        <label className="block text-gray-700 font-medium mb-1 text-xs">
-          Precio venta *
-        </label>
-        <Input
-          type="number"
-          value={addPrice}
-          onChange={(e) => setAddPrice(e.target.value)}
-          placeholder="0"
-          className={`h-9 text-sm ${addErrors.price ? 'border-red-400' : ''}`}
-        />
-        {addErrors.price && <p className="text-red-500 text-xs mt-0.5">{addErrors.price}</p>}
-      </div>
-    </div>
-
-    {/* Categoría */}
-    <div>
-      <label className="block text-gray-700 font-medium mb-1 text-xs">
-        Categoría *
-      </label>
-      <select
-        value={addCategory ?? ''}
-        onChange={(e) => setAddCategory(Number(e.target.value) || null)}
-        className={`w-full h-9 px-2 border rounded-lg text-sm ${
-          addErrors.category ? 'border-red-400' : 'border-gray-300'
-        }`}
-      >
-        <option value="">Seleccionar</option>
-        {categories.map(c => (
-          <option key={c.id_category} value={c.id_category}>
-            {c.name}
-          </option>
-        ))}
-      </select>
-      {addErrors.category && <p className="text-red-500 text-xs mt-0.5">{addErrors.category}</p>}
-    </div>
-
-    {/* Sección de Variante (Talla, Color, Stock, SKU) */}
-    <div className="border-t pt-2">
-      <h4 className="font-semibold text-gray-900 mb-2 text-xs">Variante Inicial (Opcional)</h4>
-      
-      <div className="grid grid-cols-2 gap-2 mb-2">
-        {/* Talla */}
-        <div>
-          <label className="block text-gray-700 font-medium mb-1 text-xs">
-            Talla
-          </label>
-          {isCreatingNewSize ? (
-            <div className="space-y-1">
-              <Input
-                value={newSizeName}
-                onChange={(e) => setNewSizeName(e.target.value)}
-                placeholder="Ej: M, L, XL"
-                className="h-8 text-sm"
-              />
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={handleCreateSize}
-                  disabled={isSubmitting}
-                  className="flex-1 px-1.5 py-0.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Creando...' : 'Crear'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCreatingNewSize(false);
-                    setNewSizeName('');
-                  }}
-                  className="flex-1 px-1.5 py-0.5 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <select
-                value={addSizeId ?? ''}
-                onChange={(e) => setAddSizeId(Number(e.target.value) || null)}
-                className={`w-full h-9 px-2 border rounded-lg text-sm ${
-                  addErrors.size ? 'border-red-400' : 'border-gray-300'
-                }`}
-              >
-                <option value="">Seleccionar</option>
-                {sizes.map(s => (
-                  <option key={s.id_size} value={s.id_size}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setIsCreatingNewSize(true)}
-                className="text-blue-600 text-xs mt-0.5 hover:underline"
-              >
-                + Nueva talla
-              </button>
-            </>
-          )}
-          {addErrors.size && <p className="text-red-500 text-xs mt-0.5">{addErrors.size}</p>}
-        </div>
-
-        {/* Color */}
-        <div>
-          <label className="block text-gray-700 font-medium mb-1 text-xs">
-            Color
-          </label>
-          {isCreatingNewColor ? (
-            <div className="space-y-2">
-              <Input
-                value={newColorName}
-                onChange={(e) => setNewColorName(e.target.value)}
-                placeholder="Ej: Negro, Rojo"
-                className="h-9 text-sm"
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleCreateColor}
-                  disabled={isSubmitting}
-                  className="flex-1 px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Creando...' : 'Crear'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCreatingNewColor(false);
-                    setNewColorName('');
-                  }}
-                  className="flex-1 px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <select
-                value={addColorId ?? ''}
-                onChange={(e) => setAddColorId(Number(e.target.value) || null)}
-                className={`w-full h-9 px-2 border rounded-lg text-sm ${
-                  addErrors.color ? 'border-red-400' : 'border-gray-300'
-                }`}
-              >
-                <option value="">Seleccionar</option>
-                {colors.map(c => (
-                  <option key={c.id_color} value={c.id_color}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setIsCreatingNewColor(true)}
-                className="text-blue-600 text-xs mt-0.5 hover:underline"
-              >
-                + Nuevo color
-              </button>
-            </>
-          )}
-          {addErrors.color && <p className="text-red-500 text-xs mt-0.5">{addErrors.color}</p>}
-        </div>
-
-        {/* Stock */}
-        <div>
-          <label className="block text-gray-700 font-medium mb-1 text-xs">
-            Stock Inicial
-          </label>
-          <Input
-            type="number"
-            value={addStock}
-            onChange={(e) => setAddStock(e.target.value)}
-            placeholder="0"
-            className={`h-9 text-sm ${addErrors.stock ? 'border-red-400' : ''}`}
-          />
-          {addErrors.stock && <p className="text-red-500 text-xs mt-0.5">{addErrors.stock}</p>}
-        </div>
-
-        {/* SKU */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-gray-700 font-medium text-xs">SKU</label>
-            <button 
-              type="button" 
-              onClick={autoGenerateSku} 
-              className="text-xs text-blue-600 hover:underline"
-            >
-              Generar automático
-            </button>
-          </div>
-          <Input
-            value={addSku}
-            onChange={(e) => setAddSku(e.target.value)}
-            placeholder="Ej: VES-M-NEG-001"
-            className={`h-9 text-sm font-mono ${addErrors.sku ? 'border-red-400' : ''}`}
-          />
-          {addErrors.sku && <p className="text-red-500 text-xs mt-0.5">{addErrors.sku}</p>}
-        </div>
-      </div>
-    </div>
-
-    {/* Botones */}
-    <div className="flex gap-2 justify-end pt-1.5 border-t">
-      <Button onClick={handleCloseAddModal} variant="secondary">
-        Cancelar
-      </Button>
-      <Button 
-        onClick={handleSaveAdd} 
-        variant="primary" 
-        disabled={isSubmitting}
-      >
+    <div className="flex gap-2 justify-end pt-1 border-t">
+      <Button onClick={handleCloseAddModal} variant="secondary" className="h-8 px-3 text-xs">Cancelar</Button>
+      <Button onClick={handleSaveAdd} variant="primary" disabled={isSubmitting} className="h-8 px-3 text-xs">
         {isSubmitting ? 'Creando...' : 'Crear Producto'}
       </Button>
     </div>

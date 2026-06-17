@@ -12,9 +12,33 @@ interface ModulePermissions {
   canDelete: boolean;
 }
 
+const MODULE_ALIASES: Record<string, string[]> = {
+  ventas: ['sales'],
+  sales: ['ventas'],
+  compras: ['purchases'],
+  purchases: ['compras'],
+  productos: ['products'],
+  products: ['productos'],
+  categorias: ['categories', 'category'],
+  categories: ['categorias', 'categoria'],
+  clientes: ['clients'],
+  clients: ['clientes'],
+  pedidos: ['orders'],
+  orders: ['pedidos'],
+  devoluciones: ['returns'],
+  returns: ['devoluciones'],
+  proveedores: ['suppliers'],
+  suppliers: ['proveedores'],
+  usuarios: ['users'],
+  users: ['usuarios'],
+  permisos: ['permissions'],
+  permissions: ['permisos'],
+  dashboard: ['dashboard'],
+};
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 export function usePermissions() {
-  const { user } = useAuth();
+  const { user, isAdmin: isUserAdmin } = useAuth();
 
   // Normalizar nombre de módulo (sin acentos, minúsculas)
   const normalizeModuleName = useCallback((name: string): string => {
@@ -24,6 +48,18 @@ export function usePermissions() {
       .replace(/[\u0300-\u036f]/g, '');
   }, []);
 
+  // Verificar si dos nombres de módulo coinciden (considerando aliases)
+  const modulesMatch = useCallback((moduleKey: string, targetModule: string): boolean => {
+    const normalizedKey = normalizeModuleName(moduleKey);
+    const normalizedTarget = normalizeModuleName(targetModule);
+
+    if (normalizedKey === normalizedTarget) return true;
+    if (MODULE_ALIASES[normalizedKey]?.includes(normalizedTarget)) return true;
+    if (MODULE_ALIASES[normalizedTarget]?.includes(normalizedKey)) return true;
+
+    return false;
+  }, [normalizeModuleName]);
+
   // ¿Es módulo público?
   const isPublicModule = useCallback((module: string): boolean => {
     const normalized = normalizeModuleName(module);
@@ -32,21 +68,20 @@ export function usePermissions() {
 
   // ¿Es administrador?
   const isAdmin = useCallback((): boolean => {
-    return user?.rol_name?.toLowerCase() === 'administrador';
-  }, [user?.rol_name]);
+    return isUserAdmin();
+  }, [isUserAdmin]);
 
   // Buscar acciones del usuario para un módulo desde el token
   // user.permissions = { "Usuarios": ["View", "Create", ...], ... }
   const getModuleActions = useCallback((module: string): string[] => {
     if (!user?.permissions) return [];
-    const normalizedTarget = normalizeModuleName(module);
     for (const [key, actions] of Object.entries(user.permissions)) {
-      if (normalizeModuleName(key) === normalizedTarget) {
+      if (modulesMatch(key, module)) {
         return actions;
       }
     }
     return [];
-  }, [user?.permissions, normalizeModuleName]);
+  }, [user?.permissions, modulesMatch]);
 
   // ─── getModulePermissions ─────────────────────────────────────────────────
   const getModulePermissions = useCallback((module: string): ModulePermissions => {
@@ -131,5 +166,7 @@ export function usePermissions() {
     getModulePermissions,
     canAccessModule,
     getVisibleModules,
+    modulesMatch,
+    normalizeModuleName,
   };
 }

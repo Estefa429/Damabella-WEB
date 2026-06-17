@@ -243,13 +243,13 @@ export default function ComprasPage() {
     {
       key: 'unitPrice',
       label: 'Precio Unit.',
-      render: (purchase: Purchase) => `$${purchase.unitPrice.toLocaleString()}`,
+      render: (purchase: Purchase) => `${purchase.unitPrice.toLocaleString()} COP`,
     },
     {
       key: 'total',
       label: 'Total',
       render: (purchase: Purchase) => (
-        <span className="font-semibold">${purchase.total.toLocaleString()}</span>
+        <span className="font-semibold">{purchase.total.toLocaleString()} COP</span>
       ),
     },
     {
@@ -390,7 +390,7 @@ export default function ComprasPage() {
             <div className="p-4 bg-gray-100 rounded-lg">
               <p className="text-sm text-gray-600">Total</p>
               <p className="text-2xl font-bold">
-                ${(parseFloat(formData.quantity) * parseFloat(formData.unitPrice)).toLocaleString()}
+                {(parseFloat(formData.quantity) * parseFloat(formData.unitPrice)).toLocaleString()} COP
               </p>
             </div>
           )}

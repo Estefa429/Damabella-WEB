@@ -42,6 +42,7 @@ export interface CreateSaleDTO {
   client: number;
   payment_method: number;
   date_sale: string;
+  order?: number | null; // ← Referencia al pedido original (opcional si es venta directa)
   state: number;
   observations?: string;
   details: SaleDetail[];

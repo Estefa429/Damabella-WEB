@@ -11,6 +11,7 @@ export interface VariantProduct {
   color_name:    string;
   sku:           string;
   price:         number;
+  purchase_price?: number;
   category:      number;
   category_name: string;
 }
@@ -39,6 +40,7 @@ export interface Purchase {
   registration_date: string;
   observations:      string | null;
   image:             string | null;
+  canceled?:         boolean | string | number;
   details:           PurchaseDetail[];
 }
 
@@ -52,7 +54,9 @@ export interface CreatePurchaseDetailDTO {
 
 export interface CreatePurchaseDTO {
   provider:     number;
-  state:        number;
+  state?:       number;
+  // `iva` now holds the IVA id (foreign key), not the percentage
+  iva?:         number;
   observations?: string;
   image?:        string;
   details:       CreatePurchaseDetailDTO[];
@@ -97,19 +101,25 @@ export const createPurchase = async (data: CreatePurchaseDTO): Promise<Purchase 
 
 export const deletePurchase = async (id_purchase: number): Promise<boolean> => {
   try {
+    console.debug('[PurchasesService] deletePurchase called', { id_purchase });
     const response = await API.delete(`/purchases/${id_purchase}/delete_purchase/`);
+    console.debug('[PurchasesService] deletePurchase response', { id_purchase, data: response.data });
     if (response.data.success === true) return true;
     console.warn(response.data.message);
     return false;
   } catch (error: any) {
-    console.error(error);
+    console.error('[PurchasesService] deletePurchase error', { id_purchase, error: error.response?.data ?? error.message ?? error });
     return false;
   }
 };
 
-export const patchPurchaseState = async (id_purchase: number, state: number): Promise<Purchase | null> => {
+export const patchPurchaseState = async (id_purchase: number, state: number, canceled?: boolean): Promise<Purchase | null> => {
   try {
-    const response = await API.patch(`/purchases/${id_purchase}/patch_state/`, { state });
+    const body: Record<string, unknown> = { state };
+    if (typeof canceled !== 'undefined') body.canceled = canceled;
+    console.debug('[PurchasesService] patchPurchaseState payload', { id_purchase, body });
+    const response = await API.patch(`/purchases/${id_purchase}/patch_state/`, body);
+    console.debug('[PurchasesService] patchPurchaseState response', response.data);
     if (response.data.success === true) return response.data.object;
     console.warn(response.data.message);
     return null;

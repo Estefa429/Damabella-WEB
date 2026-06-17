@@ -8,8 +8,6 @@ import {
   generateRecoveryCode,
   verifyRecoveryCode,
   updateUserPassword,
-  findUserByEmail,
-  clearRecoveryCode,
 } from '../services/authService';
 
 export function RecoverPassword() {
@@ -35,20 +33,14 @@ export function RecoverPassword() {
       return;
     }
 
-    const user = findUserByEmail(email);
-    if (!user) {
-      setErrors({ email: 'No existe una cuenta con este correo' });
-      return;
-    }
-
     setLoading(true);
     setErrors({});
     try {
-      generateRecoveryCode(email);
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await generateRecoveryCode(email);
       setStep('code');
-    } catch (error) {
-      setErrors({ form: 'Error al enviar el código. Intenta de nuevo.' });
+    } catch (error: any) {
+      const message = error?.message || 'Error al enviar el código. Intenta de nuevo.';
+      setErrors({ form: message });
     } finally {
       setLoading(false);
     }
@@ -69,13 +61,15 @@ export function RecoverPassword() {
     setLoading(true);
     setErrors({});
     try {
-      if (verifyRecoveryCode(email, code)) {
+      const valid = await verifyRecoveryCode(email, code);
+      if (valid) {
         setStep('password');
       } else {
         setErrors({ code: 'El código es inválido o ha expirado' });
       }
-    } catch (error) {
-      setErrors({ form: 'Error al verificar el código. Intenta de nuevo.' });
+    } catch (error: any) {
+      const message = error?.message || 'Error al verificar el código. Intenta de nuevo.';
+      setErrors({ form: message });
     } finally {
       setLoading(false);
     }
@@ -98,16 +92,16 @@ export function RecoverPassword() {
     setLoading(true);
     setErrors({});
     try {
-      const success = updateUserPassword(email, newPassword);
+      const success = await updateUserPassword(email, newPassword);
       
       if (success) {
-        clearRecoveryCode(email);
         setTimeout(() => navigate('/login'), 2000);
       } else {
         setErrors({ form: 'Error al actualizar la contraseña' });
       }
-    } catch (error) {
-      setErrors({ form: 'Error al actualizar la contraseña. Intenta de nuevo.' });
+    } catch (error: any) {
+      const message = error?.message || 'Error al actualizar la contraseña. Intenta de nuevo.';
+      setErrors({ form: message });
     } finally {
       setLoading(false);
     }
@@ -124,7 +118,7 @@ export function RecoverPassword() {
       </div>
 
       <div className="w-full lg:w-1/2 flex items-center justify-center px-4 bg-white overflow-y-auto">
-        <div className="w-full max-w-sm py-6">
+        <div className="w-full max-w-md p-8">
           <div className="mb-6">
             {step !== 'email' && (
               <button
@@ -142,14 +136,13 @@ export function RecoverPassword() {
               </Link>
             )}
             <h1 className="text-3xl font-bold text-gray-900 mb-1">
-              {step === 'email' && 'Recuperar Contraseña'}
-              {step === 'code' && 'Verificar Código'}
-              {step === 'password' && 'Nueva Contraseña'}
+              {step === 'email' ? 'Recuperar Contraseña' : 
+               step === 'code' ? 'Verificar Código' : 'Nueva Contraseña'}
             </h1>
             <p className="text-gray-600 text-sm">
-              {step === 'email' && 'Ingresa tu correo electrónico y te enviaremos un código.'}
-              {step === 'code' && 'Ingresa el código de verificación que hemos enviado a tu correo.'}
-              {step === 'password' && 'Crea una nueva contraseña segura para tu cuenta.'}
+              {step === 'email' ? 'Ingresa tu correo electrónico y te enviaremos un código.' : 
+               step === 'code' ? 'Ingresa el código de verificación que hemos enviado a tu correo.' : 
+               'Crea una nueva contraseña segura para tu cuenta.'}
             </p>
           </div>
 
@@ -161,7 +154,7 @@ export function RecoverPassword() {
           )}
 
           {step === 'email' && (
-            <form onSubmit={handleSubmitEmail} className="space-y-3">
+            <form key="form-step-email" onSubmit={handleSubmitEmail} className="space-y-3">
               <div className="space-y-1">
                 <Label htmlFor="email" className="text-sm font-semibold text-gray-900">
                   Correo Electrónico
@@ -180,7 +173,7 @@ export function RecoverPassword() {
                     }`}
                   />
                 </div>
-                {errors.email && <p className="text-red-500 text-xs">{errors.email}</p>}
+                {errors.email ? <p className="text-red-500 text-xs">{errors.email}</p> : null}
               </div>
               <Button type="submit" className="w-full bg-black text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-900" disabled={loading}>
                 {loading ? 'Enviando...' : 'Enviar Código'}
@@ -189,7 +182,7 @@ export function RecoverPassword() {
           )}
 
           {step === 'code' && (
-            <form onSubmit={handleSubmitCode} className="space-y-3">
+            <form key="form-step-code" onSubmit={handleSubmitCode} className="space-y-3">
               <div className="space-y-1">
                 <Label htmlFor="code" className="text-sm font-semibold text-gray-900">
                   Código de Verificación
@@ -204,8 +197,9 @@ export function RecoverPassword() {
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all ${
                     errors.code ? 'border-red-500' : 'border-gray-300'
                   }`}
+                  maxLength={6}
                 />
-                {errors.code && <p className="text-red-500 text-xs mt-1">{errors.code}</p>}
+                {errors.code ? <p className="text-red-500 text-xs mt-1">{errors.code}</p> : null}
                 <p className="text-xs text-gray-500 mt-2">Revisa tu correo: {email}</p>
                 <p className="text-xs text-gray-400">El código expira en 10 minutos</p>
               </div>
@@ -216,7 +210,7 @@ export function RecoverPassword() {
           )}
 
           {step === 'password' && (
-            <form onSubmit={handleSubmitPassword} className="space-y-3">
+            <form key="form-step-password" onSubmit={handleSubmitPassword} className="space-y-3">
               <div className="space-y-1">
                 <Label htmlFor="newPassword" className="text-sm font-semibold text-gray-900">
                   Nueva Contraseña
@@ -243,7 +237,7 @@ export function RecoverPassword() {
                     {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                {errors.newPassword && <p className="text-red-500 text-xs">{errors.newPassword}</p>}
+                {errors.newPassword ? <p className="text-red-500 text-xs">{errors.newPassword}</p> : null}
               </div>
 
               <div className="space-y-1">
@@ -272,7 +266,7 @@ export function RecoverPassword() {
                     {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                {errors.confirmPassword && <p className="text-red-500 text-xs">{errors.confirmPassword}</p>}
+                {errors.confirmPassword ? <p className="text-red-500 text-xs">{errors.confirmPassword}</p> : null}
                 {newPassword && confirmPassword && !errors.confirmPassword && (
                   <p className={newPassword === confirmPassword ? 'text-xs text-green-600' : 'text-xs text-red-600'}>
                     {newPassword === confirmPassword ? '✓ Las contraseñas coinciden' : '✗ Las contraseñas no coinciden'}

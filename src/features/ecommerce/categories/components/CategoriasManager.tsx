@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Edit2, Package, Search, FolderTree, AlertTriangle, Eye, Grid3x3, List, Trash2, Loader } from 'lucide-react';
 import { Button, Input, Modal, useToast } from '../../../../shared/components/native';
+import ErrorBoundary from '../../../../shared/components/native/ErrorBoundary';
 import { usePermissions } from '@/shared/hooks';
 import { 
   getAllCategories, 
@@ -820,30 +821,32 @@ const confirmToggleActive = async () => {
         }}
         title={`Productos de ${selectedCategory?.name}`}
       >
-        <div className="space-y-4">
-          {selectedCategory && (
-            <>
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <p className="text-gray-700">{selectedCategory.description}</p>
-              </div>
-              
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                <div className="text-center py-8">
-                  <Package className="mx-auto mb-2 text-gray-400" size={48} />
-                  <p className="text-gray-600">
-                    Conecte el servicio de productos para ver los productos de esta categoría
-                  </p>
+        <ErrorBoundary>
+          <div className="space-y-4">
+            {selectedCategory && (
+              <>
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <p className="text-gray-700">{selectedCategory.description}</p>
                 </div>
-              </div>
+                
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  <div className="text-center py-8">
+                    <Package className="mx-auto mb-2 text-gray-400" size={48} />
+                    <p className="text-gray-600">
+                      Conecte el servicio de productos para ver los productos de esta categoría
+                    </p>
+                  </div>
+                </div>
 
-              <div className="flex justify-end pt-4">
-                <Button onClick={() => setShowProductsModal(false)} variant="secondary">
-                  Cerrar
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
+                <div className="flex justify-end pt-4">
+                  <Button onClick={() => setShowProductsModal(false)} variant="secondary">
+                    Cerrar
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </ErrorBoundary>
       </Modal>
 
       {/* Modal Confirmation - Inactivate Category */}

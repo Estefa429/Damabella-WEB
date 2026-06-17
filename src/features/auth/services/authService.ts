@@ -1,92 +1,58 @@
-// Sistema de almacenamiento local de usuarios
-const USERS_STORAGE_KEY = 'damabella_users';
+import { API } from '@/services/ApiConfigure';
 
-export const getStoredUsers = () => {
-  const stored = localStorage.getItem(USERS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : [];
-};
+export const generateRecoveryCode = async (email: string): Promise<void> => {
+  try {
+    await API.post('/auth/request-otp/', { email });
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail || 'Error al solicitar el código de recuperación';
 
-export const saveUser = (user: any) => {
-  const users = getStoredUsers();
-  users.push(user);
-  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-};
+    if (status === 404) {
+      throw new Error('No existe una cuenta con este correo.');
+    }
 
-export const updateUserPassword = (email: string, newPassword: string) => {
-  const users = getStoredUsers();
-  const userIndex = users.findIndex((u: any) => u.email === email);
-  
-  if (userIndex !== -1) {
-    users[userIndex].password = newPassword;
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-    return true;
+    if (status === 400) {
+      throw new Error(detail);
+    }
+
+    throw new Error(detail);
   }
-  return false;
 };
 
-export const findUserByEmail = (email: string) => {
-  const users = getStoredUsers();
-  return users.find((u: any) => u.email === email);
-};
+export const verifyRecoveryCode = async (email: string, code: string): Promise<boolean> => {
+  try {
+    const response = await API.post('/auth/validate-otp/', { email, code });
+    return response.data?.valid !== false;
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail || 'Error al verificar el código';
 
-export const validateUserCredentials = (email: string, password: string) => {
-  const users = getStoredUsers();
-  return users.find((u: any) => u.email === email && u.password === password);
-};
+    if (status === 404 || status === 400) {
+      return false;
+    }
 
-export const emailExists = (email: string) => {
-  const users = getStoredUsers();
-  return users.some((u: any) => u.email === email);
-};
-
-export const documentExists = (numeroDoc: string) => {
-  const users = getStoredUsers();
-  return users.some((u: any) => u.numeroDoc === numeroDoc);
-};
-
-// Recovery code management (stored in memory with expiration)
-const RECOVERY_CODES_KEY = 'damabella_recovery_codes';
-
-const getStoredRecoveryCodes = () => {
-  const stored = localStorage.getItem(RECOVERY_CODES_KEY);
-  return stored ? JSON.parse(stored) : {};
-};
-
-const saveRecoveryCodes = (codes: any) => {
-  localStorage.setItem(RECOVERY_CODES_KEY, JSON.stringify(codes));
-};
-
-export const generateRecoveryCode = (email: string): string => {
-  const code = Math.random().toString().slice(2, 8);
-  const codes = getStoredRecoveryCodes();
-  codes[email] = {
-    code,
-    timestamp: Date.now(),
-  };
-  saveRecoveryCodes(codes);
-  return code;
-};
-
-export const verifyRecoveryCode = (email: string, code: string): boolean => {
-  const codes = getStoredRecoveryCodes();
-  const stored = codes[email];
-  
-  if (!stored) return false;
-  
-  // Code expires after 10 minutes
-  if (Date.now() - stored.timestamp > 10 * 60 * 1000) {
-    delete codes[email];
-    saveRecoveryCodes(codes);
-    return false;
+    throw new Error(detail);
   }
-  
-  return stored.code === code;
 };
 
-export const clearRecoveryCode = (email: string) => {
-  const codes = getStoredRecoveryCodes();
-  delete codes[email];
-  saveRecoveryCodes(codes);
+export const updateUserPassword = async (email: string, newPassword: string): Promise<boolean> => {
+  try {
+    const response = await API.post('/auth/reset-password/', {
+      email,
+      password: newPassword,
+    });
+
+    return response.data?.success !== false;
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail || 'Error al actualizar la contraseña';
+
+    if (status === 404 || status === 400) {
+      throw new Error(detail);
+    }
+
+    throw new Error(detail);
+  }
 };
 
 

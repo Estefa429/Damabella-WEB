@@ -10,6 +10,7 @@ import {
   type DistribucionCategoria,
   type DatoMensual,
 } from '../services/dashboardServices';
+import DashboardOrdersTable from '../components/DashboardOrdersTable';
 
 export default function DashboardMain() {
   console.log('🔴 [DashboardMain] Componente montándose...');
@@ -22,8 +23,10 @@ export default function DashboardMain() {
     pendingOrders: 0,
     ventasMes: 0,
     dineroVentasMes: 0,
+    cantidadDevoluciones: 0,
   });
   const [productosMasVendidos, setProductosMasVendidos] = useState<ProductoMasVendido[]>([]);
+  const [topProductsData, setTopProductsData] = useState<{ producto: string; cantidad: number }[]>([]);
   const [distribucionCategorias, setDistribucionCategorias] = useState<DistribucionCategoria[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +60,7 @@ export default function DashboardMain() {
         // Actualizar estado
         setSummary(summaryData);
         setProductosMasVendidos(summaryData.productosMasVendidos || []);
+        setTopProductsData(summaryData.productosMasVendidos || []);
         setDistribucionCategorias(summaryData.distribucionCategorias || []);
         setDineroVentasPorMes(dineroData || []);
         setCantidadVentasPorMes(cantidadData || []);
@@ -81,15 +85,6 @@ export default function DashboardMain() {
   // PREPARACIÓN DE DATOS PARA GRÁFICOS
   // ============================================================
 
-  // Transformar productos más vendidos para el gráfico
-  const topProductsData = useMemo(() => {
-    return (productosMasVendidos || []).slice(0, 5).map((p) => ({
-      name: p.nombre,
-      sales: p.cantidad_vendida,
-      revenue: p.ingresos,
-    }));
-  }, [productosMasVendidos]);
-
   // Transformar distribución de categorías para el gráfico
   const categoryData = useMemo(() => {
     const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#34d399', '#60a5fa'];
@@ -100,11 +95,17 @@ export default function DashboardMain() {
     }));
   }, [distribucionCategorias]);
 
+  const getNombreMesActual = () => {
+    const monthName = new Date().toLocaleDateString('es-CO', { month: 'long' });
+    return monthName.charAt(0).toUpperCase() + monthName.slice(1);
+  };
+
   // Stats cards
   const stats = [
     {
       title: 'Dinero en Ventas',
       value: `$${summary.dineroVentasMes.toLocaleString()}`,
+      subtext: `(${getNombreMesActual()})`,
       change: '',
       trend: 'up',
       icon: DollarSign,
@@ -119,8 +120,8 @@ export default function DashboardMain() {
       color: 'from-blue-500 to-blue-600'
     },
     {
-      title: 'Cantidad de Ventas',
-      value: String(summary.ventasMes),
+      title: 'Devoluciones',
+      value: String(summary.cantidadDevoluciones ?? 0),
       change: '',
       trend: 'up',
       icon: ShoppingBag,
@@ -211,7 +212,12 @@ export default function DashboardMain() {
                     </div>
                   </div>
                   <div className="text-gray-600 mb-1">{stat.title}</div>
-                  <div className="text-gray-900 font-semibold text-lg">{stat.value}</div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-gray-900 font-semibold text-lg">{stat.value}</span>
+                    {stat.subtext && (
+                      <span className="text-gray-500 text-xs font-normal">{stat.subtext}</span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -281,13 +287,11 @@ export default function DashboardMain() {
             <h3 className="text-gray-900 mb-4">Productos Más Vendidos (Top 5)</h3>
             {topProductsData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={topProductsData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" stroke="#6b7280" />
-                  <YAxis stroke="#6b7280" />
+                <BarChart data={topProductsData}> {/* Revisa que esta variable tenga los datos */}
+                  <XAxis dataKey="producto" />
+                  <YAxis />
                   <Tooltip />
-                  <Legend />
-                  <Bar dataKey="sales" fill="#6366f1" name="Unidades Vendidas" />
+                  <Bar dataKey="cantidad" fill="#4f46e5" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -295,28 +299,8 @@ export default function DashboardMain() {
             )}
           </div>
 
-          {/* Resumen del período */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-gray-900 mb-4">Resumen del Período</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="pb-4 border-b">
-                <span className="text-gray-600 block text-sm">Dinero en ventas</span>
-                <span className="text-gray-900 font-semibold text-lg">${summary.dineroVentasMes.toLocaleString()}</span>
-              </div>
-              <div className="pb-4 border-b">
-                <span className="text-gray-600 block text-sm">Cantidad de ventas</span>
-                <span className="text-gray-900 font-semibold text-lg">{summary.ventasMes}</span>
-              </div>
-              <div className="pb-4 border-b">
-                <span className="text-gray-600 block text-sm">Pedidos pendientes</span>
-                <span className="text-gray-900 font-semibold text-lg">{summary.pendingOrders}</span>
-              </div>
-              <div className="pb-4 border-b">
-                <span className="text-gray-600 block text-sm">Usuarios activos</span>
-                <span className="text-gray-900 font-semibold text-lg">{summary.usersActive}</span>
-              </div>
-            </div>
-          </div>
+          {/* Tabla de Pedidos */}
+          <DashboardOrdersTable />
         </>
       )}
     </div>

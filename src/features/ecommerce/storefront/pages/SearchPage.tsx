@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Heart, SlidersHorizontal, X } from 'lucide-react';
+import { Heart, ShoppingCart as CartIcon, SlidersHorizontal, X } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
 import { useToast } from '../../../../shared/components/native';
 import { PremiumNavbar } from '../components/PremiumNavbar';
@@ -171,6 +171,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
         colorHex: firstVariant.colorHex || '#000000',
         size: firstSize.size,
         quantity: 1,
+        variantId: firstSize.variantId
       });
 
       if (!success) {
@@ -208,7 +209,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
             {selectedCategory !== 'Todas' ? selectedCategory : 'Todos los Productos'}
           </h1>
           <p className="text-gray-600">
-            {filteredProducts.length} producto{filteredProducts.length !== 1 ? 's' : ''} encontrado{filteredProducts.length !== 1 ? 's' : ''}
+            {`${filteredProducts.length} producto${filteredProducts.length !== 1 ? 's' : ''} encontrado${filteredProducts.length !== 1 ? 's' : ''}`}
           </p>
         </div>
 
@@ -357,30 +358,35 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
 
         {/* Products Grid */}
         {filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
             {filteredProducts.map((product) => (
-              <div
+              <article
                 key={product.id}
-                className="group bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all hover:-translate-y-1"
+                className="group bg-white overflow-hidden shadow-md hover:shadow-xl transition-all hover:-translate-y-1 flex flex-col h-full border border-gray-100 rounded-md"
               >
-                <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden">
+                <div className="relative aspect-[4/5] bg-gradient-to-br from-gray-100 to-gray-200 overflow-hidden flex-shrink-0">
                   <img
                     src={product.image}
                     alt={product.name}
-                    className="w-full h-full object-cover cursor-pointer group-hover:scale-110 transition-transform duration-700"
+                    className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform duration-500"
                     onClick={() => onNavigate('detail', product.id)}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.onerror = null;
+                      target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><rect width="900" height="1200" fill="%23f3f4f6"/><text x="450" y="590" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" fill="%239ca3af">DAMABELLA</text><text x="450" y="642" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="%23b6bcc6">Imagen no disponible</text></svg>';
+                    }}
                   />
                   {product.new && (
-                    <span className="absolute top-3 left-3 bg-pink-400 text-white text-xs font-bold px-3 py-1 rounded-full">
-                      NUEVO
+                    <span className="absolute top-4 left-4 bg-gradient-to-r from-pink-500 to-pink-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
+                      ✨ NUEVO
                     </span>
                   )}
                   <button
                     onClick={() => handleToggleFavorite(product.id)}
-                    className={`absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-md ${
+                    className={`absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-lg ${
                       favorites.includes(product.id)
                         ? 'scale-110 bg-red-100 hover:bg-red-200'
-                        : 'bg-white/90 hover:bg-white scale-100'
+                        : 'bg-white/80 hover:bg-white scale-100'
                     }`}
                   >
                     <Heart
@@ -393,33 +399,75 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                     />
                   </button>
                 </div>
-                <div className="p-4">
-                  <h3
-                    className="text-gray-900 mb-2 line-clamp-2 cursor-pointer hover:text-pink-400 transition-colors min-h-[3rem]"
-                    onClick={() => onNavigate('detail', product.id)}
-                  >
-                    {product.name}
-                  </h3>
-                  <p className="text-2xl text-gray-900 mb-3">
-                    ${product.price.toLocaleString()}
-                  </p>
-                  <div className="flex gap-1 mb-3">
-                    {Array.from(new Set(product.variants.map(v => v.colorHex))).slice(0, 4).map((colorHex, idx) => (
-                      <div
-                        key={idx}
-                        className="w-6 h-6 rounded-full border-2 border-gray-300"
-                        style={{ backgroundColor: colorHex }}
-                      />
-                    ))}
+                <div className="p-4 flex flex-col flex-grow">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-gray-500 mb-1">Damabella</p>
+                      <h3
+                        className="font-serif text-[22px] text-gray-950 leading-none cursor-pointer hover:text-gray-700 transition-colors line-clamp-2"
+                        onClick={() => onNavigate('detail', product.id)}
+                      >
+                        {product.name}
+                      </h3>
+                    </div>
+                    <div className="text-right shrink-0 pt-6">
+                      <p className="text-[11px] leading-none" style={{ color: '#ec4899' }}>$</p>
+                      <p className="text-sm font-semibold leading-tight" style={{ color: '#ec4899' }}>
+                        {product.price.toLocaleString()}
+                      </p>
+                      <p className="text-[9px] text-gray-400 leading-none mt-1">IVA incluido</p>
+                    </div>
                   </div>
+                  <p className="text-xs text-gray-700 leading-relaxed line-clamp-3 mb-4 min-h-[3rem]">
+                    {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante y cómodo.'}
+                  </p>
+                  {product.variants.some((variant) => variant.colorHex) && (
+                    <div className="mb-4 min-h-7" aria-label="Seleccionar color">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 mb-2">Colores:</p>
+                      <div className="flex items-center gap-2">
+                        {product.variants
+                          .filter((variant) => variant.colorHex)
+                          .filter((variant, index, array) => array.findIndex((item) => item.colorHex === variant.colorHex) === index)
+                          .slice(0, 5)
+                          .map((variant, idx) => (
+                            <span
+                              key={`${product.id}-${variant.colorHex}-${idx}`}
+                              className="border shadow-sm"
+                              style={{
+                                backgroundColor: variant.colorHex,
+                                width: 28,
+                                height: 28,
+                                minWidth: 28,
+                                minHeight: 28,
+                                display: 'inline-block',
+                                borderRadius: 9999,
+                                border: '2px solid #111827',
+                                boxSizing: 'border-box',
+                              }}
+                              title={variant.color ? `Color: ${variant.color}` : 'Color disponible'}
+                            />
+                          ))}
+                      </div>
+                    </div>
+                  )}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="w-full bg-gray-900 text-white py-3 rounded-full hover:bg-gray-800 transition-colors"
+                    className="w-full py-3 rounded-md transition-colors active:scale-[0.99] shadow-md flex items-center justify-center gap-2 mt-auto"
+                    style={{ backgroundColor: '#ec4899', color: '#ffffff' }}
+                    onMouseEnter={(event) => {
+                      event.currentTarget.style.backgroundColor = '#db2777';
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.backgroundColor = '#ec4899';
+                    }}
                   >
-                    Agregar
+                    <CartIcon size={17} strokeWidth={2.4} className="text-white" />
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-white">
+                      Agregar al carrito
+                    </span>
                   </button>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         ) : (

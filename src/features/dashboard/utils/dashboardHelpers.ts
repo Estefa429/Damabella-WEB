@@ -775,20 +775,16 @@ export function getPendingOrdersTable(limit: number = 5): Array<{
 // UTILIDADES
 // ============================================================
 
-/**
- * 💱 Formatear número a moneda COP
- */
-export function formatCOP(value: number): string {
-  if (typeof value !== 'number' || isNaN(value)) {
-    return '$0';
+export function formatCOP(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '0 COP';
+  }
+  const numValue = Number(value);
+  if (isNaN(numValue)) {
+    return '0 COP';
   }
 
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
+  return `${numValue.toLocaleString('es-CO')} COP`;
 }
 
 /**
