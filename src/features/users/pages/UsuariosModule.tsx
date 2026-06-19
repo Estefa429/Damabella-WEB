@@ -433,11 +433,11 @@ export default function UsuariosModule() {
               <label className="block text-gray-700 font-medium mb-1 text-xs">Tipo de documento *</label>
               <div className="relative">
                 <select value={formData.type_doc} onChange={(e) => setField('type_doc', e.target.value)}
-                  className={`w-full h-9 px-3 pr-9 border rounded-lg text-xs appearance-none bg-white cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-offset-0 ${formErrors.type_doc ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-gray-400 hover:border-gray-400'}` }>
+                  className={`w-full border rounded-md px-3 py-2 pr-10 appearance-none bg-white cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent ${formErrors.type_doc ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 hover:border-gray-400'}`}>
                   <option value="">Seleccionar...</option>
                   {typeDocs.map(t => <option key={t.id_doc} value={t.id_doc}>{t.name}</option>)}
                 </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
               </div>
               {formErrors.type_doc && <p className="text-red-500 text-xs mt-1">{formErrors.type_doc}</p>}
             </div>
@@ -461,11 +461,11 @@ export default function UsuariosModule() {
               <label className="block text-gray-700 font-medium mb-1 text-xs">Rol *</label>
               <div className="relative">
                 <select value={formData.id_rol} onChange={(e) => setField('id_rol', e.target.value)}
-                  className={`w-full h-9 px-3 pr-9 border rounded-lg text-xs appearance-none bg-white cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-offset-0 ${formErrors.id_rol ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-gray-400 hover:border-gray-400'}` }>
+                  className={`w-full border rounded-md px-3 py-2 pr-10 appearance-none bg-white cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent ${formErrors.id_rol ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 hover:border-gray-400'}`}>
                   <option value="">Seleccionar rol...</option>
                   {roles.filter(r => r.is_active).map(r => <option key={r.idRol} value={r.idRol}>{r.name}</option>)}
                 </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
               </div>
               {formErrors.id_rol && <p className="text-red-500 text-xs mt-1">{formErrors.id_rol}</p>}
             </div>
