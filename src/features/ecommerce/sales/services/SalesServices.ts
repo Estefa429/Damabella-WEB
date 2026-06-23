@@ -21,7 +21,7 @@ export interface Sale {
   client: number;
   client_name?: string;
   date_sale: string;
-  state: number;
+  state: boolean;
   state_name?: string;
   payment_method: number;
   payment_method_name?: string;
@@ -91,6 +91,16 @@ export const updateSale = async (id: number, data: Partial<CreateSaleDTO>): Prom
   } catch (error) {
     console.error('updateSale error:', error);
     return null;
+  }
+};
+
+export const annulSale = async (id: number, void_reason: string): Promise<boolean> => {
+  try {
+    const res = await API.post(`/sales/${id}/annul_sale/`, { void_reason });
+    return res.data.success === true;
+  } catch (error) {
+    console.error('annulSale error:', error);
+    return false;
   }
 };
 

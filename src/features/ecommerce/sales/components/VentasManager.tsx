@@ -15,7 +15,7 @@ import {
 import { Button, Input, Modal } from '../../../../shared/components/native';
 import { usePermissions } from '@/shared/hooks/usePermissions';
 import { jsPDF } from 'jspdf';
-import { getAllSales, createSale, patchSaleState, exportSales, CreateSaleDTO, Sale } from '../services/SalesServices';
+import { getAllSales, createSale, annulSale, exportSales, CreateSaleDTO, Sale } from '../services/SalesServices';
 import { getAllClients, createClients, CreateClientsDTO, Clients } from '../../customers/services/clientsServices';
 import { getAllProducts, Product, getAllColors, getAllSizes, Color, Size, getAllInventory } from '../../products/services/productsService';
 import { getAllVariants, VariantProduct } from '@/features/purchases/services/PurchasesService';
@@ -230,7 +230,7 @@ export default function VentasManager() {
                          (sale as any).user?.email ||
                          'Consumidor Final',
           fechaVenta: sale.date_sale,
-          estado: (sale.void ? 'Anulada' : (returnedSaleIds.has(sale.id_sale) ? 'Devolución' : 'Completada')) as 'Completada' | 'Anulada' | 'Devolución',
+          estado: (sale.state ? 'Anulada' : (returnedSaleIds.has(sale.id_sale) ? 'Devolución' : 'Completada')) as 'Completada' | 'Anulada' | 'Devolución',
           items: (sale.details || []).map(detail => ({
             id: detail.id_detail?.toString() || '',
             productoId: detail.variant.toString(),
@@ -246,7 +246,7 @@ export default function VentasManager() {
           total: parseFloat(sale.total),
           metodoPago: sale.payment_method_name || 'Efectivo',
           observaciones: sale.observations || '',
-          anulada: sale.void || false,
+          anulada: sale.state || false,
           motivoAnulacion: sale.void_reason || '',
           createdAt: sale.created_at || new Date().toISOString(),
           number_pedido: (sale as any).number_pedido || '',
@@ -842,10 +842,7 @@ export default function VentasManager() {
 
     try {
       setLoading(true);
-      
-      // Actualizar estado en la API (cambiar a anulada)
-      const resultado = await patchSaleState(ventaToAnular.id, 3); // Estado 3 = Anulada (ajustar según API)
-      
+      const resultado = await annulSale(ventaToAnular.id, motivoAnulacion.trim());
       if (resultado) {
         // Recargar ventas desde la API
         await loadVentas();
