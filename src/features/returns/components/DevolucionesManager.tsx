@@ -63,8 +63,8 @@ export function DevolucionesManager() {
   const [metrics, setMetrics] = useState({
     totalCount: 0,
     totalAmount: 0,
-    pending: 0,
-    completed: 0
+    active: 0,
+    annulled: 0
   });
 
   const [ventas, setVentas] = useState([]);
@@ -307,8 +307,8 @@ export function DevolucionesManager() {
       }
 
       // Sincronizar métricas calculadas localmente a partir de los datos reales de la BD
-      const pendingCount = unified.filter(d => d.estadoGestion === 'Pendiente' || d.estadoGestion === 'Enviado a reparación').length;
-      const completedCount = unified.filter(d => d.estadoGestion === 'Cambiado' || d.estadoGestion === 'Reparado').length;
+      const activeCount = unified.filter(d => d.estadoGestion !== 'Anulado').length;
+      const annulledCount = unified.filter(d => d.estadoGestion === 'Anulado').length;
       const totalAmountVal = unified.reduce((acc, curr) => {
         if (curr.estadoGestion !== 'Anulado') {
           return acc + (curr.total || 0);
@@ -319,8 +319,8 @@ export function DevolucionesManager() {
       setMetrics({
         totalCount: unified.length,
         totalAmount: totalAmountVal,
-        pending: pendingCount,
-        completed: completedCount
+        active: activeCount,
+        annulled: annulledCount
       });
 
     } catch (error) {
@@ -665,12 +665,12 @@ DAMABELLA - Moda Femenina
           <div className="text-2xl font-bold text-gray-900">{formatCOP(metrics.totalAmount)}</div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <div className="text-gray-500 text-sm mb-1">Pendientes</div>
-          <div className="text-2xl font-bold text-yellow-600">{metrics.pending}</div>
+          <div className="text-gray-500 text-sm mb-1">Activos</div>
+          <div className="text-2xl font-bold text-green-600">{metrics.active}</div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <div className="text-gray-500 text-sm mb-1">Completados</div>
-          <div className="text-2xl font-bold text-green-600">{metrics.completed}</div>
+          <div className="text-gray-500 text-sm mb-1">Anulados</div>
+          <div className="text-2xl font-bold text-red-600">{metrics.annulled}</div>
         </div>
       </div>
 
