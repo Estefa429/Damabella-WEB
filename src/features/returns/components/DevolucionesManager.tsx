@@ -6,11 +6,12 @@ import {
   Ban,
   AlertCircle,
   CheckCircle,
-  RotateCcw
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import { Input, Modal } from '../../../shared/components/native';
 import { 
-  getAllReturns, createReturn, deleteReturn, getReturnMetrics, Return, CreateReturnDTO, getReturnById, exportAllReturns 
+  getAllReturns, createReturn, deleteReturn, getReturnMetrics, Return, CreateReturnDTO, getReturnById, exportAllReturns, annulReturn 
 } from '../services/ReturnServices';
 import { 
   getAllChanges, createChange, deleteChange, getChangeMetrics, Change, CreateChangeDTO, getChangeById 
@@ -157,7 +158,7 @@ export function DevolucionesManager() {
   const [notificationType, setNotificationType] = useState<'success' | 'error' | 'info'>('info');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
-  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ run: () => void } | null>(null);
   const [viewingDevolucion, setViewingDevolucion] = useState<Devolucion | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -240,7 +241,7 @@ export function DevolucionesManager() {
     })),
     total: (ret.details || []).reduce((acc, d) => acc + parseFloat(d.subtotal), 0),
     createdAt: ret.created_at,
-    estadoGestion: ret.state === 1 ? 'Cambiado' : ret.state === 3 ? 'Anulado' : 'Pendiente'
+    estadoGestion: ret.state ? 'Anulado' : 'Activo'
   });
 
   const mapApiChangeToLocal = (ch: Change): Devolucion => ({
@@ -398,26 +399,49 @@ DAMABELLA - Moda Femenina
   };
 
   const anularDevolucion = async (id: number) => {
-    // Necesitamos saber si es de tipo DEV o CAM para llamar al endpoint correcto
+    const item = devoluciones.find(d => d.id === id);
+    if (!item) return;
+
+    let success = false;
+    if (item.numeroDevolucion.startsWith('DEV')) {
+      success = await annulReturn(id);
+    } else {
+      success = await deleteChange(id);
+    }
+
+    setShowConfirmModal(false);
+
+    if (success) {
+      loadData();
+      setShowNotificationModal(true);
+      setNotificationMessage('Devolución anulada correctamente en el servidor');
+      setNotificationType('success');
+    } else {
+      setShowNotificationModal(true);
+      setNotificationMessage('Error al intentar anular la devolución en el servidor');
+      setNotificationType('error');
+    }
+  };
+
+  const eliminarDevolucion = async (id: number) => {
     const item = devoluciones.find(d => d.id === id);
     if (!item) return;
 
     let success = false;
     if (item.numeroDevolucion.startsWith('DEV')) {
       success = await deleteReturn(id);
-    } else {
-      success = await deleteChange(id);
     }
+
+    setShowConfirmModal(false);
 
     if (success) {
       loadData();
-      setShowConfirmModal(false);
       setShowNotificationModal(true);
-      setNotificationMessage('Registro anulado correctamente en el servidor');
+      setNotificationMessage('Devolución eliminada permanentemente del servidor');
       setNotificationType('success');
     } else {
       setShowNotificationModal(true);
-      setNotificationMessage('Error al intentar anular el registro en el servidor');
+      setNotificationMessage('Error al intentar eliminar la devolución del servidor. Solo se pueden eliminar devoluciones anuladas.');
       setNotificationType('error');
     }
   };
@@ -765,11 +789,11 @@ DAMABELLA - Moda Femenina
                         >
                           <Download size={18} />
                         </button>
-                        {devolucion.estadoGestion !== 'Anulado' && (
+                        {devolucion.estadoGestion !== 'Anulado' ? (
                           <button
                             onClick={() => { 
                               setConfirmMessage(`¿Anular devolución ${devolucion.numeroDevolucion}?`); 
-                              setConfirmAction(() => anularDevolucion(devolucion.id)); 
+                              setConfirmAction({ run: () => anularDevolucion(devolucion.id) }); 
                               setShowConfirmModal(true); 
                             }}
                             className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
@@ -777,7 +801,20 @@ DAMABELLA - Moda Femenina
                           >
                             <Ban size={18} />
                           </button>
-
+                        ) : (
+                          devolucion.numeroDevolucion.startsWith('DEV') && (
+                            <button
+                              onClick={() => { 
+                                setConfirmMessage(`¿Eliminar definitivamente la devolución ${devolucion.numeroDevolucion}?`); 
+                                setConfirmAction({ run: () => eliminarDevolucion(devolucion.id) }); 
+                                setShowConfirmModal(true); 
+                              }}
+                              className="p-2 hover:bg-red-100 rounded-lg transition-colors text-red-700"
+                              title="Eliminar devolución"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )
                         )}
                       </div>
                     </td>
@@ -1025,7 +1062,7 @@ DAMABELLA - Moda Femenina
               <button
                 onClick={() => {
                   if (confirmAction) {
-                    confirmAction();
+                    confirmAction.run();
                   }
                 }}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"

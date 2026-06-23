@@ -31,21 +31,29 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
     }
   }, [categories]);
 
-  // Construir lista de nombres de categorías para el selector
+  // Construir lista de nombres de categorías únicos para el selector
   const categoryOptions = useMemo(() => {
-    return ['Todas', ...categories.map((cat: any) => cat.name)];
+    const uniqueNames = new Set<string>();
+    categories.forEach((cat: any) => {
+      if (cat?.name) {
+        uniqueNames.add(cat.name.trim());
+      }
+    });
+    return ['Todas', ...Array.from(uniqueNames)];
   }, [categories]);
 
-  // Actualizar selectedCategory solo si initialCategory cambia y es diferente
+  // Actualizar selectedCategory cuando cambia initialCategory (incluyendo cuando es undefined/nulo)
   useEffect(() => {
-    if (initialCategory && initialCategory !== selectedCategory) {
-      setSelectedCategory(initialCategory);
-    }
+    setSelectedCategory(initialCategory || 'Todas');
   }, [initialCategory]);
   
   const allColors = useMemo(() => {
     const colors = new Set<string>();
-    products.forEach(p => p.variants.forEach(v => colors.add(v.color)));
+    products.forEach(p => p.variants.forEach(v => {
+      if (v.color) {
+        colors.add(v.color.trim());
+      }
+    }));
     return Array.from(colors);
   }, [products]);
 
@@ -55,25 +63,33 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
     let filtered = products;
 
     if (searchTerm) {
-      filtered = filtered.filter(p =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      const term = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter(p => {
+        const name = p.name ? String(p.name).toLowerCase() : '';
+        const category = p.category ? String(p.category).toLowerCase() : '';
+        const desc = p.description ? String(p.description).toLowerCase() : '';
+        return name.includes(term) || category.includes(term) || desc.includes(term);
+      });
     }
 
     if (selectedCategory !== 'Todas') {
-      filtered = filtered.filter(p => p.category === selectedCategory);
+      const selectedCatLower = selectedCategory.trim().toLowerCase();
+      filtered = filtered.filter(p => 
+        p.category && String(p.category).trim().toLowerCase() === selectedCatLower
+      );
     }
 
     if (selectedColors.length > 0) {
+      const lowerColors = selectedColors.map(c => c.toLowerCase());
       filtered = filtered.filter(p =>
-        p.variants.some(v => selectedColors.includes(v.color))
+        p.variants.some(v => v.color && lowerColors.includes(v.color.toLowerCase()))
       );
     }
 
     if (selectedSizes.length > 0) {
+      const lowerSizes = selectedSizes.map(s => s.toLowerCase());
       filtered = filtered.filter(p =>
-        p.variants.some(v => v.sizes.some(s => selectedSizes.includes(s.size) && s.stock > 0))
+        p.variants.some(v => v.sizes.some(s => s.size && lowerSizes.includes(s.size.toLowerCase()) && s.stock > 0))
       );
     }
 

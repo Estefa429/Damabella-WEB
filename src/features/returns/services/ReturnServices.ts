@@ -91,6 +91,16 @@ export const deleteReturn = async (id: number): Promise<boolean> => {
   }
 };
 
+export const annulReturn = async (id: number): Promise<boolean> => {
+  try {
+    const res = await API.post(`/returns/${id}/annul_return/`);
+    return res.data.success === true;
+  } catch (error) {
+    console.error('annulReturn error:', error);
+    return false;
+  }
+};
+
 export const searchReturns = async (term: string): Promise<Return[] | null> => {
   try {
     const res = await API.get('/returns/search_returns/', { params: { search: term } });

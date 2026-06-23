@@ -21,6 +21,7 @@ import {
   getPhotosById,
   createPhotos,
   deletePhotos,
+  exportProductsToExcel,
   Product,
   Inventory,
   Color,
@@ -711,23 +712,13 @@ export default function ProductosManager() {
   };
 
   // ─── Export ──────────────────────────────────────────────────────────────────
-  const exportToExcel = () => {
-    const headers = ['ID', 'Nombre', 'Categoría', 'Precio', 'Estado', 'Stock Total', 'Variantes'];
-    const rows = products.map(p => [
-      p.id_product,
-      p.name,
-      p.category_name,
-      p.price,
-      p.is_active ? 'Activo' : 'Inactivo',
-      getTotalStock(p.id_product),
-      getProductVariants(p.id_product).map(v => `${v.size_name}/${v.color_name}`).join(' | ') || 'Sin variantes',
-    ]);
-    const csv  = [headers, ...rows].map(r => r.join('\t')).join('\n');
-    const blob = new Blob([csv], { type: 'text/plain;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href     = URL.createObjectURL(blob);
-    link.download = `productos_${new Date().toISOString().split('T')[0]}.xlsx`;
-    link.click();
+  const exportToExcel = async () => {
+    try {
+      await exportProductsToExcel();
+      showToast('Productos exportados exitosamente', 'success');
+    } catch {
+      showToast('Error al exportar productos', 'error');
+    }
   };
 
   // ─── Loading ─────────────────────────────────────────────────────────────────

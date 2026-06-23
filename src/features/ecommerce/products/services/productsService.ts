@@ -371,3 +371,14 @@ export const getProductDetail = async (productId: number): Promise<ProductDetail
     return null;
   }
 };
+
+// Exportar productos a Excel llamando al backend
+export const exportProductsToExcel = async () => {
+  const res = await API.get('/products/export_products/', { responseType: 'blob' });
+  const url  = window.URL.createObjectURL(new Blob([res.data]));
+  const link = document.createElement('a');
+  link.href     = url;
+  link.download = `productos_${new Date().toISOString().split('T')[0]}.xlsx`;
+  link.click();
+  window.URL.revokeObjectURL(url);
+};

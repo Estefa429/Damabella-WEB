@@ -34,6 +34,7 @@ export default function DashboardMain() {
   const [dineroVentasPorMes, setDineroVentasPorMes] = useState<DatoMensual[]>([]);
   const [cantidadVentasPorMes, setCantidadVentasPorMes] = useState<DatoMensual[]>([]);
 
+
   // ============================================================
   // CARGA DE DATOS - useEffect
   // ============================================================
@@ -60,7 +61,11 @@ export default function DashboardMain() {
         // Actualizar estado
         setSummary(summaryData);
         setProductosMasVendidos(summaryData.productosMasVendidos || []);
-        setTopProductsData(summaryData.productosMasVendidos || []);
+        const mappedProducts = (summaryData.productosMasVendidos || []).map(p => ({
+          producto: p.nombre,
+          cantidad: p.cantidad_vendida
+        }));
+        setTopProductsData(mappedProducts);
         setDistribucionCategorias(summaryData.distribucionCategorias || []);
         setDineroVentasPorMes(dineroData || []);
         setCantidadVentasPorMes(cantidadData || []);
