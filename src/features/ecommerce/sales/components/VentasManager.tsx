@@ -230,7 +230,7 @@ export default function VentasManager() {
                          (sale as any).user?.email ||
                          'Consumidor Final',
           fechaVenta: sale.date_sale,
-          estado: ((sale.void || returnedSaleIds.has(sale.id_sale)) ? 'Devolución' : ((sale.state && sale.void_reason) ? 'Anulada' : 'Completada')) as 'Completada' | 'Anulada' | 'Devolución',
+          estado: (sale.state ? 'Anulada' : ((sale.void || returnedSaleIds.has(sale.id_sale)) ? 'Devolución' : 'Completada')) as 'Completada' | 'Anulada' | 'Devolución',
           items: (sale.details || []).map(detail => ({
             id: detail.id_detail?.toString() || '',
             productoId: detail.variant.toString(),
@@ -246,7 +246,7 @@ export default function VentasManager() {
           total: parseFloat(sale.total),
           metodoPago: sale.payment_method_name || 'Efectivo',
           observaciones: sale.observations || '',
-          anulada: (sale.state && !!sale.void_reason) || false,
+          anulada: sale.state || false,
           motivoAnulacion: sale.void_reason || '',
           createdAt: sale.created_at || new Date().toISOString(),
           number_pedido: (sale as any).number_pedido || '',

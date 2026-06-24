@@ -96,7 +96,7 @@ export const updateSale = async (id: number, data: Partial<CreateSaleDTO>): Prom
 
 export const annulSale = async (id: number, void_reason: string): Promise<boolean> => {
   try {
-    const res = await API.post(`/sales/${id}/annul_sale/`, { void_reason });
+    const res = await API.post(`/sales/${id}/patch_state/`, { void_reason });
     return res.data.success === true;
   } catch (error) {
     console.error('annulSale error:', error);
