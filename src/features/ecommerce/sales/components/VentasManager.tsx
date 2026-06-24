@@ -230,7 +230,7 @@ export default function VentasManager() {
                          (sale as any).user?.email ||
                          'Consumidor Final',
           fechaVenta: sale.date_sale,
-          estado: (sale.state ? 'Anulada' : (returnedSaleIds.has(sale.id_sale) ? 'Devolución' : 'Completada')) as 'Completada' | 'Anulada' | 'Devolución',
+          estado: ((sale.void || returnedSaleIds.has(sale.id_sale)) ? 'Devolución' : ((sale.state && sale.void_reason) ? 'Anulada' : 'Completada')) as 'Completada' | 'Anulada' | 'Devolución',
           items: (sale.details || []).map(detail => ({
             id: detail.id_detail?.toString() || '',
             productoId: detail.variant.toString(),
@@ -246,7 +246,7 @@ export default function VentasManager() {
           total: parseFloat(sale.total),
           metodoPago: sale.payment_method_name || 'Efectivo',
           observaciones: sale.observations || '',
-          anulada: sale.state || false,
+          anulada: (sale.state && !!sale.void_reason) || false,
           motivoAnulacion: sale.void_reason || '',
           createdAt: sale.created_at || new Date().toISOString(),
           number_pedido: (sale as any).number_pedido || '',
@@ -1413,7 +1413,7 @@ const paginatedVentas = useMemo(() => {
                           }}
                           className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600 disabled:text-gray-300 disabled:cursor-not-allowed"
                           title="Anular"
-                          disabled={venta.estado === 'Anulada' || !hasPermission('ventas', 'delete')}
+                          disabled={venta.estado === 'Anulada' || venta.estado === 'Devolución' || !hasPermission('ventas', 'delete')}
                         >
                           <Ban size={18} />
                         </button>
