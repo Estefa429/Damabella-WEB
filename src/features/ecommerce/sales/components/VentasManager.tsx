@@ -194,7 +194,7 @@ export default function VentasManager() {
     productoNuevoId: '',
     productoNuevoTalla: '',
     productoNuevoColor: '',
-    productoNuevoCantidad: 1,
+    productoNuevoCantidad: 0,
     medioPagoExcedente: 'Efectivo',
   });
 
@@ -983,6 +983,12 @@ export default function VentasManager() {
         setShowNotificationModal(true);
         return;
       }
+      if ((devolucionData.productoNuevoCantidad || 0) <= 0) {
+        setNotificationMessage('La cantidad a entregar del producto nuevo debe ser mayor a 0');
+        setNotificationType('error');
+        setShowNotificationModal(true);
+        return;
+      }
     }
 
     // Mapear detalles de la devolución (los items que se devuelven)
@@ -999,7 +1005,7 @@ export default function VentasManager() {
 
     const totalDevolucion = itemsMapeados.reduce((sum, item) => sum + item.subtotal, 0);
     const productoNuevo = isChange ? productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId) : null;
-    const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) * (devolucionData.productoNuevoCantidad || 1) : 0;
+    const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) * (devolucionData.productoNuevoCantidad || 0) : 0;
     const diferencia = precioProductoNuevo - totalDevolucion;
 
     const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
@@ -1153,7 +1159,7 @@ export default function VentasManager() {
           productoNuevoId: '',
           productoNuevoTalla: '',
           productoNuevoColor: '',
-          productoNuevoCantidad: 1,
+          productoNuevoCantidad: 0,
           medioPagoExcedente: 'Efectivo'
         });
 
@@ -1474,7 +1480,7 @@ const paginatedVentas = useMemo(() => {
                               productoNuevoId: '',
                               productoNuevoTalla: '',
                               productoNuevoColor: '',
-                              productoNuevoCantidad: 1,
+                              productoNuevoCantidad: 0,
                               medioPagoExcedente: 'Efectivo',
                             });
                             setShowDevolucionModal(true);
@@ -2069,7 +2075,7 @@ const paginatedVentas = useMemo(() => {
             const productoNuevo = productos.find(
               (p: any) => p.id.toString() === devolucionData.productoNuevoId
             );
-            const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) * (devolucionData.productoNuevoCantidad || 1) : 0;
+            const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) * (devolucionData.productoNuevoCantidad || 0) : 0;
 
             // diferencia > 0 => cliente debe pagar excedente
             // diferencia < 0 => cliente queda con saldo a favor
@@ -2197,7 +2203,7 @@ const paginatedVentas = useMemo(() => {
                             productoNuevoId: id,
                             productoNuevoTalla: '',
                             productoNuevoColor: '',
-                            productoNuevoCantidad: 1,
+                            productoNuevoCantidad: 0,
                           });
                         }}
                         className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
@@ -2230,6 +2236,7 @@ const paginatedVentas = useMemo(() => {
                                   ...devolucionData,
                                   productoNuevoTalla: e.target.value,
                                   productoNuevoColor: '',
+                                  productoNuevoCantidad: 0
                                 })
                               }
                               disabled={getTallasDisponiblesCambio().length === 0}
@@ -2246,12 +2253,16 @@ const paginatedVentas = useMemo(() => {
                             <label className="block text-gray-700 mb-1 text-sm">Color</label>
                             <select
                               value={devolucionData.productoNuevoColor}
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                const newColor = e.target.value;
+                                const stockVal = getStockDisponibleCambio(devolucionData.productoNuevoTalla, newColor);
+                                const initialQty = stockVal > 0 ? 1 : 0;
                                 setDevolucionData({
                                   ...devolucionData,
-                                  productoNuevoColor: e.target.value,
-                                })
-                              }
+                                  productoNuevoColor: newColor,
+                                  productoNuevoCantidad: initialQty
+                                });
+                              }}
                               className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs disabled:bg-gray-100 disabled:cursor-not-allowed"
                               disabled={!devolucionData.productoNuevoTalla || getColoresDisponiblesCambio().length === 0}
                             >
@@ -2266,10 +2277,16 @@ const paginatedVentas = useMemo(() => {
                             <label className="block text-gray-700 mb-1 text-sm">Cantidad</label>
                             <input
                               type="number"
-                              min="1"
-                              value={devolucionData.productoNuevoCantidad || 1}
+                              min="0"
+                              max={devolucionData.productoNuevoTalla && devolucionData.productoNuevoColor ? getStockDisponibleCambio(devolucionData.productoNuevoTalla, devolucionData.productoNuevoColor) : undefined}
+                              value={devolucionData.productoNuevoCantidad}
                               onChange={(e) => {
-                                const val = Math.max(1, parseInt(e.target.value) || 1);
+                                const enteredVal = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                                let val = Math.max(0, enteredVal);
+                                if (devolucionData.productoNuevoTalla && devolucionData.productoNuevoColor) {
+                                  const stockVal = getStockDisponibleCambio(devolucionData.productoNuevoTalla, devolucionData.productoNuevoColor);
+                                  val = Math.min(stockVal, val);
+                                }
                                 setDevolucionData({
                                   ...devolucionData,
                                   productoNuevoCantidad: val
