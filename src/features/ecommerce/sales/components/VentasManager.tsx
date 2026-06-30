@@ -36,6 +36,7 @@ type DevolucionData = {
   productoNuevoId: string;
   productoNuevoTalla: string;
   productoNuevoColor: string;
+  productoNuevoCantidad: number;
   medioPagoExcedente: MedioPago;
 };
 
@@ -188,13 +189,14 @@ export default function VentasManager() {
   };
 
   const [devolucionData, setDevolucionData] = useState<DevolucionData>({
-  motivo: 'Defectuoso',
-  itemsDevueltos: [],
-  productoNuevoId: '',
-  productoNuevoTalla: '',
-  productoNuevoColor: '',
-  medioPagoExcedente: 'Efectivo',
-});
+    motivo: 'Defectuoso',
+    itemsDevueltos: [],
+    productoNuevoId: '',
+    productoNuevoTalla: '',
+    productoNuevoColor: '',
+    productoNuevoCantidad: 1,
+    medioPagoExcedente: 'Efectivo',
+  });
 
 
 
@@ -997,7 +999,7 @@ export default function VentasManager() {
 
     const totalDevolucion = itemsMapeados.reduce((sum, item) => sum + item.subtotal, 0);
     const productoNuevo = isChange ? productos.find((p: any) => p.id.toString() === devolucionData.productoNuevoId) : null;
-    const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) : 0;
+    const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) * (devolucionData.productoNuevoCantidad || 1) : 0;
     const diferencia = precioProductoNuevo - totalDevolucion;
 
     const saldoAFavor = diferencia < 0 ? Math.abs(diferencia) : 0;
@@ -1030,12 +1032,37 @@ export default function VentasManager() {
         }
 
         const stockDisponible = getVariantStock(variantNueva.id_variant);
-        if (stockDisponible <= 0) {
-          setNotificationMessage('El producto nuevo seleccionado no tiene stock disponible');
+        const cantidadEntregada = devolucionData.productoNuevoCantidad || 1;
+
+        if (stockDisponible < cantidadEntregada) {
+          setNotificationMessage(`El producto nuevo seleccionado no tiene suficiente stock disponible. Stock actual: ${stockDisponible} unidades.`);
           setNotificationType('error');
           setShowNotificationModal(true);
           setLoading(false);
           return;
+        }
+
+        // Crear listas planas de variantes devueltas y entregadas para emparejar
+        const returnedVariantsFlat: number[] = [];
+        itemsMapeados.forEach(i => {
+          for (let q = 0; q < i.quantity; q++) {
+            returnedVariantsFlat.push(i.variant);
+          }
+        });
+
+        const deliveredVariantsFlat: number[] = [];
+        for (let q = 0; q < cantidadEntregada; q++) {
+          deliveredVariantsFlat.push(variantNueva.id_variant);
+        }
+
+        // Emparejar 1-a-1
+        const pairCount = Math.min(returnedVariantsFlat.length, deliveredVariantsFlat.length);
+        const changeDetails = [];
+        for (let i = 0; i < pairCount; i++) {
+          changeDetails.push({
+            variant_returned: returnedVariantsFlat[i],
+            variant_delivered: deliveredVariantsFlat[i]
+          });
         }
 
         // Estructurar el DTO de cambio
@@ -1043,13 +1070,33 @@ export default function VentasManager() {
           sale: ventaToDevolver.id,
           reason_of_change: devolucionData.motivo,
           state: 2, // Pendiente
-          details: itemsMapeados.map(i => ({
-            variant_returned: i.variant,
-            variant_delivered: variantNueva.id_variant
-          }))
+          details: changeDetails
         };
 
         result = await createChange(dto);
+
+        // Si hay prendas devueltas sobrantes que no se emparejaron con prendas entregadas (sobra saldo/devolución pura)
+        if (returnedVariantsFlat.length > pairCount && result) {
+          const leftoversMap = new Map<number, number>();
+          for (let i = pairCount; i < returnedVariantsFlat.length; i++) {
+            const v = returnedVariantsFlat[i];
+            leftoversMap.set(v, (leftoversMap.get(v) || 0) + 1);
+          }
+
+          const returnDetails = Array.from(leftoversMap.entries()).map(([variant, quantity]) => ({
+            variant,
+            quantity
+          }));
+
+          const dtoDevolucion: CreateReturnDTO = {
+            sale: ventaToDevolver.id,
+            reason: devolucionData.motivo,
+            state: 2, // Pendiente
+            details: returnDetails
+          };
+
+          await createReturn(dtoDevolucion);
+        }
       } else {
         // Estructurar el DTO de devolución
         const dto: CreateReturnDTO = {
@@ -1106,6 +1153,7 @@ export default function VentasManager() {
           productoNuevoId: '',
           productoNuevoTalla: '',
           productoNuevoColor: '',
+          productoNuevoCantidad: 1,
           medioPagoExcedente: 'Efectivo'
         });
 
@@ -1426,6 +1474,7 @@ const paginatedVentas = useMemo(() => {
                               productoNuevoId: '',
                               productoNuevoTalla: '',
                               productoNuevoColor: '',
+                              productoNuevoCantidad: 1,
                               medioPagoExcedente: 'Efectivo',
                             });
                             setShowDevolucionModal(true);
@@ -2020,7 +2069,7 @@ const paginatedVentas = useMemo(() => {
             const productoNuevo = productos.find(
               (p: any) => p.id.toString() === devolucionData.productoNuevoId
             );
-            const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) : 0;
+            const precioProductoNuevo = productoNuevo ? (productoNuevo.precioVenta || 0) * (devolucionData.productoNuevoCantidad || 1) : 0;
 
             // diferencia > 0 => cliente debe pagar excedente
             // diferencia < 0 => cliente queda con saldo a favor
@@ -2148,6 +2197,7 @@ const paginatedVentas = useMemo(() => {
                             productoNuevoId: id,
                             productoNuevoTalla: '',
                             productoNuevoColor: '',
+                            productoNuevoCantidad: 1,
                           });
                         }}
                         className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
@@ -2170,7 +2220,7 @@ const paginatedVentas = useMemo(() => {
                             ⚠️ Este producto no tiene variantes con stock disponible
                           </div>
                         )}
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                           <div>
                             <label className="block text-gray-700 mb-1 text-sm">Talla</label>
                             <select
@@ -2210,6 +2260,23 @@ const paginatedVentas = useMemo(() => {
                                 <option key={c} value={c}>{c}</option>
                               ))}
                             </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-gray-700 mb-1 text-sm">Cantidad</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={devolucionData.productoNuevoCantidad || 1}
+                              onChange={(e) => {
+                                const val = Math.max(1, parseInt(e.target.value) || 1);
+                                setDevolucionData({
+                                  ...devolucionData,
+                                  productoNuevoCantidad: val
+                                });
+                              }}
+                              className="w-full h-8 px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-xs"
+                            />
                           </div>
                         </div>
 
