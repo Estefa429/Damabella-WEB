@@ -319,13 +319,13 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                   <div className="mt-auto flex gap-2">
                     <button
                       onClick={() => handleAddToCart(product)}
-                      className="flex-grow bg-amber-700 text-white py-2 font-semibold text-xs hover:bg-amber-800 transition-colors rounded cursor-pointer uppercase tracking-wider text-center"
+                      className="flex-grow bg-amber-700 text-white py-2 font-semibold text-xs hover:bg-amber-800 transition-colors rounded cursor-pointer uppercase tracking-wider flex items-center justify-center text-center font-sans"
                     >
                       COMPRAR
                     </button>
                     <button
                       onClick={() => onNavigate('detail', product.id)}
-                      className="flex-grow border border-amber-700 text-amber-700 py-2 font-semibold text-xs hover:bg-amber-50 transition-colors rounded cursor-pointer uppercase tracking-wider text-center"
+                      className="flex-grow border border-pink-400 text-pink-500 py-2 font-semibold text-xs hover:bg-pink-50 hover:text-pink-600 transition-colors rounded cursor-pointer uppercase tracking-wider flex items-center justify-center text-center font-sans"
                     >
                       VER MÁS
                     </button>
