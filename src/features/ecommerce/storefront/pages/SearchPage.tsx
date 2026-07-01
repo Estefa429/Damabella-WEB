@@ -442,7 +442,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
 
                   {/* Buy Button */}
                   <button
-                    onClick={() => handleAddToCart(product)}
+                    onClick={() => onNavigate('detail', product.id)}
                     className="mt-auto w-full bg-gray-900 text-white py-2 font-semibold text-xs hover:bg-gray-800 transition-colors rounded cursor-pointer uppercase tracking-wider"
                   >
                     COMPRAR

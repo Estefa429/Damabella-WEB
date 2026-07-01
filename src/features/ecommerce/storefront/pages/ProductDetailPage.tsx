@@ -144,20 +144,22 @@ export function ProductDetailPage({
         </div>
 
         {/* Product Detail */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Images */}
-          <div className="lg:col-span-5">
+          <div className="flex flex-col items-center">
             {/* Imagen principal */}
-            <ProductImage
-              src={product.photos[selectedImage]?.image || product.image}
-              alt={product.name}
-              aspectRatio="aspect-[3/4]"
-              className="rounded-xl shadow-sm mb-3 max-h-[460px] overflow-hidden"
-            />
+            <div className="w-full max-w-[300px]">
+              <ProductImage
+                src={product.photos[selectedImage]?.image || product.image}
+                alt={product.name}
+                aspectRatio="aspect-[3/4]"
+                className="rounded-xl shadow-sm mb-3 overflow-hidden"
+              />
+            </div>
 
             {/* Miniaturas */}
             {product.photos.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="w-full max-w-[300px] flex gap-2 overflow-x-auto pb-1">
                 {product.photos.map((photo, index) => (
                   <button
                     key={photo.id}
@@ -179,14 +181,16 @@ export function ProductDetailPage({
             )}
 
             {product.photos.length > 0 && (
-              <p className="text-[10px] text-gray-500 mt-1">
-                {selectedImage + 1} de {product.photos.length} fotos
-              </p>
+              <div className="w-full max-w-[300px] text-left">
+                <p className="text-[10px] text-gray-500 mt-1">
+                  {selectedImage + 1} de {product.photos.length} fotos
+                </p>
+              </div>
             )}
           </div>
 
           {/* Product Info */}
-          <div className="lg:col-span-7 bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+          <div className="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
             <div>
               <div className="flex justify-between items-start mb-2">
                 <h1 className="text-xl font-bold text-gray-900 leading-tight">{product.name}</h1>
