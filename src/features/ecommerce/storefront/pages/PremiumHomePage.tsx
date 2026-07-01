@@ -254,8 +254,8 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
             <p className="text-gray-600 text-base mt-3">Los favoritos de nuestras clientas</p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {bestSellers.slice(0, 12).map((product) => (
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+            {bestSellers.slice(0, 14).map((product) => (
               <div key={product.id} className="bg-white rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group flex flex-col h-full">
                 {/* Product Image */}
                 <ProductImage
@@ -295,30 +295,30 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                 </ProductImage>
 
                 {/* Product Info */}
-                <div className="p-3 flex flex-col flex-grow">
-                  <p className="text-[10px] font-medium text-gray-600 mb-0.5 uppercase">DAMABELLA</p>
-                  <h4 className="text-sm font-semibold text-gray-900 line-clamp-1 mb-1">
+                <div className="p-2.5 flex flex-col flex-grow">
+                  <p className="text-[9px] font-medium text-gray-500 mb-0.5 uppercase tracking-wider">DAMABELLA</p>
+                  <h4 className="text-xs font-semibold text-gray-900 line-clamp-1 mb-0.5">
                     {product.name}
                   </h4>
-                  <p className="text-[11px] text-gray-500 leading-tight line-clamp-2 mb-1.5 min-h-[2rem]">
-                    {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante y cómodo.'}
+                  <p className="text-[10px] text-gray-400 leading-tight line-clamp-1 mb-1.5 min-h-[0.875rem]">
+                    {product.description || 'Prenda confeccionada con materiales seleccionados.'}
                   </p>
-                  <p className="text-base font-bold text-gray-900 mb-2">
+                  <p className="text-sm font-bold text-gray-950 mb-2">
                     ${product.price.toLocaleString()}
                   </p>
-                  <div className="flex items-center gap-1.5 mb-3 min-h-5">
+                  <div className="flex items-center gap-1 mb-2.5 min-h-4">
                     {Array.from(new Set(product.variants.map((variant) => variant.colorHex))).slice(0, 5).map((colorHex, index) => (
                       <span
                         key={`${product.id}-${colorHex}-${index}`}
-                        className="h-4.5 w-4.5 rounded-full border border-gray-300 shadow-sm"
-                        style={{ backgroundColor: colorHex, width: 18, height: 18 }}
+                        className="h-3.5 w-3.5 rounded-full border border-gray-200 shadow-sm"
+                        style={{ backgroundColor: colorHex, width: 14, height: 14 }}
                       />
                     ))}
                   </div>
                   {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="mt-auto w-full bg-amber-700 text-white py-2 font-semibold text-xs hover:bg-amber-800 transition-colors rounded cursor-pointer"
+                    className="mt-auto w-full bg-amber-700 text-white py-1.5 font-bold text-[10px] uppercase tracking-wider hover:bg-amber-800 transition-colors rounded cursor-pointer"
                   >
                     COMPRAR
                   </button>
