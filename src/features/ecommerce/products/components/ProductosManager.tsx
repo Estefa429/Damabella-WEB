@@ -106,6 +106,7 @@ export default function ProductosManager() {
   const [addPhotos, setAddPhotos] = useState<File[]>([]);
   const [addPhotoPreviews, setAddPhotoPreviews] = useState<string[]>([]);
   const [productPhotos, setProductPhotos] = useState<Photo[]>([]);
+  const [allPhotos, setAllPhotos] = useState<Photo[]>([]);
   const [showPhotosModal, setShowPhotosModal] = useState(false);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [selectedVariantForPhoto, setSelectedVariantForPhoto] = useState<number | null>(null);
@@ -114,7 +115,7 @@ export default function ProductosManager() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [prods, vars, inv, cats, cols, szs, ivaList] = await Promise.all([
+      const [prods, vars, inv, cats, cols, szs, ivaList, photosList] = await Promise.all([
         getAllProducts(),
         getAllVariants(),
         getAllInventory(),
@@ -122,6 +123,7 @@ export default function ProductosManager() {
         getAllColors(),
         getAllSizes(),
         getAllIvas(),
+        getPhotos(),
       ]);
       if (prods) setProducts(prods);
       if (ivaList) setIvas(ivaList);
@@ -130,6 +132,7 @@ export default function ProductosManager() {
       if (cats)  setCategories(cats);
       if (cols)  setColors(cols);
       if (szs)   setSizes(szs);
+      if (photosList) setAllPhotos(photosList);
     } catch {
       showToast('Error cargando productos', 'error');
     } finally {
@@ -158,6 +161,11 @@ export default function ProductosManager() {
     getProductVariants(productId).reduce((sum, v) => sum + getVariantStock(v.id_variant), 0);
 
   const getProductImage = (productId: number): string | null => {
+    // Buscar primero en las fotos cargadas del servidor
+    const serverPhoto = allPhotos.find(p => p.producto === productId);
+    if (serverPhoto && serverPhoto.image) {
+      return buildPhotoUrl(serverPhoto.image);
+    }
     const image = localStorage.getItem(`product_image_${productId}`);
     return image || null;
   };
@@ -364,6 +372,11 @@ export default function ProductosManager() {
 
     // Siempre intentar recargar fotos desde servidor y cerrar modal si hubo al menos una subida
     await loadProductPhotos(productId);
+    
+    // Recargar todas las fotos para que se actualice la card en el grid principal
+    const photosList = await getPhotos();
+    if (photosList) setAllPhotos(photosList);
+
     if (uploadedCount > 0) {
       setShowPhotosModal(false);
       setAddPhotos([]);
@@ -1208,7 +1221,7 @@ export default function ProductosManager() {
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-semibold text-gray-900">
-                    📸 Fotos ({productPhotos.length})
+                    📸 Fotos
                   </h4>
                   <button
                     type="button"
