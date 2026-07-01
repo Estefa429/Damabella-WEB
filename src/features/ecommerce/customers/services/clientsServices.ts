@@ -69,7 +69,7 @@ export const createClients = async (data: CreateClientsDTO): Promise<Clients | n
     try{
         const response = await API.post('/clients/create_clients/',data)
         if (response.data.success === true) {
-            return response.data.object
+            return response.data.results || response.data.object || null
         }else{
             console.warn("error al crear un cliente")
             return null
