@@ -114,7 +114,7 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
                 <ProductImage
                   src={product.image}
                   alt={product.name}
-                  aspectRatio="4/5"
+                  aspectRatio="aspect-[5/6]"
                   onClick={() => onNavigate('detail', product.id)}
                 >
                   <button
