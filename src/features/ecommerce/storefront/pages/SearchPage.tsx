@@ -4,6 +4,7 @@ import { useEcommerce } from '../../../../shared/contexts';
 import { useToast } from '../../../../shared/components/native';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
+import { ProductImage } from '../../../../components/ecommerce/ProductImage';
 
 interface SearchPageProps {
   onNavigate: (view: string, productId?: string) => void;
@@ -13,7 +14,7 @@ interface SearchPageProps {
 }
 
 export function SearchPage({ onNavigate, initialCategory, isAuthenticated = false, currentUser = null }: SearchPageProps) {
-  const { products, categories, favorites, toggleFavorite, addToCart, getProductStock } = useEcommerce();
+  const { products, categories, favorites, toggleFavorite, addToCart, getProductStock, bestSellerId } = useEcommerce();
   const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'Todas');
@@ -380,26 +381,27 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                 key={product.id}
                 className="group bg-white overflow-hidden shadow-md hover:shadow-xl transition-all hover:-translate-y-1 flex flex-col h-full border border-gray-100 rounded-md"
               >
-                <div className="relative aspect-[4/5] bg-gradient-to-br from-gray-100 to-gray-200 overflow-hidden flex-shrink-0">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform duration-500"
-                    onClick={() => onNavigate('detail', product.id)}
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.onerror = null;
-                      target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><rect width="900" height="1200" fill="%23f3f4f6"/><text x="450" y="590" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" fill="%239ca3af">DAMABELLA</text><text x="450" y="642" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="%23b6bcc6">Imagen no disponible</text></svg>';
-                    }}
-                  />
-                  {product.new && (
-                    <span className="absolute top-4 left-4 bg-gradient-to-r from-pink-500 to-pink-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
-                      ✨ NUEVO
-                    </span>
-                  )}
+                <ProductImage
+                  src={product.image}
+                  alt={product.name}
+                  aspectRatio="4/5"
+                  onClick={() => onNavigate('detail', product.id)}
+                >
+                  <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+                    {product.new && (
+                      <span className="bg-gradient-to-r from-pink-500 to-pink-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
+                        ✨ NUEVO
+                      </span>
+                    )}
+                    {product.id === bestSellerId && (
+                      <span className="bg-amber-600 text-white text-xs font-bold px-3 py-1 shadow-md">
+                        MÁS VENDIDO
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={() => handleToggleFavorite(product.id)}
-                    className={`absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-lg ${
+                    className={`absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-lg z-10 ${
                       favorites.includes(product.id)
                         ? 'scale-110 bg-red-100 hover:bg-red-200'
                         : 'bg-white/80 hover:bg-white scale-100'
@@ -414,7 +416,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                       }`}
                     />
                   </button>
-                </div>
+                </ProductImage>
                 <div className="p-4 flex flex-col flex-grow">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="min-w-0">

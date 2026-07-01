@@ -4,6 +4,7 @@ import { useEcommerce } from '../../../../shared/contexts';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
 import { ImageWithFallback } from '../../../../components/figma/ImageWithFallback';
+import { ProductImage } from '../../../../components/ecommerce/ProductImage';
 
 interface PremiumHomePageProps {
   onNavigate: (view: string, productId?: string) => void;
@@ -13,7 +14,7 @@ interface PremiumHomePageProps {
 }
 
 export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: PremiumHomePageProps) {
-  const { products, categoriesForHome, favorites, toggleFavorite, addToCart, getProductStock } = useEcommerce();
+  const { products, categoriesForHome, favorites, toggleFavorite, addToCart, getProductStock, bestSellerId } = useEcommerce();
   const [email, setEmail] = useState('');
   const [currentSlide, setCurrentSlide] = useState(0);
 
@@ -257,25 +258,18 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
             {bestSellers.slice(0, 12).map((product) => (
               <div key={product.id} className="bg-white rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group flex flex-col h-full">
                 {/* Product Image */}
-                <div
-                  className="aspect-[4/5] overflow-hidden cursor-pointer bg-gray-100 relative"
+                <ProductImage
+                  src={product.image}
+                  alt={product.name}
+                  aspectRatio="4/5"
                   onClick={() => onNavigate('detail', product.id)}
                 >
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.onerror = null;
-                      target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1125" viewBox="0 0 900 1125"><rect width="900" height="1125" fill="%23f3f4f6"/><text x="450" y="540" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" fill="%239ca3af">DAMABELLA</text><text x="450" y="592" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="%23b6bcc6">Imagen no disponible</text></svg>';
-                    }}
-                  />
-                  
                   {/* Badge */}
-                  <div className="absolute top-3 left-3 bg-amber-600 text-white px-3 py-1 text-xs font-bold">
-                    TOP SELLER
-                  </div>
+                  {product.id === bestSellerId && (
+                    <div className="absolute top-3 left-3 bg-amber-600 text-white px-3 py-1 text-xs font-bold z-10 shadow-sm">
+                      MÁS VENDIDO
+                    </div>
+                  )}
                   
                   {/* Favorite Button */}
                   <button
@@ -283,7 +277,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                       e.stopPropagation();
                       toggleFavorite(product.id);
                     }}
-                    className={`absolute top-3 right-3 bg-white/90 p-2 rounded-full transition-all duration-300 transform cursor-pointer ${
+                    className={`absolute top-3 right-3 bg-white/90 p-2 rounded-full transition-all duration-300 transform cursor-pointer z-10 ${
                       favorites.includes(product.id) 
                         ? 'scale-110 bg-red-100 hover:bg-red-200' 
                         : 'hover:bg-white scale-100'
@@ -298,7 +292,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                       }`}
                     />
                   </button>
-                </div>
+                </ProductImage>
 
                 {/* Product Info */}
                 <div className="p-4 flex flex-col flex-1">

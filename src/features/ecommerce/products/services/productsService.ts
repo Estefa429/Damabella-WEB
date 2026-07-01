@@ -382,3 +382,13 @@ export const exportProductsToExcel = async () => {
   link.click();
   window.URL.revokeObjectURL(url);
 };
+
+export const getBestSeller = async (): Promise<number | null> => {
+  try {
+    const res = await API.get('/products/get_best_seller/');
+    return res.data.success ? res.data.product_id : null;
+  } catch (error) {
+    console.error('❌ getBestSeller - Error:', error);
+    return null;
+  }
+};

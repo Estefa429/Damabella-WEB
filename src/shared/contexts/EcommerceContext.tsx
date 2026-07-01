@@ -7,6 +7,7 @@ import {
   getAllProducts,
   getAllVariants,
   getPhotos,
+  getBestSeller,
 } from '@/features/ecommerce/products/services/productsService';
 import { getAllCategories } from '@/features/ecommerce/categories/services/categoriesService';
 
@@ -194,6 +195,7 @@ interface EcommerceContextType {
   categoriesForHome: { id: string | number; name: string }[];
   cart: CartItem[];
   favorites: string[];
+  bestSellerId: string | null;
   recentlyViewed: string[];
   orders: Order[];
   addToCart: (item: CartItem) => void;
@@ -253,6 +255,7 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [bestSellerId, setBestSellerId] = useState<string | null>(null);
   const { showToast } = useToast();
 
   // Cargar desde API
@@ -262,13 +265,20 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
         console.log('[EcommerceContext] 🔄 Iniciando carga de datos...');
         
         try {
-          const [categoriesData, productsData, photosData, variantsData, inventoryData] = await Promise.all([
+          const [categoriesData, productsData, photosData, variantsData, inventoryData, bestSellerVal] = await Promise.all([
             getAllCategories(),
             getAllProducts(),
             getPhotos(),
             getAllVariants(),
             getAllInventory(),
+            getBestSeller(),
           ]);
+
+          if (bestSellerVal !== null) {
+            setBestSellerId(String(bestSellerVal));
+          } else {
+            setBestSellerId(null);
+          }
 
           // Procesar categorías primero
           let resolvedCategories: any[] = [];
@@ -522,6 +532,7 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
       products, cart, favorites, recentlyViewed, orders,
       categories,
       categoriesForHome: categories.slice(0, 4),
+      bestSellerId,
       addToCart, removeFromCart, updateCartQuantity, clearCart,
       toggleFavorite, addToRecentlyViewed,
       getProductStock,

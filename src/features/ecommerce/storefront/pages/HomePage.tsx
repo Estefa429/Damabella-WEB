@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, Heart, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEcommerce } from '../../../../shared/contexts';
 import { useToast } from '../../../../shared/components/native';
+import { ProductImage } from '../../../../components/ecommerce/ProductImage';
 
 interface HomePageProps {
   onNavigate: (view: string, productId?: string) => void;
@@ -220,16 +221,18 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {featuredProducts.map((product) => (
               <div key={product.id} className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all hover:-translate-y-1">
-                <div className="relative group">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-64 object-cover cursor-pointer group-hover:scale-105 transition-transform duration-300"
-                    onClick={() => onNavigate('detail', product.id)}
-                  />
+                <ProductImage
+                  src={product.image}
+                  alt={product.name}
+                  aspectRatio="4/5"
+                  onClick={() => onNavigate('detail', product.id)}
+                >
                   <button
-                    onClick={() => toggleFavorite(product.id)}
-                    className={`absolute top-3 right-3 p-2 rounded-full transition-all duration-300 transform shadow-md ${
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFavorite(product.id);
+                    }}
+                    className={`absolute top-3 right-3 p-2 rounded-full transition-all duration-300 transform shadow-md z-10 ${
                       favorites.includes(product.id)
                         ? 'scale-110 bg-red-100 hover:bg-red-200'
                         : 'bg-white/90 hover:bg-white scale-100'
@@ -244,7 +247,7 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                       }`}
                     />
                   </button>
-                </div>
+                </ProductImage>
                 <div className="p-4">
                   <h4 className="text-gray-800 mb-2 line-clamp-2 min-h-[3rem]">
                     {product.name}
@@ -279,19 +282,21 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {newProducts.map((product) => (
               <div key={product.id} className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all hover:-translate-y-1">
-                <div className="relative group">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-64 object-cover cursor-pointer group-hover:scale-105 transition-transform duration-300"
-                    onClick={() => onNavigate('detail', product.id)}
-                  />
-                  <span className="absolute top-3 left-3 bg-[#FFB6C1] text-white text-xs font-bold px-3 py-1.5 rounded-full">
+                <ProductImage
+                  src={product.image}
+                  alt={product.name}
+                  aspectRatio="4/5"
+                  onClick={() => onNavigate('detail', product.id)}
+                >
+                  <span className="absolute top-3 left-3 bg-[#FFB6C1] text-white text-xs font-bold px-3 py-1.5 rounded-full z-10">
                     NUEVO
                   </span>
                   <button
-                    onClick={() => toggleFavorite(product.id)}
-                    className={`absolute top-3 right-3 p-2 rounded-full transition-all duration-300 transform shadow-md ${
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFavorite(product.id);
+                    }}
+                    className={`absolute top-3 right-3 p-2 rounded-full transition-all duration-300 transform shadow-md z-10 ${
                       favorites.includes(product.id)
                         ? 'scale-110 bg-red-100 hover:bg-red-200'
                         : 'bg-white/90 hover:bg-white scale-100'
@@ -306,7 +311,7 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                       }`}
                     />
                   </button>
-                </div>
+                </ProductImage>
                 <div className="p-4">
                   <h4 className="text-gray-800 mb-2 line-clamp-2 min-h-[3rem]">
                     {product.name}
@@ -337,10 +342,10 @@ export function HomePage({ onNavigate, onLoginRequired, isAuthenticated }: HomeP
                   className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 cursor-pointer"
                   onClick={() => onNavigate('detail', product.id)}
                 >
-                  <img
+                  <ProductImage
                     src={product.image}
                     alt={product.name}
-                    className="w-full h-56 object-cover"
+                    aspectRatio="4/5"
                   />
                   <div className="p-4">
                     <h4 className="text-gray-800 mb-2 line-clamp-2">

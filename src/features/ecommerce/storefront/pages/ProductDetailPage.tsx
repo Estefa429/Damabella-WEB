@@ -5,6 +5,7 @@ import { useProductDetail } from '@/features/ecommerce/storefront/pages/useProdu
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
 import { useEcommerce } from '../../../../shared/contexts';
+import { ProductImage } from '../../../../components/ecommerce/ProductImage';
 
 interface ProductDetailPageProps {
   productId: string;
@@ -147,18 +148,12 @@ export function ProductDetailPage({
           {/* Images */}
           <div>
             {/* Imagen principal */}
-            <div className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4 aspect-[3/4]">
-              <img
-                src={product.photos[selectedImage]?.image || product.image}
-                alt={product.name}
-                className="w-full h-full object-cover"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.onerror = null;
-                    target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><rect width="900" height="1200" fill="%23f3f4f6"/><text x="450" y="590" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" fill="%239ca3af">DAMABELLA</text><text x="450" y="642" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="%23b6bcc6">Imagen no disponible</text></svg>';
-                  }}
-                />
-            </div>
+            <ProductImage
+              src={product.photos[selectedImage]?.image || product.image}
+              alt={product.name}
+              aspectRatio="3/4"
+              className="rounded-2xl shadow-sm mb-4"
+            />
 
             {/* Miniaturas */}
             {product.photos.length > 1 && (

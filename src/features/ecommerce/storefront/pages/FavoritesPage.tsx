@@ -4,6 +4,7 @@ import { useEcommerce } from '../../../../shared/contexts';
 import { useToast } from '../../../../shared/components/native';
 import { PremiumNavbar } from '../components/PremiumNavbar';
 import { PremiumFooter } from '../components/PremiumFooter';
+import { ProductImage } from '../../../../components/ecommerce/ProductImage';
 
 interface FavoritesPageProps {
   onNavigate: (view: string, productId?: string) => void;
@@ -110,20 +111,19 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
                 key={product.id}
                 className="group bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all hover:-translate-y-1"
               >
-                <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover cursor-pointer group-hover:scale-110 transition-transform duration-700"
-                    onClick={() => onNavigate('detail', product.id)}
-                  />
+                <ProductImage
+                  src={product.image}
+                  alt={product.name}
+                  aspectRatio="4/5"
+                  onClick={() => onNavigate('detail', product.id)}
+                >
                   <button
                     onClick={() => toggleFavorite(product.id)}
-                    className="absolute top-3 right-3 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-red-100 hover:scale-110 shadow-md"
+                    className="absolute top-3 right-3 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-red-100 hover:scale-110 shadow-md z-10"
                   >
                     <Heart size={20} className={`fill-red-600 text-red-600 transition-all duration-300`} />
                   </button>
-                </div>
+                </ProductImage>
                 <div className="p-4">
                   <h3
                     className="text-gray-900 mb-2 line-clamp-2 cursor-pointer hover:text-pink-400 transition-colors min-h-[3rem]"
