@@ -129,7 +129,7 @@ export function ProductDetailPage({
     <div className="min-h-screen bg-gray-50">
       <PremiumNavbar onNavigate={onNavigate} isAuthenticated={isAuthenticated} currentUser={currentUser} />
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-gray-600 mb-8">
           <button onClick={() => onNavigate('home')} className="hover:text-pink-400 transition-colors">
@@ -151,7 +151,7 @@ export function ProductDetailPage({
             <ProductImage
               src={product.photos[selectedImage]?.image || product.image}
               alt={product.name}
-              aspectRatio="aspect-product-custom"
+              aspectRatio="aspect-[4/3]"
               className="rounded-xl shadow-sm mb-3 max-h-[380px] overflow-hidden"
             />
 
@@ -186,7 +186,7 @@ export function ProductDetailPage({
           </div>
 
           {/* Product Info */}
-          <div className="bg-white rounded-xl shadow-sm p-5 flex flex-col justify-between">
+          <div className="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
             <div>
               <div className="flex justify-between items-start mb-2">
                 <h1 className="text-xl font-bold text-gray-900 leading-tight">{product.name}</h1>
