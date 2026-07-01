@@ -253,9 +253,9 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
             <p className="text-gray-600 text-base mt-3">Los favoritos de nuestras clientas</p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {bestSellers.slice(0, 10).map((product) => (
-              <div key={product.id} className="bg-white rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group flex flex-col">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {bestSellers.slice(0, 12).map((product) => (
+              <div key={product.id} className="bg-white rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group flex flex-col h-full">
                 {/* Product Image */}
                 <div
                   className="aspect-[4/5] overflow-hidden cursor-pointer bg-gray-100 relative"

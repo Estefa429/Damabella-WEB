@@ -374,7 +374,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
 
         {/* Products Grid */}
         {filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 lg:gap-6">
             {filteredProducts.map((product) => (
               <article
                 key={product.id}
@@ -420,7 +420,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                     <div className="min-w-0">
                       <p className="text-[11px] uppercase tracking-[0.28em] text-gray-500 mb-1">Damabella</p>
                       <h3
-                        className="font-serif text-[22px] text-gray-950 leading-none cursor-pointer hover:text-gray-700 transition-colors line-clamp-2"
+                        className="font-serif text-lg text-gray-950 leading-none cursor-pointer hover:text-gray-700 transition-colors line-clamp-2"
                         onClick={() => onNavigate('detail', product.id)}
                       >
                         {product.name}
@@ -434,7 +434,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                       <p className="text-[9px] text-gray-400 leading-none mt-1">IVA incluido</p>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-700 leading-relaxed line-clamp-3 mb-4 min-h-[3rem]">
+                  <p className="text-xs text-gray-700 leading-relaxed line-clamp-2 mb-4 min-h-[2.5rem]">
                     {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante y cómodo.'}
                   </p>
                   {product.variants.some((variant) => variant.colorHex) && (

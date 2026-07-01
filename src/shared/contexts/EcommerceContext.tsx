@@ -306,7 +306,7 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
                 id: productId.toString(),
                 name: p.name || 'Producto sin nombre',
                 description: p.description || '',
-                price: p.price || 0,
+                price: Number(p.price) || 0,
                 image: resolveImage(mainPhoto),
                 category: p.category_name || 'Sin categoría',
                 featured: false,
