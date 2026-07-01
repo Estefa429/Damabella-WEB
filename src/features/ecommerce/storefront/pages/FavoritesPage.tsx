@@ -144,17 +144,17 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
                     ))}
                   </div>
                   {/* Action Buttons */}
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2">
                     <button
                       onClick={() => handleAddToCart(product)}
-                      className="flex-grow bg-gray-900 text-white py-2.5 rounded-full hover:bg-gray-800 transition-colors flex items-center justify-center gap-1.5 font-semibold text-xs cursor-pointer font-sans"
+                      className="w-full bg-gray-900 text-white py-2.5 rounded-full hover:bg-gray-800 transition-colors flex items-center justify-center gap-1.5 font-bold text-xs cursor-pointer font-sans"
                     >
                       <ShoppingCart size={14} />
                       Agregar
                     </button>
                     <button
                       onClick={() => onNavigate('detail', product.id)}
-                      className="flex-grow border border-pink-400 text-pink-500 py-2.5 rounded-full hover:bg-pink-50 hover:text-pink-600 transition-colors font-semibold text-xs cursor-pointer flex items-center justify-center text-center font-sans"
+                      className="w-full bg-[#ec4899] text-white py-2.5 rounded-full hover:bg-[#db2777] transition-colors font-bold text-xs cursor-pointer flex items-center justify-center text-center font-sans"
                     >
                       Ver más
                     </button>
