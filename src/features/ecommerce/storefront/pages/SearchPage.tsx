@@ -219,7 +219,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
     <div className="min-h-screen bg-gray-50">
       <PremiumNavbar onNavigate={onNavigate} isAuthenticated={isAuthenticated} currentUser={currentUser} />
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="store-container py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl text-gray-900 mb-2">
@@ -375,7 +375,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
 
         {/* Products Grid */}
         {filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+          <div className="product-grid">
             {filteredProducts.map((product) => (
               <article
                 key={product.id}
@@ -417,25 +417,25 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                     />
                   </button>
                 </ProductImage>
-                <div className="p-2.5 flex flex-col flex-grow">
-                  <p className="text-[9px] font-medium text-gray-500 mb-0.5 uppercase tracking-wider">DAMABELLA</p>
-                  <h4 className="text-xs font-semibold text-gray-900 line-clamp-1 mb-0.5">
+                <div className="p-4 flex flex-col flex-grow">
+                  <p className="text-xs font-medium text-gray-500 mb-1 uppercase tracking-wider">DAMABELLA</p>
+                  <h4 className="text-sm font-semibold text-gray-900 line-clamp-2 mb-2 leading-tight min-h-[2.5rem]">
                     {product.name}
                   </h4>
-                  <p className="text-[10px] text-gray-400 leading-tight line-clamp-1 mb-1.5 min-h-[0.875rem]">
-                    {product.description || 'Prenda confeccionada con materiales seleccionados.'}
+                  <p className="text-xs text-gray-600 leading-relaxed line-clamp-2 mb-3 min-h-[2.5rem]">
+                    {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante y cómodo.'}
                   </p>
-                  <p className="text-sm font-bold text-gray-950 mb-2">
+                  <p className="text-base font-bold text-gray-950 mb-3">
                     ${product.price.toLocaleString()}
                   </p>
                   
                   {/* Colors */}
-                  <div className="flex items-center gap-1.5 mb-2.5 min-h-4">
+                  <div className="flex items-center gap-1.5 mb-4 min-h-6">
                     {Array.from(new Set(product.variants.map((variant) => variant.colorHex))).slice(0, 5).map((colorHex, index) => (
                       <span
                         key={`${product.id}-${colorHex}-${index}`}
-                        className="h-3.5 w-3.5 rounded-full border border-gray-200 shadow-sm"
-                        style={{ backgroundColor: colorHex, width: 14, height: 14 }}
+                        className="h-5 w-5 rounded-full border border-gray-300 shadow-sm"
+                        style={{ backgroundColor: colorHex }}
                       />
                     ))}
                   </div>
@@ -443,7 +443,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                   {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="mt-auto w-full bg-[#ec4899] text-white py-1.5 font-bold text-[10px] uppercase tracking-wider hover:bg-[#db2777] transition-colors rounded cursor-pointer"
+                    className="mt-auto w-full bg-[#ec4899] text-white py-2.5 font-semibold text-sm hover:bg-[#db2777] transition-colors rounded cursor-pointer"
                   >
                     COMPRAR
                   </button>
