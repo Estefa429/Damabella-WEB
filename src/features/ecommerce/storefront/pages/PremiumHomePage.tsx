@@ -318,7 +318,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                   {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="mt-auto w-full bg-amber-700 text-white py-2 font-semibold text-xs hover:bg-amber-800 transition-colors rounded cursor-pointer uppercase tracking-wider"
+                    className="mt-auto w-full bg-gray-900 text-white py-2 font-semibold text-xs hover:bg-gray-800 transition-colors rounded cursor-pointer uppercase tracking-wider"
                   >
                     COMPRAR
                   </button>

@@ -350,7 +350,8 @@ export default function AppLayout() {
                     {filteredPages.map(page => (
                       <button
                         key={page.id}
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          e.preventDefault();
                           setModuleSearchTerm('');
                           setCurrentPage(page.id);
                           setSearchTerm('');
@@ -372,7 +373,8 @@ export default function AppLayout() {
                     {matchingOrders.map(order => (
                       <button
                         key={order.id_order}
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          e.preventDefault();
                           setModuleSearchTerm(order.number_order);
                           setCurrentPage('pedidos');
                           setSearchTerm('');
@@ -397,7 +399,8 @@ export default function AppLayout() {
                     {matchingPurchases.map(purchase => (
                       <button
                         key={purchase.id_purchase}
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          e.preventDefault();
                           setModuleSearchTerm(purchase.purchase_number);
                           setCurrentPage('compras');
                           setSearchTerm('');
