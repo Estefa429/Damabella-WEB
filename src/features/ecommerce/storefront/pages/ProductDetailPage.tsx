@@ -144,15 +144,15 @@ export function ProductDetailPage({
         </div>
 
         {/* Product Detail */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
           {/* Images */}
-          <div>
+          <div className="lg:col-span-5">
             {/* Imagen principal */}
             <ProductImage
               src={product.photos[selectedImage]?.image || product.image}
               alt={product.name}
-              aspectRatio="aspect-[4/3]"
-              className="rounded-xl shadow-sm mb-3 max-h-[380px] overflow-hidden"
+              aspectRatio="aspect-[3/4]"
+              className="rounded-xl shadow-sm mb-3 max-h-[460px] overflow-hidden"
             />
 
             {/* Miniaturas */}
@@ -162,7 +162,7 @@ export function ProductDetailPage({
                   <button
                     key={photo.id}
                     onClick={() => setSelectedImage(index)}
-                    className={`flex-shrink-0 w-14 h-16 rounded-md overflow-hidden border-2 transition-all ${
+                    className={`flex-shrink-0 w-12 h-16 rounded-md overflow-hidden border-2 transition-all ${
                       index === selectedImage
                         ? 'border-pink-500 shadow-sm'
                         : 'border-gray-200 hover:border-gray-400'
@@ -186,7 +186,7 @@ export function ProductDetailPage({
           </div>
 
           {/* Product Info */}
-          <div className="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+          <div className="lg:col-span-7 bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
             <div>
               <div className="flex justify-between items-start mb-2">
                 <h1 className="text-xl font-bold text-gray-900 leading-tight">{product.name}</h1>
@@ -245,13 +245,13 @@ export function ProductDetailPage({
             </div>
 
             {/* Description */}
-            <div className="mb-4 pb-4 border-b border-gray-200">
+            <div className="mb-3 pb-3 border-b border-gray-200">
               <p className="text-xs text-gray-700 leading-relaxed">{product.description}</p>
             </div>
 
             {/* Color Selection */}
-            <div className="mb-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+            <div className="mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
                 Color: <span className="font-normal text-gray-700 normal-case">{selectedColor}</span>
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -263,12 +263,12 @@ export function ProductDetailPage({
                       const firstAvailable = variant.sizes.find(s => s.stock > 0);
                       setSelectedSize(firstAvailable?.size || '');
                     }}
-                    className={`w-7 h-7 rounded-full border-2 transition-all ${
+                    className={`rounded-full border-2 flex-shrink-0 transition-all ${
                       selectedColor === variant.color
                         ? 'border-pink-400 ring-2 ring-pink-200 scale-105'
                         : 'border-gray-300 hover:border-gray-400'
                     }`}
-                    style={{ backgroundColor: variant.colorHex }}
+                    style={{ backgroundColor: variant.colorHex, width: '32px', height: '32px' }}
                     title={variant.colorName}
                   />
                 ))}
@@ -276,8 +276,8 @@ export function ProductDetailPage({
             </div>
 
             {/* Size Selection */}
-            <div className="mb-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+            <div className="mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
                 Talla: <span className="font-normal text-gray-700 normal-case">{selectedSize || 'Seleccionar'}</span>
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -306,8 +306,8 @@ export function ProductDetailPage({
             </div>
 
             {/* Quantity */}
-            <div className="mb-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+            <div className="mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
                 {currentStock > 0 ? `Cantidad (Stock: ${currentStock})` : 'Cantidad (Sin stock)'}
               </h3>
               <div className="flex items-center gap-4">
@@ -348,7 +348,7 @@ export function ProductDetailPage({
             <button
               onClick={handleAddToCart}
               disabled={currentStock === 0 || !selectedColor || !selectedSize}
-              className="w-full bg-gradient-to-r from-pink-400 to-purple-400 text-white py-2.5 rounded-full hover:from-pink-500 hover:to-purple-500 transition-all font-bold text-xs shadow-md flex items-center justify-center gap-1.5 mb-4 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-pink-400 to-purple-400 text-white py-2.5 rounded-full hover:from-pink-500 hover:to-purple-500 transition-all font-bold text-xs shadow-md flex items-center justify-center gap-1.5 mb-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ShoppingCart size={16} />
               {currentStock === 0 ? 'Sin stock' : 'Agregar al Carrito'}

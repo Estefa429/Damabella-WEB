@@ -130,8 +130,8 @@ export const useProductDetail = (productId: string) => {
 
         // Agrupar variantes por color
         const variantsByColor = data.variants.reduce((acc, variant: any) => {
-          const colorKey = String(variant.color_name || variant.colorName || variant.color?.name || variant.color || 'Negro');
-          const sizeName = String(variant.size_name || variant.sizeName || variant.size?.name || variant.size || 'U');
+          const colorKey = String(variant.color_name || variant.colorName || variant.color?.name || variant.color || 'Negro').trim();
+          const sizeName = String(variant.size_name || variant.sizeName || variant.size?.name || variant.size || 'U').trim();
           const rawStock = variant.stock ?? variant.quantity ?? variant.cantidad ?? 0;
           const stock = Number.isFinite(Number(rawStock)) ? Number(rawStock) : 0;
           
