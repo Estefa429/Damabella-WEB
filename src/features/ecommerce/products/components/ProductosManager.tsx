@@ -606,9 +606,15 @@ export default function ProductosManager() {
       showToast('Producto creado exitosamente', 'success');
     }
 
-    // 2. Guardar imagen en localStorage si existe
-    if (imageBase64 && result) {
-      localStorage.setItem(`product_image_${result.id_product}`, imageBase64);
+    // 2. Guardar imagen en la base de datos y localStorage
+    if (result) {
+      if (addImage) {
+        console.log('📸 handleSaveAdd - Subiendo imagen principal al servidor...');
+        await createPhotos(result.id_product, addImage);
+      }
+      if (imageBase64) {
+        localStorage.setItem(`product_image_${result.id_product}`, imageBase64);
+      }
     }
 
     // 3. Cargar fotos si existen
