@@ -261,32 +261,26 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
       try {
         console.log('[EcommerceContext] 🔄 Iniciando carga de datos...');
         
-        // Cargar categorías
         try {
-          const categoriesData = await getAllCategories();
-          if (categoriesData) {
-            const mapped = categoriesData.map((c: any) => ({ 
-              id: c.id_category ?? c.name, 
-              name: c.name 
-            }));
-            setCategories(mapped);
-            console.log('[EcommerceContext] ✅ Categorías cargadas:', mapped.length);
-          } else {
-            setCategories([]);
-          }
-        } catch (error) {
-          console.error('[EcommerceContext] ❌ Error en categorías:', error);
-          setCategories([]);
-        }
-
-        // Cargar productos
-        try {
-          const [productsData, photosData, variantsData, inventoryData] = await Promise.all([
+          const [categoriesData, productsData, photosData, variantsData, inventoryData] = await Promise.all([
+            getAllCategories(),
             getAllProducts(),
             getPhotos(),
             getAllVariants(),
             getAllInventory(),
           ]);
+
+          // Procesar categorías primero
+          let resolvedCategories: any[] = [];
+          if (categoriesData) {
+            const activeCategoriesData = categoriesData.filter((c: any) => c && c.is_active === true);
+            resolvedCategories = activeCategoriesData.map((c: any) => ({ 
+              id: c.id_category ?? c.name, 
+              name: c.name 
+            }));
+          }
+
+          // Procesar productos
           if (productsData && Array.isArray(productsData)) {
             // Solo mostrar productos activos
             const activeProducts = productsData.filter((p: any) => p && (p.is_active === true || p.is_active === 1));
@@ -324,17 +318,27 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
 
             setProducts(resolvedProducts);
             console.log('[EcommerceContext] ✅ Productos cargados:', resolvedProducts.length);
+
+            // Filtrar las categorías para que solo queden las que tienen productos activos asociados
+            const categoriesWithProducts = resolvedCategories.filter((cat) =>
+              resolvedProducts.some((p) => p.category === cat.name)
+            );
+            setCategories(categoriesWithProducts);
+            console.log('[EcommerceContext] ✅ Categorías cargadas y filtradas:', categoriesWithProducts.length);
           } else {
             console.warn('[EcommerceContext] ⚠️ Usando productos de ejemplo');
             setProducts(convertSampleProducts());
+            setCategories(resolvedCategories);
           }
         } catch (error) {
-          console.error('[EcommerceContext] ❌ Error en productos:', error);
+          console.error('[EcommerceContext] ❌ Error en carga de API:', error);
           setProducts(convertSampleProducts());
+          setCategories([]);
         }
       } catch (error) {
         console.error('[EcommerceContext] ❌ Error general:', error);
         setProducts(convertSampleProducts());
+        setCategories([]);
       }
     };
 
