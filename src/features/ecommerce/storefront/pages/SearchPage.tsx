@@ -384,7 +384,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                 <ProductImage
                   src={product.image}
                   alt={product.name}
-                  aspectRatio="aspect-[5/6]"
+                  aspectRatio="aspect-product-custom"
                   onClick={() => onNavigate('detail', product.id)}
                 >
                   <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
@@ -418,24 +418,24 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                   </button>
                 </ProductImage>
                 <div className="p-4 flex flex-col flex-grow">
-                  <p className="text-xs font-medium text-gray-500 mb-1 uppercase tracking-wider">DAMABELLA</p>
-                  <h4 className="text-sm font-semibold text-gray-900 line-clamp-2 mb-2 leading-tight min-h-[2.5rem]">
+                  <p className="text-[10px] font-medium text-gray-500 mb-0.5 uppercase tracking-wider">DAMABELLA</p>
+                  <h4 className="text-sm font-semibold text-gray-900 line-clamp-1 mb-1.5 leading-tight min-h-[1.25rem]">
                     {product.name}
                   </h4>
-                  <p className="text-xs text-gray-600 leading-relaxed line-clamp-2 mb-3 min-h-[2.5rem]">
-                    {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante y cómodo.'}
+                  <p className="text-xs text-gray-600 leading-normal line-clamp-2 mb-2.5 min-h-[2.25rem]">
+                    {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante.'}
                   </p>
-                  <p className="text-base font-bold text-gray-950 mb-3">
+                  <p className="text-base font-bold text-gray-950 mb-2">
                     ${product.price.toLocaleString()}
                   </p>
                   
                   {/* Colors */}
-                  <div className="flex items-center gap-1.5 mb-4 min-h-6">
+                  <div className="flex items-center gap-1.5 mb-3 min-h-5">
                     {Array.from(new Set(product.variants.map((variant) => variant.colorHex))).slice(0, 5).map((colorHex, index) => (
                       <span
                         key={`${product.id}-${colorHex}-${index}`}
-                        className="h-5 w-5 rounded-full border border-gray-300 shadow-sm"
-                        style={{ backgroundColor: colorHex }}
+                        className="h-4 w-4 rounded-full border border-gray-300 shadow-sm"
+                        style={{ backgroundColor: colorHex, width: 16, height: 16 }}
                       />
                     ))}
                   </div>
@@ -443,7 +443,7 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                   {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="mt-auto w-full bg-[#ec4899] text-white py-2.5 font-semibold text-sm hover:bg-[#db2777] transition-colors rounded cursor-pointer"
+                    className="mt-auto w-full bg-[#ec4899] text-white py-2 font-semibold text-xs hover:bg-[#db2777] transition-colors rounded cursor-pointer uppercase tracking-wider"
                   >
                     COMPRAR
                   </button>

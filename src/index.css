@@ -3395,4 +3395,8 @@ html {
   }
 }
 
+.aspect-product-custom {
+  aspect-ratio: 1 / 1.08;
+}
+
 
