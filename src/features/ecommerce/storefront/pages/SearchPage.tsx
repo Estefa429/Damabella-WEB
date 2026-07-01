@@ -417,72 +417,35 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                     />
                   </button>
                 </ProductImage>
-                <div className="p-4 flex flex-col flex-grow">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="min-w-0">
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-gray-500 mb-1">Damabella</p>
-                      <h3
-                        className="font-serif text-lg text-gray-950 leading-none cursor-pointer hover:text-gray-700 transition-colors line-clamp-2"
-                        onClick={() => onNavigate('detail', product.id)}
-                      >
-                        {product.name}
-                      </h3>
-                    </div>
-                    <div className="text-right shrink-0 pt-6">
-                      <p className="text-[11px] leading-none" style={{ color: '#ec4899' }}>$</p>
-                      <p className="text-sm font-semibold leading-tight" style={{ color: '#ec4899' }}>
-                        {product.price.toLocaleString()}
-                      </p>
-                      <p className="text-[9px] text-gray-400 leading-none mt-1">IVA incluido</p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-700 leading-relaxed line-clamp-2 mb-4 min-h-[2.5rem]">
-                    {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante y cómodo.'}
+                <div className="p-4 flex flex-col flex-1">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-gray-500 mb-1">Damabella</p>
+                  <h3
+                    className="font-serif text-base text-gray-950 leading-tight cursor-pointer hover:text-gray-700 transition-colors line-clamp-2 mb-2"
+                    onClick={() => onNavigate('detail', product.id)}
+                  >
+                    {product.name}
+                  </h3>
+                  <p className="text-lg font-bold text-gray-900 mb-3">
+                    ${product.price.toLocaleString()}
                   </p>
-                  {product.variants.some((variant) => variant.colorHex) && (
-                    <div className="mb-4 min-h-7" aria-label="Seleccionar color">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 mb-2">Colores:</p>
-                      <div className="flex items-center gap-2">
-                        {product.variants
-                          .filter((variant) => variant.colorHex)
-                          .filter((variant, index, array) => array.findIndex((item) => item.colorHex === variant.colorHex) === index)
-                          .slice(0, 5)
-                          .map((variant, idx) => (
-                            <span
-                              key={`${product.id}-${variant.colorHex}-${idx}`}
-                              className="border shadow-sm"
-                              style={{
-                                backgroundColor: variant.colorHex,
-                                width: 28,
-                                height: 28,
-                                minWidth: 28,
-                                minHeight: 28,
-                                display: 'inline-block',
-                                borderRadius: 9999,
-                                border: '2px solid #111827',
-                                boxSizing: 'border-box',
-                              }}
-                              title={variant.color ? `Color: ${variant.color}` : 'Color disponible'}
-                            />
-                          ))}
-                      </div>
-                    </div>
-                  )}
+                  
+                  {/* Colors */}
+                  <div className="flex items-center gap-1.5 mb-4 min-h-6">
+                    {Array.from(new Set(product.variants.map((variant) => variant.colorHex))).slice(0, 5).map((colorHex, index) => (
+                      <span
+                        key={`${product.id}-${colorHex}-${index}`}
+                        className="h-5 w-5 rounded-full border border-gray-300 shadow-sm"
+                        style={{ backgroundColor: colorHex }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="w-full py-3 rounded-md transition-colors active:scale-[0.99] shadow-md flex items-center justify-center gap-2 mt-auto"
-                    style={{ backgroundColor: '#ec4899', color: '#ffffff' }}
-                    onMouseEnter={(event) => {
-                      event.currentTarget.style.backgroundColor = '#db2777';
-                    }}
-                    onMouseLeave={(event) => {
-                      event.currentTarget.style.backgroundColor = '#ec4899';
-                    }}
+                    className="mt-auto w-full bg-[#ec4899] text-white py-2.5 font-semibold text-sm hover:bg-[#db2777] transition-colors rounded cursor-pointer"
                   >
-                    <CartIcon size={17} strokeWidth={2.4} className="text-white" />
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-white">
-                      Agregar al carrito
-                    </span>
+                    COMPRAR
                   </button>
                 </div>
               </article>
