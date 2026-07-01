@@ -190,7 +190,7 @@ export function ProductDetailPage({
           </div>
 
           {/* Product Info */}
-          <div className="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between">
+          <div className="bg-white rounded-xl shadow-sm p-6 flex flex-col justify-start gap-4 h-fit self-start">
             <div>
               <div className="flex justify-between items-start mb-2">
                 <h1 className="text-xl font-bold text-gray-900 leading-tight">{product.name}</h1>
@@ -249,12 +249,12 @@ export function ProductDetailPage({
             </div>
 
             {/* Description */}
-            <div className="mb-3 pb-3 border-b border-gray-200">
+            <div className="pb-3 border-b border-gray-200">
               <p className="text-xs text-gray-700 leading-relaxed">{product.description}</p>
             </div>
 
             {/* Color Selection */}
-            <div className="mb-3">
+            <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
                 Color: <span className="font-normal text-gray-700 normal-case">{selectedColor}</span>
               </h3>
@@ -280,7 +280,7 @@ export function ProductDetailPage({
             </div>
 
             {/* Size Selection */}
-            <div className="mb-3">
+            <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
                 Talla: <span className="font-normal text-gray-700 normal-case">{selectedSize || 'Seleccionar'}</span>
               </h3>
@@ -310,7 +310,7 @@ export function ProductDetailPage({
             </div>
 
             {/* Quantity */}
-            <div className="mb-3">
+            <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
                 {currentStock > 0 ? `Cantidad (Stock: ${currentStock})` : 'Cantidad (Sin stock)'}
               </h3>
@@ -352,7 +352,7 @@ export function ProductDetailPage({
             <button
               onClick={handleAddToCart}
               disabled={currentStock === 0 || !selectedColor || !selectedSize}
-              className="w-full bg-gradient-to-r from-pink-400 to-purple-400 text-white py-2.5 rounded-full hover:from-pink-500 hover:to-purple-500 transition-all font-bold text-xs shadow-md flex items-center justify-center gap-1.5 mb-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-pink-400 to-purple-400 text-white py-2.5 rounded-full hover:from-pink-500 hover:to-purple-500 transition-all font-bold text-xs shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ShoppingCart size={16} />
               {currentStock === 0 ? 'Sin stock' : 'Agregar al Carrito'}
