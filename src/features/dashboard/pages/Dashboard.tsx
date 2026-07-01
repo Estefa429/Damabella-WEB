@@ -132,7 +132,7 @@ export function Dashboard() {
           {/* Tarjetas de estadísticas */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatsCard
-              title="Ventas del Mes"
+              title="Ventas (Últimos 30 días)"
               value={formatCOP(summary.dineroVentasMes)}
               icon={DollarSign}
               growth={0}
@@ -144,7 +144,7 @@ export function Dashboard() {
               growth={0}
             />
             <StatsCard
-              title="Cantidad de Ventas"
+              title="Cantidad de Ventas (Últimos 30 días)"
               value={summary.ventasMes.toString()}
               icon={ShoppingCart}
               growth={0}
@@ -216,11 +216,11 @@ export function Dashboard() {
               <h3 className="text-lg font-semibold mb-4">Resumen del Periodo</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">Dinero en ventas</span>
+                  <span className="text-gray-600">Dinero en ventas (Últimos 30 días)</span>
                   <span className="font-semibold">{formatCOP(summary.dineroVentasMes)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">Cantidad de ventas</span>
+                  <span className="text-gray-600">Cantidad de ventas (Últimos 30 días)</span>
                   <span className="font-semibold">{summary.ventasMes}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">

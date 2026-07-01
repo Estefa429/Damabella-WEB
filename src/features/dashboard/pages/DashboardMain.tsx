@@ -110,7 +110,7 @@ export default function DashboardMain() {
     {
       title: 'Dinero en Ventas',
       value: `$${summary.dineroVentasMes.toLocaleString()}`,
-      subtext: `(${getNombreMesActual()})`,
+      subtext: `(Últimos 30 días)`,
       change: '',
       trend: 'up',
       icon: DollarSign,
