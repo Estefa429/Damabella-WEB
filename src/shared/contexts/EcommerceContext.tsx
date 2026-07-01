@@ -319,12 +319,8 @@ export function EcommerceProvider({ children }: { children: ReactNode }) {
             setProducts(resolvedProducts);
             console.log('[EcommerceContext] ✅ Productos cargados:', resolvedProducts.length);
 
-            // Filtrar las categorías para que solo queden las que tienen productos activos asociados
-            const categoriesWithProducts = resolvedCategories.filter((cat) =>
-              resolvedProducts.some((p) => p.category === cat.name)
-            );
-            setCategories(categoriesWithProducts);
-            console.log('[EcommerceContext] ✅ Categorías cargadas y filtradas:', categoriesWithProducts.length);
+            setCategories(resolvedCategories);
+            console.log('[EcommerceContext] ✅ Categorías cargadas (filtradas solo por activas):', resolvedCategories.length);
           } else {
             console.warn('[EcommerceContext] ⚠️ Usando productos de ejemplo');
             setProducts(convertSampleProducts());
