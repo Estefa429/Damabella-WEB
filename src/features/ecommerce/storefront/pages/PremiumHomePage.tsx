@@ -261,7 +261,7 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                 <ProductImage
                   src={product.image}
                   alt={product.name}
-                  aspectRatio="4/5"
+                  aspectRatio="aspect-[5/6]"
                   onClick={() => onNavigate('detail', product.id)}
                 >
                   {/* Badge */}
@@ -295,29 +295,30 @@ export function PremiumHomePage({ onNavigate, isAuthenticated, currentUser }: Pr
                 </ProductImage>
 
                 {/* Product Info */}
-                <div className="p-4 flex flex-col flex-1">
-                  <p className="text-xs font-medium text-gray-600 mb-1 uppercase">DAMABELLA</p>
-                  <p className="text-sm font-semibold text-gray-900 line-clamp-2 mb-2">
+                <div className="p-3 flex flex-col flex-grow">
+                  <p className="text-[10px] font-medium text-gray-600 mb-0.5 uppercase">DAMABELLA</p>
+                  <h4 className="text-sm font-semibold text-gray-900 line-clamp-1 mb-1">
                     {product.name}
+                  </h4>
+                  <p className="text-[11px] text-gray-500 leading-tight line-clamp-2 mb-1.5 min-h-[2rem]">
+                    {product.description || 'Prenda confeccionada con materiales seleccionados para un look elegante y cómodo.'}
                   </p>
-                  <p className="text-lg font-bold text-gray-900 mb-3">
+                  <p className="text-base font-bold text-gray-900 mb-2">
                     ${product.price.toLocaleString()}
                   </p>
-
-                  <div className="flex items-center gap-1.5 mb-4 min-h-6">
+                  <div className="flex items-center gap-1.5 mb-3 min-h-5">
                     {Array.from(new Set(product.variants.map((variant) => variant.colorHex))).slice(0, 5).map((colorHex, index) => (
                       <span
                         key={`${product.id}-${colorHex}-${index}`}
-                        className="h-5 w-5 rounded-full border border-gray-300 shadow-sm"
-                        style={{ backgroundColor: colorHex }}
+                        className="h-4.5 w-4.5 rounded-full border border-gray-300 shadow-sm"
+                        style={{ backgroundColor: colorHex, width: 18, height: 18 }}
                       />
                     ))}
                   </div>
-
                   {/* Buy Button */}
                   <button
                     onClick={() => handleAddToCart(product)}
-                    className="mt-auto w-full bg-amber-700 text-white py-2.5 font-semibold text-sm hover:bg-amber-800 transition-colors rounded cursor-pointer"
+                    className="mt-auto w-full bg-amber-700 text-white py-2 font-semibold text-xs hover:bg-amber-800 transition-colors rounded cursor-pointer"
                   >
                     COMPRAR
                   </button>
