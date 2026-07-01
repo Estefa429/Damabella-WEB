@@ -35,7 +35,7 @@ function resolveImage(src: string): string {
     return `${API_MEDIA_ORIGIN}/${trimmed.replace(/^\/+/, '')}`;
   }
   const name = trimmed.split('/').pop() || trimmed;
-  return imageMap[name] || `${API_MEDIA_ORIGIN}/${trimmed.replace(/^\/+/, '')}`;
+  return imageMap[name] || `${API_MEDIA_ORIGIN}/media/${trimmed.replace(/^\/+/, '')}`;
 }
 
 function getStoreColorHex(color: string): string {

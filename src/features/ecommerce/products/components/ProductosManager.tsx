@@ -181,7 +181,11 @@ export default function ProductosManager() {
       if (/^https?:\/\//i.test(raw)) return raw;
       const base = (API.defaults.baseURL as string) || '';
       const origin = base.replace(/\/api\/?$/i, '').replace(/\/$/, '');
-      return `${origin}/${String(raw).replace(/^\/+/, '')}`;
+      let cleanPath = String(raw).replace(/^\/+/, '');
+      if (!cleanPath.startsWith('media/')) {
+        cleanPath = `media/${cleanPath}`;
+      }
+      return `${origin}/${cleanPath}`;
     } catch {
       return String(raw);
     }
@@ -304,14 +308,9 @@ export default function ProductosManager() {
 
             const imageRaw = (detail && (detail.image ?? p.image)) || p.image;
 
-            // Si el backend solo devuelve una ruta relativa (ej: 'products/photos/xxx.jpg')
-            // evitamos construir una URL que provoque una petición directa al archivo estático.
-            // En ese caso, dejamos la imagen vacía y mostramos placeholder hasta que
-            // el backend proporcione un campo que permita descargar la imagen vía API.
-            if (typeof imageRaw === 'string' && (/^https?:\/\//i.test(imageRaw) || imageRaw.startsWith('data:'))) {
+            if (typeof imageRaw === 'string') {
               return { ...p, image: buildPhotoUrl(imageRaw) } as Photo;
             } else {
-              console.warn(`[loadProductPhotos] image for photo id ${p.id} is a relative path; skipping direct URL to avoid 404`, imageRaw);
               return { ...p, image: '' } as Photo;
             }
           } catch (err) {
