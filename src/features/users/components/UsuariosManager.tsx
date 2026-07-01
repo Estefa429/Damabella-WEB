@@ -74,9 +74,9 @@ export default function UsuariosManager() {
   const filtered = users.filter(u => {
     const q = searchTerm.toLowerCase();
     return (
-      u.name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.doc_identity.includes(q) ||
+      (u.name ?? '').toLowerCase().includes(q) ||
+      (u.email ?? '').toLowerCase().includes(q) ||
+      (u.doc_identity ?? '').toLowerCase().includes(q) ||
       (u.role_name ?? '').toLowerCase().includes(q)
     );
   });

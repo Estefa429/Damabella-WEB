@@ -106,13 +106,8 @@ export function ProveedoresManager({ onlyModal = false, openOnMount = false, onC
 
     const timer = setTimeout(async () => {
       setLoading(true);
-      const results = await searchProviders({ name: searchTerm });
-      if (results && results.length > 0) {
-        setProveedores(results);
-      } else {
-        const byDoc = await searchProviders({ number_doc: searchTerm });
-        setProveedores(byDoc ?? []);
-      }
+      const results = await searchProviders({ search: searchTerm });
+      setProveedores(results ?? []);
       setLoading(false);
     }, 400);
 

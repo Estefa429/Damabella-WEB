@@ -124,13 +124,8 @@ export default function ClientesManager() {
 
     searchDebounceRef.current = setTimeout(async () => {
       setSearchLoading(true);
-      const results = await searchClients({ name: query });
-      if (results && results.length > 0) {
-        setClientes(results);
-      } else {
-        const byDoc = await searchClients({ doc: query });
-        setClientes(byDoc ?? []);
-      }
+      const results = await searchClients({ search: query });
+      setClientes(results ?? []);
       setSearchLoading(false);
     }, 350);
   };

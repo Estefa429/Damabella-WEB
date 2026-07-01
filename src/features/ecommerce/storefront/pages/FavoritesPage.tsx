@@ -143,13 +143,22 @@ export function FavoritesPage({ onNavigate, isAuthenticated = false, currentUser
                       />
                     ))}
                   </div>
-                  <button
-                    onClick={() => handleAddToCart(product)}
-                    className="w-full bg-gray-900 text-white py-3 rounded-full hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <ShoppingCart size={18} />
-                    Agregar
-                  </button>
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleAddToCart(product)}
+                      className="flex-1 bg-gray-900 text-white py-2.5 rounded-full hover:bg-gray-800 transition-colors flex items-center justify-center gap-1.5 font-semibold text-xs cursor-pointer"
+                    >
+                      <ShoppingCart size={14} />
+                      Agregar
+                    </button>
+                    <button
+                      onClick={() => onNavigate('detail', product.id)}
+                      className="flex-1 border border-gray-900 text-gray-900 py-2.5 rounded-full hover:bg-gray-50 transition-colors font-semibold text-xs cursor-pointer text-center"
+                    >
+                      Ver más
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

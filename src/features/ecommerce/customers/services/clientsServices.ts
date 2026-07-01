@@ -112,7 +112,7 @@ export const updateClients = async(
         }
     }
 
-export const searchClients = async(query : Partial<Clients>): Promise<Clients[] | null> => {
+export const searchClients = async(query : { search: string } | Partial<Clients>): Promise<Clients[] | null> => {
     try{
         const response = await API.get('/clients/search_clients/',{
             params : query

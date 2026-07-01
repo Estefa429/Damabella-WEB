@@ -39,7 +39,7 @@ interface FormData {
   envio?:        number;
 }
 
-export function ComprasManager() {
+export function ComprasManager({ initialSearchTerm = '' }: { initialSearchTerm?: string }) {
   const { showToast } = useToast();
   const { hasPermission } = usePermissions();
 
@@ -56,7 +56,11 @@ export function ComprasManager() {
   const [loading,    setLoading]    = useState(true);
 
   // ─── UI State ────────────────────────────────────────────────────────────────
-  const [searchTerm,         setSearchTerm]         = useState('');
+  const [searchTerm,         setSearchTerm]         = useState(initialSearchTerm);
+
+  useEffect(() => {
+    setSearchTerm(initialSearchTerm);
+  }, [initialSearchTerm]);
   const [currentPage,        setCurrentPage]        = useState(1);
   const [showModal,          setShowModal]          = useState(false);
   const [showDetailModal,    setShowDetailModal]    = useState(false);

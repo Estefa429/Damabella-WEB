@@ -394,10 +394,14 @@ export function UsuariosPage() {
 
   // Filtrado de usuarios
   const filteredUsers = users.filter(user => {
+    const nameStr = user.nombre ?? user.name ?? '';
+    const docStr = user.document ?? user.numeroDoc ?? user.doc_identity ?? '';
+    const emailStr = user.email ?? '';
+
     const matchesSearch = 
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.document.includes(searchTerm) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase());
+      nameStr.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      docStr.includes(searchTerm) ||
+      emailStr.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesRole = filterRole === 'Todos' || user.role === filterRole;
     const matchesStatus = filterStatus === 'Todos' || user.status === filterStatus;

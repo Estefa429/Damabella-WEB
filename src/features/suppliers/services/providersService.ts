@@ -103,10 +103,10 @@ export const updateProviders = async (
 }
 
 export const searchProviders = async (
-    query: Partial<Providers>
+    query: { search: string } | Partial<Providers>
 ): Promise<Providers[] | null> => {
     try{
-        const response = await API.get('/providers/search_providers',{
+        const response = await API.get('/providers/search_providers/',{
             params: query
         })
         if (response.data.success === true) {

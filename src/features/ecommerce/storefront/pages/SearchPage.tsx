@@ -440,13 +440,21 @@ export function SearchPage({ onNavigate, initialCategory, isAuthenticated = fals
                     ))}
                   </div>
 
-                  {/* Buy Button */}
-                  <button
-                    onClick={() => handleAddToCart(product)}
-                    className="mt-auto w-full bg-[#ec4899] text-white py-2 font-semibold text-xs hover:bg-[#db2777] transition-colors rounded cursor-pointer uppercase tracking-wider"
-                  >
-                    COMPRAR
-                  </button>
+                  {/* Action Buttons */}
+                  <div className="mt-auto flex gap-2">
+                    <button
+                      onClick={() => handleAddToCart(product)}
+                      className="flex-grow bg-[#ec4899] text-white py-2 font-semibold text-xs hover:bg-[#db2777] transition-colors rounded cursor-pointer uppercase tracking-wider text-center"
+                    >
+                      COMPRAR
+                    </button>
+                    <button
+                      onClick={() => onNavigate('detail', product.id)}
+                      className="flex-grow border border-[#ec4899] text-[#ec4899] py-2 font-semibold text-xs hover:bg-pink-50 transition-colors rounded cursor-pointer uppercase tracking-wider text-center"
+                    >
+                      VER MÁS
+                    </button>
+                  </div>
                 </div>
               </article>
             ))}

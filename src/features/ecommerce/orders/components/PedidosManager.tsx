@@ -46,7 +46,7 @@ type PedidoLocal = ReturnType<typeof apiOrderToLocal>;
 type EstadoLocal = PedidoLocal['estado'];
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function PedidosManager() {
+export default function PedidosManager({ initialSearchTerm = '' }: { initialSearchTerm?: string }) {
   const { hasPermission } = usePermissions();
 
   // ── API ──────────────────────────────────────────────────────────────────
@@ -96,7 +96,11 @@ export default function PedidosManager() {
   const [confirmAction,       setConfirmAction]       = useState<(() => void) | null>(null);
 
   // ── Búsqueda ──────────────────────────────────────────────────────────────
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
+
+  useEffect(() => {
+    setSearchTerm(initialSearchTerm);
+  }, [initialSearchTerm]);
 
   // ── Dropdowns buscables ───────────────────────────────────────────────────
   const [clienteQuery,          setClienteQuery]          = useState('');
@@ -1123,14 +1127,19 @@ DAMABELLA - Moda Femenina
                       {clientesFiltradosSelect.length === 0
                         ? <div className="px-2 py-1.5 text-[10px] text-gray-500">No hay resultados</div>
                         : clientesFiltradosSelect.map((c: any) => (
-                          <button type="button" key={c.id} className="w-full text-left px-2 py-1 hover:bg-gray-50"
-                            onClick={() => {
+                          <button
+                            type="button"
+                            key={c.id}
+                            className="w-full text-left px-2 py-1 hover:bg-gray-50"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
                               handleFieldChange('clienteId', c.id.toString());
                               const label = `${c.nombre} - ${c.numeroDoc}`;
                               setClienteQuery(label);
                               setSelectedClienteNombre(label);
                               setShowClienteDropdown(false);
-                            }}>
+                            }}
+                          >
                             <div className="text-[10px] text-gray-900">{c.nombre}</div>
                             <div className="text-[10px] text-gray-500">{c.numeroDoc}{c.telefono ? ` • ${c.telefono}` : ''}</div>
                           </button>

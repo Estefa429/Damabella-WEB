@@ -36,6 +36,8 @@ import { ComprasManager } from '../../purchases';
 import { ClientesManager } from '../../ecommerce/customers';
 import ClienteDetallePage from '../../ecommerce/customers/pages/ClienteDetallePage';
 import { PedidosManager } from '../../ecommerce/orders';
+import { searchOrders } from '../../ecommerce/orders/services/OrderServices';
+import { searchPurchases } from '../../purchases/services/PurchasesService';
 import { VentasManager } from '../../ecommerce/sales';
 import { DevolucionesManager } from '../../returns';
 import { EditarPerfilPage } from '../../profile';
@@ -58,6 +60,38 @@ export default function AppLayout() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [clienteDetalleActual, setClienteDetalleActual] = useState<any>(null);
+  
+  // Búsqueda general de pedidos y compras
+  const [moduleSearchTerm, setModuleSearchTerm] = useState('');
+  const [matchingOrders, setMatchingOrders] = useState<any[]>([]);
+  const [matchingPurchases, setMatchingPurchases] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setMatchingOrders([]);
+      setMatchingPurchases([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const [ordersRes, purchasesRes] = await Promise.all([
+          searchOrders(searchTerm),
+          searchPurchases(searchTerm)
+        ]);
+        setMatchingOrders(ordersRes ?? []);
+        setMatchingPurchases(purchasesRes ?? []);
+      } catch (err) {
+        console.error('Error fetching search results:', err);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Asegurar que el sidebar esté siempre visible al cargar
   useEffect(() => {
@@ -248,13 +282,13 @@ export default function AppLayout() {
       case 'proveedores':
         return <ProveedoresManager />;
       case 'compras':
-        return <ComprasManager />;
+        return <ComprasManager initialSearchTerm={moduleSearchTerm} />;
       case 'clientes':
         return <ClientesManager />;
       case 'cliente-detalle':
         return <ClienteDetallePage clientId={clienteDetalleActual?.id_client} onBack={() => setCurrentPage('clientes')} />;
       case 'pedidos':
-        return <PedidosManager />;
+        return <PedidosManager initialSearchTerm={moduleSearchTerm} />;
       case 'ventas':
         return <VentasManager />;
       case 'devoluciones':
@@ -305,23 +339,84 @@ export default function AppLayout() {
             </div>
             {showSearchResults && (
               <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-96 overflow-y-auto">
-                {filteredPages.length > 0 ? (
-                  filteredPages.map(page => (
-                    <button
-                      key={page.id}
-                      onClick={() => {
-                        setCurrentPage(page.id);
-                        setSearchTerm('');
-                        setShowSearchResults(false);
-                      }}
-                      className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center justify-between transition-colors"
-                    >
-                      <span className="text-gray-900">{page.label}</span>
-                      <span className="text-gray-500 text-sm">{page.categoria}</span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-4 py-3 text-gray-500">No se encontraron resultados</div>
+                {searchLoading && (
+                  <div className="px-4 py-2 text-xs text-gray-400 bg-gray-50 animate-pulse">Buscando...</div>
+                )}
+
+                {/* Páginas Encontradas */}
+                {filteredPages.length > 0 && (
+                  <div className="border-b border-gray-100 pb-1">
+                    <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">Módulos</div>
+                    {filteredPages.map(page => (
+                      <button
+                        key={page.id}
+                        onClick={() => {
+                          setModuleSearchTerm('');
+                          setCurrentPage(page.id);
+                          setSearchTerm('');
+                          setShowSearchResults(false);
+                        }}
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center justify-between transition-colors"
+                      >
+                        <span className="text-gray-900 text-sm">{page.label}</span>
+                        <span className="text-gray-500 text-xs">{page.categoria}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Pedidos Encontrados */}
+                {matchingOrders.length > 0 && (
+                  <div className="border-b border-gray-100 pb-1">
+                    <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">Pedidos</div>
+                    {matchingOrders.map(order => (
+                      <button
+                        key={order.id_order}
+                        onClick={() => {
+                          setModuleSearchTerm(order.number_order);
+                          setCurrentPage('pedidos');
+                          setSearchTerm('');
+                          setShowSearchResults(false);
+                        }}
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center justify-between transition-colors"
+                      >
+                        <div>
+                          <p className="text-gray-900 text-sm font-medium">{order.number_order}</p>
+                          <p className="text-gray-500 text-xs">Cliente: {order.client_name ?? 'N/A'}</p>
+                        </div>
+                        <span className="text-gray-500 text-xs">Total: ${parseFloat(order.total || '0').toLocaleString('es-CO')}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Compras Encontradas */}
+                {matchingPurchases.length > 0 && (
+                  <div>
+                    <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">Compras</div>
+                    {matchingPurchases.map(purchase => (
+                      <button
+                        key={purchase.id_purchase}
+                        onClick={() => {
+                          setModuleSearchTerm(purchase.purchase_number);
+                          setCurrentPage('compras');
+                          setSearchTerm('');
+                          setShowSearchResults(false);
+                        }}
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center justify-between transition-colors"
+                      >
+                        <div>
+                          <p className="text-gray-900 text-sm font-medium">{purchase.purchase_number}</p>
+                          <p className="text-gray-500 text-xs">Proveedor: {purchase.provider_name ?? 'N/A'}</p>
+                        </div>
+                        <span className="text-gray-500 text-xs">Total: ${(purchase.total ?? 0).toLocaleString('es-CO')}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {filteredPages.length === 0 && matchingOrders.length === 0 && matchingPurchases.length === 0 && !searchLoading && (
+                  <div className="px-4 py-3 text-gray-500 text-sm">No se encontraron resultados</div>
                 )}
               </div>
             )}
@@ -405,7 +500,10 @@ export default function AppLayout() {
     <div key={menu.id} className="mb-2">
       {menu.page ? (
         <button
-          onClick={() => setCurrentPage(page)}
+          onClick={() => {
+            setModuleSearchTerm('');
+            setCurrentPage(page);
+          }}
           className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors text-gray-700 hover:text-gray-900"
         >
           <div className="flex items-center gap-3">
@@ -436,7 +534,10 @@ export default function AppLayout() {
           {submenu.map((item) => (
             <button
               key={item.id}
-              onClick={() => setCurrentPage(item.id)}
+              onClick={() => {
+                setModuleSearchTerm('');
+                setCurrentPage(item.id);
+              }}
               className={`w-full flex items-center gap-3 p-2 pl-8 rounded-lg transition-colors ${
                 currentPage === item.id
                   ? "bg-gray-100 text-gray-900"
